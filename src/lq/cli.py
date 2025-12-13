@@ -163,6 +163,119 @@ LQ_DIR = ".lq"
 LOGS_DIR = "logs"
 RAW_DIR = "raw"
 SCHEMA_FILE = "schema.sql"
+COMMANDS_FILE = "commands.yaml"
+
+
+# ============================================================================
+# Command Registry
+# ============================================================================
+
+@dataclass
+class RegisteredCommand:
+    """A registered command in the commands.yaml file."""
+    name: str
+    cmd: str
+    description: str = ""
+    timeout: int = 300
+    format: str = "auto"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "cmd": self.cmd,
+            "description": self.description,
+            "timeout": self.timeout,
+            "format": self.format,
+        }
+
+
+def load_commands(lq_dir: Path) -> dict[str, RegisteredCommand]:
+    """Load registered commands from commands.yaml."""
+    commands_path = lq_dir / COMMANDS_FILE
+    if not commands_path.exists():
+        return {}
+
+    try:
+        import yaml
+        with open(commands_path) as f:
+            data = yaml.safe_load(f) or {}
+    except ImportError:
+        # Fallback to basic YAML parsing if PyYAML not installed
+        data = _parse_simple_yaml(commands_path.read_text())
+
+    commands = {}
+    for name, config in data.get("commands", {}).items():
+        if isinstance(config, str):
+            # Simple format: name: "command"
+            commands[name] = RegisteredCommand(name=name, cmd=config)
+        else:
+            # Full format with options
+            commands[name] = RegisteredCommand(
+                name=name,
+                cmd=config.get("cmd", ""),
+                description=config.get("description", ""),
+                timeout=config.get("timeout", 300),
+                format=config.get("format", "auto"),
+            )
+    return commands
+
+
+def save_commands(lq_dir: Path, commands: dict[str, RegisteredCommand]) -> None:
+    """Save registered commands to commands.yaml."""
+    commands_path = lq_dir / COMMANDS_FILE
+
+    try:
+        import yaml
+        data = {"commands": {name: cmd.to_dict() for name, cmd in commands.items()}}
+        with open(commands_path, "w") as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    except ImportError:
+        # Fallback to simple YAML writing
+        lines = ["commands:"]
+        for name, cmd in commands.items():
+            lines.append(f"  {name}:")
+            lines.append(f'    cmd: "{cmd.cmd}"')
+            if cmd.description:
+                lines.append(f'    description: "{cmd.description}"')
+            if cmd.timeout != 300:
+                lines.append(f"    timeout: {cmd.timeout}")
+            if cmd.format != "auto":
+                lines.append(f'    format: "{cmd.format}"')
+        commands_path.write_text("\n".join(lines) + "\n")
+
+
+def _parse_simple_yaml(content: str) -> dict:
+    """Basic YAML parser for commands.yaml (fallback if PyYAML not installed)."""
+    result: dict = {"commands": {}}
+    current_cmd = None
+    current_data: dict = {}
+
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        indent = len(line) - len(line.lstrip())
+
+        if stripped == "commands:":
+            continue
+        elif indent == 2 and stripped.endswith(":"):
+            # New command
+            if current_cmd:
+                result["commands"][current_cmd] = current_data
+            current_cmd = stripped[:-1]
+            current_data = {}
+        elif indent == 4 and ":" in stripped:
+            # Command property
+            key, value = stripped.split(":", 1)
+            value = value.strip().strip('"').strip("'")
+            if key == "timeout":
+                value = int(value)
+            current_data[key] = value
+
+    if current_cmd:
+        result["commands"][current_cmd] = current_data
+
+    return result
 
 
 # ============================================================================
@@ -409,8 +522,24 @@ def cmd_run(args: argparse.Namespace) -> None:
     """Run a command and capture its output."""
     lq_dir = ensure_initialized()
 
-    command = " ".join(args.command)
-    source_name = args.name or args.command[0]
+    # Check if first argument is a registered command name
+    registered_commands = load_commands(lq_dir)
+    first_arg = args.command[0]
+
+    if first_arg in registered_commands and len(args.command) == 1:
+        # Use registered command
+        reg_cmd = registered_commands[first_arg]
+        command = reg_cmd.cmd
+        source_name = args.name or first_arg
+        format_hint = args.format if args.format != "auto" else reg_cmd.format
+        timeout = reg_cmd.timeout
+    else:
+        # Use literal command
+        command = " ".join(args.command)
+        source_name = args.name or first_arg
+        format_hint = args.format
+        timeout = None  # No timeout for ad-hoc commands
+
     run_id = get_next_run_id(lq_dir)
     started_at = datetime.now()
 
@@ -449,7 +578,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         raw_file.write_text(output)
 
     # Parse output
-    events = parse_log_content(output, args.format)
+    events = parse_log_content(output, format_hint)
 
     # Write parquet
     run_meta = {
@@ -835,6 +964,65 @@ def cmd_context(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_commands(args: argparse.Namespace) -> None:
+    """List registered commands."""
+    lq_dir = ensure_initialized()
+    commands = load_commands(lq_dir)
+
+    if not commands:
+        print("No commands registered.")
+        print("Use 'lq register <name> <command>' to register a command.")
+        return
+
+    if args.json:
+        data = {name: cmd.to_dict() for name, cmd in commands.items()}
+        print(json.dumps(data, indent=2))
+    else:
+        print(f"{'Name':<15} {'Command':<40} Description")
+        print("-" * 70)
+        for name, cmd in commands.items():
+            cmd_display = cmd.cmd[:37] + "..." if len(cmd.cmd) > 40 else cmd.cmd
+            print(f"{name:<15} {cmd_display:<40} {cmd.description}")
+
+
+def cmd_register(args: argparse.Namespace) -> None:
+    """Register a new command."""
+    lq_dir = ensure_initialized()
+    commands = load_commands(lq_dir)
+
+    name = args.name
+    cmd_str = " ".join(args.cmd)
+
+    if name in commands and not args.force:
+        print(f"Command '{name}' already exists. Use --force to overwrite.", file=sys.stderr)
+        sys.exit(1)
+
+    commands[name] = RegisteredCommand(
+        name=name,
+        cmd=cmd_str,
+        description=args.description or "",
+        timeout=args.timeout,
+        format=args.format,
+    )
+
+    save_commands(lq_dir, commands)
+    print(f"Registered command '{name}': {cmd_str}")
+
+
+def cmd_unregister(args: argparse.Namespace) -> None:
+    """Remove a registered command."""
+    lq_dir = ensure_initialized()
+    commands = load_commands(lq_dir)
+
+    if args.name not in commands:
+        print(f"Command '{args.name}' not found.", file=sys.stderr)
+        sys.exit(1)
+
+    del commands[args.name]
+    save_commands(lq_dir, commands)
+    print(f"Unregistered command '{args.name}'")
+
+
 # ============================================================================
 # Main
 # ============================================================================
@@ -932,6 +1120,26 @@ def main() -> None:
     p_context.add_argument("ref", help="Event reference (e.g., 5:3)")
     p_context.add_argument("--lines", "-n", type=int, default=3, help="Context lines before/after (default: 3)")
     p_context.set_defaults(func=cmd_context)
+
+    # commands
+    p_commands = subparsers.add_parser("commands", help="List registered commands")
+    p_commands.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_commands.set_defaults(func=cmd_commands)
+
+    # register
+    p_register = subparsers.add_parser("register", help="Register a command")
+    p_register.add_argument("name", help="Command name (e.g., 'build', 'test')")
+    p_register.add_argument("cmd", nargs="+", help="Command to run")
+    p_register.add_argument("--description", "-d", help="Command description")
+    p_register.add_argument("--timeout", "-t", type=int, default=300, help="Timeout in seconds (default: 300)")
+    p_register.add_argument("--format", "-f", default="auto", help="Log format hint")
+    p_register.add_argument("--force", action="store_true", help="Overwrite existing command")
+    p_register.set_defaults(func=cmd_register)
+
+    # unregister
+    p_unregister = subparsers.add_parser("unregister", help="Remove a registered command")
+    p_unregister.add_argument("name", help="Command name to remove")
+    p_unregister.set_defaults(func=cmd_unregister)
 
     args = parser.parse_args()
 
