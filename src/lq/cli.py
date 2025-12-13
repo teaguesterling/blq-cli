@@ -15,6 +15,22 @@ Usage:
     lq history [-n N]                Show run history
     lq prune [--older-than DAYS]     Remove old logs
     lq event <ref>                   Show event details by reference (e.g., 5:3)
+    lq query [options] [file...]     Query log files or stored events (alias: q)
+    lq filter [expr...] [file...]    Filter with simple syntax (alias: f)
+
+Query examples:
+    lq q build.log                           # all events from file
+    lq q -s file_path,message build.log      # select columns
+    lq q -f "severity='error'" build.log     # filter with SQL WHERE
+    lq q -f "severity='error'"               # query stored events
+
+Filter examples:
+    lq f severity=error build.log            # filter by exact match
+    lq f severity=error,warning build.log    # OR within field
+    lq f file_path~main build.log            # contains (LIKE)
+    lq f severity!=info build.log            # not equal
+    lq f -v severity=error build.log         # invert (grep -v style)
+    lq f -c severity=error build.log         # count matches only
 """
 
 from __future__ import annotations
@@ -304,48 +320,129 @@ def ensure_initialized() -> Path:
     return lq_dir
 
 
+class ConnectionFactory:
+    """Factory for creating properly initialized DuckDB connections.
+
+    Handles:
+    - duck_hunt extension loading/installation
+    - Schema loading for stored data queries
+    - Future: persistent database support
+    """
+
+    _duck_hunt_available: bool | None = None
+
+    @classmethod
+    def check_duck_hunt(cls, conn: duckdb.DuckDBPyConnection) -> bool:
+        """Check if duck_hunt is available (cached)."""
+        if cls._duck_hunt_available is None:
+            try:
+                conn.execute("LOAD duck_hunt")
+                cls._duck_hunt_available = True
+            except duckdb.Error:
+                cls._duck_hunt_available = False
+        return cls._duck_hunt_available
+
+    @classmethod
+    def install_duck_hunt(cls, conn: duckdb.DuckDBPyConnection) -> bool:
+        """Install duck_hunt extension from community repo.
+
+        Returns True if successful, False otherwise.
+        """
+        try:
+            conn.execute("INSTALL duck_hunt FROM community")
+            conn.execute("LOAD duck_hunt")
+            cls._duck_hunt_available = True
+            return True
+        except duckdb.Error:
+            cls._duck_hunt_available = False
+            return False
+
+    @classmethod
+    def create(
+        cls,
+        lq_dir: Path | None = None,
+        load_schema: bool = True,
+        require_duck_hunt: bool = False,
+        install_duck_hunt: bool = False,
+    ) -> duckdb.DuckDBPyConnection:
+        """Create a properly initialized DuckDB connection.
+
+        Args:
+            lq_dir: Path to .lq directory (for schema loading)
+            load_schema: Whether to load the schema (for stored data queries)
+            require_duck_hunt: If True, raise error if duck_hunt unavailable
+            install_duck_hunt: If True, attempt to install duck_hunt if missing
+
+        Returns:
+            Initialized DuckDB connection
+
+        Raises:
+            duckdb.Error: If require_duck_hunt=True and duck_hunt unavailable
+        """
+        conn = duckdb.connect(":memory:")
+
+        # Handle duck_hunt loading
+        duck_hunt_loaded = False
+        try:
+            conn.execute("LOAD duck_hunt")
+            duck_hunt_loaded = True
+            cls._duck_hunt_available = True
+        except duckdb.Error:
+            if install_duck_hunt:
+                duck_hunt_loaded = cls.install_duck_hunt(conn)
+
+            if require_duck_hunt and not duck_hunt_loaded:
+                raise duckdb.Error(
+                    "duck_hunt extension required but not available. "
+                    "Run 'lq init' to install required extensions."
+                )
+
+        # Load schema if requested and lq_dir provided
+        if load_schema and lq_dir is not None:
+            cls._load_schema(conn, lq_dir)
+
+        return conn
+
+    @classmethod
+    def _load_schema(cls, conn: duckdb.DuckDBPyConnection, lq_dir: Path) -> None:
+        """Load schema into connection."""
+        # Set up absolute path for lq_base_path before loading schema
+        logs_path = (lq_dir / LOGS_DIR).resolve()
+        conn.execute(f"CREATE OR REPLACE MACRO lq_base_path() AS '{logs_path}'")
+
+        # Load schema (which will use our lq_base_path)
+        schema_path = lq_dir / SCHEMA_FILE
+        if schema_path.exists():
+            schema_sql = schema_path.read_text()
+            # Execute each statement separately
+            for stmt in schema_sql.split(";"):
+                stmt = stmt.strip()
+                if not stmt:
+                    continue
+                # Skip the lq_base_path definition since we already set it with absolute path
+                if "lq_base_path()" in stmt and "CREATE" in stmt.upper() and "MACRO" in stmt.upper():
+                    continue
+                # Skip pure comment blocks
+                lines = [l for l in stmt.split("\n") if l.strip() and not l.strip().startswith("--")]
+                if not lines:
+                    continue
+                try:
+                    conn.execute(stmt)
+                except duckdb.Error as e:
+                    # Skip errors from missing functions (status_badge if duck_hunt not loaded)
+                    if "status_badge" not in str(e):
+                        pass  # Ignore other schema errors for now
+
+
 def get_connection(lq_dir: Path | None = None) -> duckdb.DuckDBPyConnection:
-    """Get a DuckDB connection with schema loaded."""
+    """Get a DuckDB connection with schema loaded.
+
+    This is a convenience wrapper around ConnectionFactory.create() for
+    backward compatibility.
+    """
     if lq_dir is None:
         lq_dir = ensure_initialized()
-
-    conn = duckdb.connect(":memory:")
-
-    # Try to load duck_hunt extension if available
-    try:
-        conn.execute("LOAD duck_hunt")
-    except duckdb.Error:
-        # duck_hunt not available - basic functionality only
-        pass
-
-    # Set up absolute path for lq_base_path before loading schema
-    logs_path = (lq_dir / LOGS_DIR).resolve()
-    conn.execute(f"CREATE OR REPLACE MACRO lq_base_path() AS '{logs_path}'")
-
-    # Load schema (which will use our lq_base_path)
-    schema_path = lq_dir / SCHEMA_FILE
-    if schema_path.exists():
-        schema_sql = schema_path.read_text()
-        # Execute each statement separately
-        for stmt in schema_sql.split(";"):
-            stmt = stmt.strip()
-            if not stmt:
-                continue
-            # Skip the lq_base_path definition since we already set it with absolute path
-            if "lq_base_path()" in stmt and "CREATE" in stmt.upper() and "MACRO" in stmt.upper():
-                continue
-            # Skip pure comment blocks
-            lines = [l for l in stmt.split("\n") if l.strip() and not l.strip().startswith("--")]
-            if not lines:
-                continue
-            try:
-                conn.execute(stmt)
-            except duckdb.Error as e:
-                # Skip errors from missing functions (status_badge if duck_hunt not loaded)
-                if "status_badge" not in str(e):
-                    pass  # Ignore other schema errors for now
-
-    return conn
+    return ConnectionFactory.create(lq_dir=lq_dir, load_schema=True)
 
 
 def get_next_run_id(lq_dir: Path) -> int:
@@ -497,11 +594,13 @@ def parse_log_content(content: str, format_hint: str = "auto") -> list[dict[str,
 # ============================================================================
 
 def cmd_init(args: argparse.Namespace) -> None:
-    """Initialize .lq directory."""
+    """Initialize .lq directory and install required extensions."""
     lq_dir = Path.cwd() / LQ_DIR
 
     if lq_dir.exists():
         print(f".lq already exists at {lq_dir}")
+        # Still try to install extensions if they're missing
+        _install_extensions()
         return
 
     # Create directories
@@ -519,6 +618,30 @@ def cmd_init(args: argparse.Namespace) -> None:
     print("  logs/      - Hive-partitioned parquet files")
     print("  raw/       - Raw log files (optional)")
     print("  schema.sql - SQL schema and macros")
+
+    # Install required extensions
+    _install_extensions()
+
+
+def _install_extensions() -> None:
+    """Install required DuckDB extensions."""
+    conn = duckdb.connect(":memory:")
+
+    # Check if duck_hunt is already available
+    try:
+        conn.execute("LOAD duck_hunt")
+        print("  duck_hunt  - Already installed")
+        return
+    except duckdb.Error:
+        pass
+
+    # Try to install duck_hunt
+    print("  duck_hunt  - Installing from community repo...")
+    if ConnectionFactory.install_duck_hunt(conn):
+        print("  duck_hunt  - Installed successfully")
+    else:
+        print("  duck_hunt  - Installation failed (some features unavailable)", file=sys.stderr)
+        print("             Run manually: INSTALL duck_hunt FROM community", file=sys.stderr)
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -1027,6 +1150,274 @@ def cmd_unregister(args: argparse.Namespace) -> None:
 
 
 # ============================================================================
+# Query and Filter Commands
+# ============================================================================
+
+def format_query_output(
+    df: pd.DataFrame,
+    output_format: str = "table",
+    limit: int | None = None,
+) -> str:
+    """Format query results for output.
+
+    Args:
+        df: DataFrame with query results
+        output_format: One of 'table', 'json', 'csv', 'markdown'
+        limit: Max rows to output (None for all)
+
+    Returns:
+        Formatted string output
+    """
+    if limit is not None and limit > 0:
+        df = df.head(limit)
+
+    if output_format == "json":
+        return df.to_json(orient="records", indent=2)
+    elif output_format == "csv":
+        return df.to_csv(index=False)
+    elif output_format == "markdown":
+        return df.to_markdown(index=False)
+    else:  # table
+        return df.to_string(index=False)
+
+
+def query_source(
+    source: str | Path | None,
+    select: str | None = None,
+    where: str | None = None,
+    order: str | None = None,
+    lq_dir: Path | None = None,
+    log_format: str = "auto",
+) -> pd.DataFrame:
+    """Query a log file directly or the stored lq_events.
+
+    Args:
+        source: Path to log file(s) or None to query stored data
+        select: Columns to select (comma-separated) or None for all
+        where: SQL WHERE clause (without WHERE keyword)
+        order: SQL ORDER BY clause (without ORDER BY keyword)
+        lq_dir: Path to .lq directory (for stored data queries)
+        log_format: Log format hint for duck_hunt (default: auto)
+
+    Returns:
+        DataFrame with query results
+    """
+    if source:
+        # Query file(s) directly using duck_hunt
+        source_path = Path(source)
+        if not source_path.exists() and "*" not in str(source_path):
+            raise FileNotFoundError(f"File not found: {source}")
+
+        try:
+            conn = ConnectionFactory.create(
+                load_schema=False,
+                require_duck_hunt=True,
+            )
+        except duckdb.Error:
+            print("Error: duck_hunt extension required for querying files directly.", file=sys.stderr)
+            print("Run 'lq init' to install required extensions.", file=sys.stderr)
+            print(f"Or import the file first: lq import {source}", file=sys.stderr)
+            raise
+
+        # Build SELECT clause
+        select_clause = select if select else "*"
+
+        # Build query
+        sql = f"SELECT {select_clause} FROM read_duck_hunt_log('{source_path}', '{log_format}')"
+        if where:
+            sql += f" WHERE {where}"
+        if order:
+            sql += f" ORDER BY {order}"
+
+        return conn.execute(sql).fetchdf()
+    else:
+        # Query stored data
+        if lq_dir is None:
+            lq_dir = ensure_initialized()
+        conn = get_connection(lq_dir)
+
+        select_clause = select if select else "*"
+        sql = f"SELECT {select_clause} FROM lq_events"
+        if where:
+            sql += f" WHERE {where}"
+        if order:
+            sql += f" ORDER BY {order}"
+
+        return conn.execute(sql).fetchdf()
+
+
+def parse_filter_expression(expr: str, ignore_case: bool = False) -> str:
+    """Parse a simple filter expression into SQL WHERE clause.
+
+    Supports:
+        key=value      -> key = 'value'
+        key=v1,v2      -> key IN ('v1', 'v2')
+        key~pattern    -> key ILIKE '%pattern%'
+        key!=value     -> key != 'value'
+
+    Args:
+        expr: Filter expression like "severity=error" or "file_path~main"
+        ignore_case: If True, use ILIKE for = comparisons too
+
+    Returns:
+        SQL WHERE clause fragment
+    """
+    # Handle ~ (LIKE/contains)
+    if "~" in expr:
+        key, value = expr.split("~", 1)
+        return f"{key.strip()} ILIKE '%{value.strip()}%'"
+
+    # Handle !=
+    if "!=" in expr:
+        key, value = expr.split("!=", 1)
+        return f"{key.strip()} != '{value.strip()}'"
+
+    # Handle = (exact match or IN for comma-separated)
+    if "=" in expr:
+        key, value = expr.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+
+        # Check for comma-separated values (OR)
+        if "," in value:
+            values = [v.strip() for v in value.split(",")]
+            quoted = ", ".join(f"'{v}'" for v in values)
+            return f"{key} IN ({quoted})"
+
+        # Single value
+        if ignore_case:
+            return f"LOWER({key}) = LOWER('{value}')"
+        return f"{key} = '{value}'"
+
+    raise ValueError(f"Invalid filter expression: {expr}. Use key=value, key~pattern, or key!=value")
+
+
+def cmd_query(args: argparse.Namespace) -> None:
+    """Query log files or stored events."""
+    # Determine source (file or stored data)
+    source = args.files[0] if args.files else None
+
+    # Support multiple files via glob pattern
+    if source and "*" in source:
+        # Let DuckDB handle the glob
+        pass
+    elif source and not Path(source).exists():
+        print(f"Error: File not found: {source}", file=sys.stderr)
+        sys.exit(1)
+
+    # Get lq_dir for stored queries
+    lq_dir = None
+    if not source:
+        lq_dir = ensure_initialized()
+
+    try:
+        df = query_source(
+            source=source,
+            select=args.select,
+            where=args.filter,
+            order=args.order,
+            lq_dir=lq_dir,
+            log_format=args.log_format,
+        )
+
+        # Determine output format
+        if args.json:
+            output_format = "json"
+        elif args.csv:
+            output_format = "csv"
+        elif args.markdown:
+            output_format = "markdown"
+        else:
+            output_format = "table"
+
+        output = format_query_output(df, output_format, args.limit)
+        print(output)
+
+    except duckdb.Error as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_filter(args: argparse.Namespace) -> None:
+    """Filter log files or stored events with simple syntax."""
+    # Separate filter expressions from file paths
+    # Expressions contain =, ~, or !=
+    expressions = []
+    files = []
+    for arg in args.args:
+        if "=" in arg or "~" in arg:
+            expressions.append(arg)
+        else:
+            files.append(arg)
+
+    # Determine source (file or stored data)
+    source = files[0] if files else None
+
+    if source and not Path(source).exists() and "*" not in source:
+        print(f"Error: File not found: {source}", file=sys.stderr)
+        sys.exit(1)
+
+    # Parse filter expressions into SQL WHERE clause
+    where_clauses = []
+    for expr in expressions:
+        try:
+            clause = parse_filter_expression(expr, ignore_case=args.ignore_case)
+            where_clauses.append(clause)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    where = " AND ".join(where_clauses) if where_clauses else None
+
+    # Invert the filter if -v flag
+    if args.invert and where:
+        where = f"NOT ({where})"
+
+    # Get lq_dir for stored queries
+    lq_dir = None
+    if not source:
+        lq_dir = ensure_initialized()
+
+    try:
+        df = query_source(
+            source=source,
+            select=None,  # filter always returns all columns
+            where=where,
+            order=None,
+            lq_dir=lq_dir,
+            log_format=args.log_format,
+        )
+
+        # Count mode
+        if args.count:
+            print(len(df))
+            return
+
+        # Determine output format
+        if args.json:
+            output_format = "json"
+        elif args.csv:
+            output_format = "csv"
+        elif args.markdown:
+            output_format = "markdown"
+        else:
+            output_format = "table"
+
+        output = format_query_output(df, output_format, args.limit)
+        print(output)
+
+    except duckdb.Error as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -1036,6 +1427,14 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
+
+    # Global flags
+    parser.add_argument(
+        "-F", "--log-format",
+        default="auto",
+        help="Log format for parsing (default: auto). Use 'lq formats' to list available formats."
+    )
+
     subparsers = parser.add_subparsers(dest="command", help="Command")
 
     # init
@@ -1143,6 +1542,30 @@ def main() -> None:
     p_unregister = subparsers.add_parser("unregister", help="Remove a registered command")
     p_unregister.add_argument("name", help="Command name to remove")
     p_unregister.set_defaults(func=cmd_unregister)
+
+    # query (with alias 'q')
+    p_query = subparsers.add_parser("query", aliases=["q"], help="Query log files or stored events")
+    p_query.add_argument("files", nargs="*", help="Log file(s) to query (omit for stored data)")
+    p_query.add_argument("-s", "--select", help="Columns to select (comma-separated)")
+    p_query.add_argument("-f", "--filter", help="SQL WHERE clause")
+    p_query.add_argument("-o", "--order", help="SQL ORDER BY clause")
+    p_query.add_argument("-n", "--limit", type=int, help="Max rows to return")
+    p_query.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_query.add_argument("--csv", action="store_true", help="Output as CSV")
+    p_query.add_argument("--markdown", "--md", action="store_true", help="Output as Markdown table")
+    p_query.set_defaults(func=cmd_query)
+
+    # filter (with alias 'f')
+    p_filter = subparsers.add_parser("filter", aliases=["f"], help="Filter log files with simple syntax")
+    p_filter.add_argument("args", nargs="*", help="Filter expressions and/or file(s)")
+    p_filter.add_argument("-v", "--invert", action="store_true", help="Invert match (like grep -v)")
+    p_filter.add_argument("-c", "--count", action="store_true", help="Only print count of matches")
+    p_filter.add_argument("-i", "--ignore-case", action="store_true", help="Case insensitive matching")
+    p_filter.add_argument("-n", "--limit", type=int, help="Max rows to return")
+    p_filter.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_filter.add_argument("--csv", action="store_true", help="Output as CSV")
+    p_filter.add_argument("--markdown", "--md", action="store_true", help="Output as Markdown table")
+    p_filter.set_defaults(func=cmd_filter)
 
     args = parser.parse_args()
 
