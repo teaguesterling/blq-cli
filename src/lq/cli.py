@@ -282,20 +282,23 @@ def _parse_simple_yaml(content: str) -> dict:
 # Database Connection
 # ============================================================================
 
-def get_lq_dir() -> Path:
-    """Find .lq directory in current or parent directories."""
+def get_lq_dir() -> Path | None:
+    """Find .lq directory in current or parent directories.
+
+    Returns None if no .lq directory is found.
+    """
     cwd = Path.cwd()
     for p in [cwd, *list(cwd.parents)]:
         lq_path = p / LQ_DIR
         if lq_path.exists():
             return lq_path
-    return cwd / LQ_DIR
+    return None
 
 
 def ensure_initialized() -> Path:
     """Ensure .lq directory exists."""
     lq_dir = get_lq_dir()
-    if not lq_dir.exists():
+    if lq_dir is None or not lq_dir.exists():
         print("Error: .lq not initialized. Run 'lq init' first.", file=sys.stderr)
         sys.exit(1)
     return lq_dir
@@ -896,9 +899,9 @@ def cmd_event(args: argparse.Namespace) -> None:
             print(f"  Severity: {row.get('severity', '?')}")
             print(f"  File: {row.get('file_path', '?')}:{row.get('line_number', '?')}")
             print(f"  Message: {row.get('message', '?')}")
-            if row.get('error_fingerprint'):
+            if pd.notna(row.get('error_fingerprint')):
                 print(f"  Fingerprint: {row.get('error_fingerprint')}")
-            if row.get('log_line_start'):
+            if pd.notna(row.get('log_line_start')):
                 print(f"  Log lines: {row.get('log_line_start')}-{row.get('log_line_end')}")
 
     except duckdb.Error as e:
