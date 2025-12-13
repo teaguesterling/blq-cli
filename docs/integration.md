@@ -229,21 +229,54 @@ lq sql "COPY (SELECT * FROM lq_events) TO 'events.jsonl'"
 
 ## Programmatic Access
 
-### Python
+### Python API
+
+lq provides a fluent Python API for programmatic access:
 
 ```python
-import duckdb
-from pathlib import Path
+from lq import LogStore, LogQuery
 
-# Connect and load schema
-conn = duckdb.connect(':memory:')
-schema = Path('.lq/schema.sql').read_text()
-for stmt in schema.split(';'):
-    if stmt.strip():
-        conn.execute(stmt)
+# Open the repository
+store = LogStore.open()
 
-# Query events
-df = conn.execute("SELECT * FROM lq_events WHERE severity='error'").fetchdf()
+# Query errors with chaining
+errors = (
+    store.errors()
+    .filter(file_path="%main%")
+    .select("file_path", "line_number", "message")
+    .order_by("line_number")
+    .limit(10)
+    .df()
+)
+
+# Query a log file directly (without storing)
+events = LogQuery.from_file("build.log").filter(severity="error").df()
+
+# Aggregations
+errors_by_file = store.errors().group_by("file_path").count()
+severity_counts = store.events().value_counts("severity")
+```
+
+See [Python API Guide](python-api.md) for full documentation.
+
+### Direct SQL Access
+
+For complex queries, use the underlying DuckDB connection:
+
+```python
+from lq import LogStore
+
+store = LogStore.open()
+conn = store.connection
+
+# Run arbitrary SQL
+result = conn.sql("""
+    SELECT file_path, COUNT(*) as count
+    FROM lq_events
+    WHERE severity = 'error'
+    GROUP BY file_path
+    ORDER BY count DESC
+""").df()
 ```
 
 ### Direct Parquet Access

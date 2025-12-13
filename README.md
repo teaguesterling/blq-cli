@@ -186,6 +186,46 @@ lq commands
 |------|-------------|
 | `-F, --log-format` | Log format hint (default: auto) |
 
+## Python API
+
+lq provides a fluent Python API for programmatic access:
+
+```python
+from lq import LogStore, LogQuery
+
+# Open the repository
+store = LogStore.open()
+
+# Query errors with chaining
+errors = (
+    store.errors()
+    .filter(file_path="%main%")
+    .select("file_path", "line_number", "message")
+    .order_by("line_number")
+    .limit(10)
+    .df()
+)
+
+# Filter patterns
+store.events().filter(severity="error")              # exact match
+store.events().filter(severity=["error", "warning"]) # IN clause
+store.events().filter(file_path="%test%")            # LIKE pattern
+store.events().filter("line_number > 100")           # raw SQL
+
+# Query a log file directly (without storing)
+events = (
+    LogQuery.from_file("build.log")
+    .filter(severity="error")
+    .df()
+)
+
+# Aggregations
+store.events().group_by("file_path").count()
+store.events().value_counts("severity")
+```
+
+See [Python API Guide](docs/python-api.md) for full documentation.
+
 ## Storage
 
 Logs are stored as Hive-partitioned parquet files:
@@ -208,6 +248,7 @@ See [docs/](docs/) for detailed documentation:
 - [Getting Started](docs/getting-started.md)
 - [Commands Reference](docs/commands/)
 - [Query Guide](docs/query-guide.md)
+- [Python API Guide](docs/python-api.md)
 - [Integration Guide](docs/integration.md)
 
 ## License

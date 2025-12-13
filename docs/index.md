@@ -59,4 +59,5 @@ Logs are stored in `.lq/` in your project:
 - [Getting Started](getting-started.md) - Installation and first steps
 - [Commands Reference](commands/) - All commands in detail
 - [Query Guide](query-guide.md) - Querying logs effectively
+- [Python API Guide](python-api.md) - Programmatic access with fluent API
 - [Integration Guide](integration.md) - Using with AI agents and CI/CD
