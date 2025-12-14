@@ -935,6 +935,25 @@ BUILD_SYSTEM_DETECTORS: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("build", "cmake --build .", "Build the project"),
         ("test", "ctest", "Run tests"),
     ]),
+    ("Dockerfile", [
+        ("docker-build", "docker build -t app .", "Build Docker image"),
+    ]),
+    ("docker-compose.yml", [
+        ("docker-up", "docker-compose up", "Start Docker services"),
+        ("docker-build", "docker-compose build", "Build Docker services"),
+    ]),
+    ("docker-compose.yaml", [
+        ("docker-up", "docker-compose up", "Start Docker services"),
+        ("docker-build", "docker-compose build", "Build Docker services"),
+    ]),
+    ("compose.yml", [
+        ("docker-up", "docker compose up", "Start Docker services"),
+        ("docker-build", "docker compose build", "Build Docker services"),
+    ]),
+    ("compose.yaml", [
+        ("docker-up", "docker compose up", "Start Docker services"),
+        ("docker-build", "docker compose build", "Build Docker services"),
+    ]),
 ]
 
 
