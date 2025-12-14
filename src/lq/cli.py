@@ -914,6 +914,12 @@ BUILD_SYSTEM_DETECTORS: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("test", "make test", "Run tests"),
         ("clean", "make clean", "Clean build artifacts"),
     ]),
+    # Yarn takes precedence over npm if yarn.lock exists
+    ("yarn.lock", [
+        ("build", "yarn build", "Build the project"),
+        ("test", "yarn test", "Run tests"),
+        ("lint", "yarn lint", "Run linter"),
+    ]),
     ("package.json", [
         ("build", "npm run build", "Build the project"),
         ("test", "npm test", "Run tests"),
@@ -935,6 +941,30 @@ BUILD_SYSTEM_DETECTORS: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("build", "cmake --build .", "Build the project"),
         ("test", "ctest", "Run tests"),
     ]),
+    # Autotools
+    ("configure", [
+        ("configure", "./configure", "Configure the build"),
+    ]),
+    ("configure.ac", [
+        ("autoreconf", "autoreconf -i", "Generate configure script"),
+    ]),
+    # Java build systems
+    ("build.gradle", [
+        ("build", "./gradlew build", "Build the project"),
+        ("test", "./gradlew test", "Run tests"),
+        ("clean", "./gradlew clean", "Clean build artifacts"),
+    ]),
+    ("build.gradle.kts", [
+        ("build", "./gradlew build", "Build the project"),
+        ("test", "./gradlew test", "Run tests"),
+        ("clean", "./gradlew clean", "Clean build artifacts"),
+    ]),
+    ("pom.xml", [
+        ("build", "mvn package", "Build the project"),
+        ("test", "mvn test", "Run tests"),
+        ("clean", "mvn clean", "Clean build artifacts"),
+    ]),
+    # Docker
     ("Dockerfile", [
         ("docker-build", "docker build -t app .", "Build Docker image"),
     ]),
@@ -971,9 +1001,9 @@ def _detect_commands() -> list[tuple[str, str, str]]:
             for name, cmd, desc in commands:
                 # Skip if we already have a command with this name
                 if name not in seen_names:
-                    # For package.json, verify the script exists
-                    if build_file == "package.json":
-                        if not _package_json_has_script(cwd / build_file, name):
+                    # For package.json or yarn.lock, verify the script exists in package.json
+                    if build_file in ("package.json", "yarn.lock"):
+                        if not _package_json_has_script(cwd / "package.json", name):
                             continue
                     detected.append((name, cmd, desc))
                     seen_names.add(name)

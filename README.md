@@ -192,7 +192,7 @@ lq run --no-capture format
 lq commands
 ```
 
-**Auto-detected build systems:** Makefile, package.json, pyproject.toml, Cargo.toml, go.mod, CMakeLists.txt, Dockerfile, docker-compose.yml
+**Auto-detected build systems:** Makefile, package.json (npm/yarn), pyproject.toml, Cargo.toml, go.mod, CMakeLists.txt, configure, build.gradle, pom.xml, Dockerfile, docker-compose.yml
 
 ## Run Metadata
 

@@ -105,11 +105,16 @@ Fallback for non-git projects uses filesystem path:
 | File | Commands |
 |------|----------|
 | `Makefile` | build, test, clean |
-| `package.json` | build, test, lint (if scripts exist) |
+| `yarn.lock` | build, test, lint (yarn, if scripts exist) |
+| `package.json` | build, test, lint (npm, if scripts exist) |
 | `pyproject.toml` | test (pytest), lint (ruff) |
 | `Cargo.toml` | build, test |
 | `go.mod` | build, test |
 | `CMakeLists.txt` | build, test |
+| `configure` | configure |
+| `configure.ac` | autoreconf |
+| `build.gradle` | build, test, clean (gradlew) |
+| `pom.xml` | build, test, clean (mvn) |
 | `Dockerfile` | docker-build |
 | `docker-compose.yml` | docker-up, docker-build |
 
