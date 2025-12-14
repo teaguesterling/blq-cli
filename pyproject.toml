@@ -35,9 +35,13 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    "pytest-asyncio>=0.23.0",
     "pytest-cov",
     "ruff",
     "mypy",
+]
+mcp = [
+    "fastmcp>=2.0.0",
 ]
 duck-hunt = [
     # Install duck_hunt extension for enhanced parsing
@@ -69,3 +73,4 @@ warn_unused_configs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"

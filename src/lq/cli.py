@@ -17,6 +17,7 @@ Usage:
     lq event <ref>                   Show event details by reference (e.g., 5:3)
     lq query [options] [file...]     Query log files or stored events (alias: q)
     lq filter [expr...] [file...]    Filter with simple syntax (alias: f)
+    lq serve [--transport T]         Start MCP server for AI agents
 
 Query examples:
     lq q build.log                           # all events from file
@@ -1414,6 +1415,28 @@ def cmd_filter(args: argparse.Namespace) -> None:
 
 
 # ============================================================================
+# MCP Server
+# ============================================================================
+
+
+def cmd_serve(args: argparse.Namespace) -> None:
+    """Start the MCP server for AI agent integration."""
+    try:
+        from lq.serve import serve
+    except ImportError as e:
+        print("Error: MCP dependencies not installed.", file=sys.stderr)
+        print("Install with: pip install lq[mcp]", file=sys.stderr)
+        sys.exit(1)
+
+    # Ensure we're in an initialized directory
+    lq_dir = get_lq_dir()
+    if lq_dir is None:
+        print("Warning: No .lq directory found. Some features may not work.", file=sys.stderr)
+
+    serve(transport=args.transport, port=args.port)
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -1562,6 +1585,22 @@ def main() -> None:
     p_filter.add_argument("--csv", action="store_true", help="Output as CSV")
     p_filter.add_argument("--markdown", "--md", action="store_true", help="Output as Markdown table")
     p_filter.set_defaults(func=cmd_filter)
+
+    # serve (MCP server)
+    p_serve = subparsers.add_parser("serve", help="Start MCP server for AI agent integration")
+    p_serve.add_argument(
+        "--transport", "-t",
+        choices=["stdio", "sse"],
+        default="stdio",
+        help="Transport type (default: stdio)"
+    )
+    p_serve.add_argument(
+        "--port", "-p",
+        type=int,
+        default=8080,
+        help="Port for SSE transport (default: 8080)"
+    )
+    p_serve.set_defaults(func=cmd_serve)
 
     args = parser.parse_args()
 
