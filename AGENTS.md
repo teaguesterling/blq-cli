@@ -280,32 +280,214 @@ lq context 1:3 --lines 10  # more context
 | ORDER BY | | `lq q -o line_number` |
 | Aggregations | | `lq sql "SELECT ..."` |
 
-## MCP Integration (Future)
+## MCP Server Integration
 
-When lq MCP server is available, these tools will be exposed:
+lq provides a full MCP (Model Context Protocol) server for AI agent integration. Start it with:
 
-### Planned MCP Tools
+```bash
+lq serve                    # stdio transport (for Claude Desktop, etc.)
+lq serve --transport sse    # SSE transport for HTTP clients
+```
 
-| Tool | Description |
-|------|-------------|
-| `lq_run` | Run a command and capture output |
-| `lq_query` | Query log files or stored events |
-| `lq_filter` | Filter with simple syntax |
-| `lq_errors` | Get recent errors |
-| `lq_event` | Get event details by reference |
-| `lq_context` | Get log context around event |
+### MCP Tools
 
-### MCP Workflow Example
+All tools are namespaced by the server name `lq`, so they appear as `run`, `query`, etc. in MCP clients.
 
+| Tool | Parameters | Description |
+|------|------------|-------------|
+| `run` | `command`, `args?`, `timeout?` | Run a command and capture output |
+| `query` | `sql`, `limit?` | Query stored events with SQL |
+| `errors` | `limit?`, `run_id?`, `source?`, `file_pattern?` | Get recent errors |
+| `warnings` | `limit?`, `run_id?`, `source?` | Get recent warnings |
+| `event` | `ref` | Get full details for a specific event |
+| `context` | `ref`, `lines?` | Get log context around an event |
+| `status` | (none) | Get status summary of all sources |
+| `history` | `limit?`, `source?` | Get run history |
+| `diff` | `run1`, `run2` | Compare errors between two runs |
+
+### MCP Resources
+
+Resources provide data that can be embedded in prompts or read directly:
+
+| Resource URI | Description |
+|--------------|-------------|
+| `lq://status` | Current status of all sources (JSON) |
+| `lq://runs` | List of all runs (JSON) |
+| `lq://events` | All stored events (JSON) |
+| `lq://event/{ref}` | Single event details by ref (JSON) |
+| `lq://commands` | Registered commands (JSON) |
+
+### MCP Prompts
+
+Pre-built prompts that guide agents through common workflows:
+
+| Prompt | Parameters | Description |
+|--------|------------|-------------|
+| `fix-errors` | `run_id?`, `file_pattern?` | Guide through fixing build errors systematically |
+| `analyze-regression` | `good_run?`, `bad_run?` | Identify why a build started failing |
+| `summarize-run` | `run_id?`, `format?` | Generate concise summary for PR comments |
+| `investigate-flaky` | `test_pattern?`, `lookback?` | Investigate intermittently failing tests |
+
+### MCP Tool Return Values
+
+**`run` returns:**
+```json
+{
+  "run_id": 1,
+  "status": "FAIL",
+  "exit_code": 2,
+  "error_count": 3,
+  "warning_count": 5,
+  "errors": [...]
+}
+```
+
+**`errors` / `warnings` return:**
+```json
+{
+  "errors": [
+    {
+      "ref": "1:3",
+      "file_path": "src/main.c",
+      "line_number": 15,
+      "column_number": 5,
+      "message": "undefined variable 'foo'",
+      "tool_name": "gcc",
+      "category": "semantic"
+    }
+  ],
+  "total_count": 42
+}
+```
+
+**`event` returns:**
+```json
+{
+  "ref": "1:3",
+  "run_id": 1,
+  "event_id": 3,
+  "severity": "error",
+  "file_path": "src/main.c",
+  "line_number": 15,
+  "message": "undefined variable 'foo'",
+  "raw_text": "src/main.c:15:5: error: use of undeclared identifier 'foo'",
+  "error_fingerprint": "abc123..."
+}
+```
+
+**`context` returns:**
+```json
+{
+  "ref": "1:3",
+  "context_lines": [
+    {"line": 13, "text": "int main() {", "is_event": false},
+    {"line": 14, "text": "    int bar = 10;", "is_event": false},
+    {"line": 15, "text": "    printf(\"%d\", foo);", "is_event": true},
+    {"line": 16, "text": "    return 0;", "is_event": false}
+  ]
+}
+```
+
+**`status` returns:**
+```json
+{
+  "sources": [
+    {
+      "name": "make",
+      "status": "FAIL",
+      "error_count": 3,
+      "warning_count": 5,
+      "last_run": "2024-01-15T10:30:00",
+      "run_id": 1
+    }
+  ]
+}
+```
+
+**`diff` returns:**
+```json
+{
+  "summary": {
+    "run1_errors": 5,
+    "run2_errors": 3,
+    "fixed": 3,
+    "new": 1,
+    "unchanged": 2
+  },
+  "fixed": [
+    {"file_path": "src/old.c", "message": "fixed error"}
+  ],
+  "new": [
+    {"ref": "2:5", "file_path": "src/new.c", "line_number": 10, "message": "new error"}
+  ]
+}
+```
+
+### MCP Workflow Examples
+
+**Build Failure Investigation:**
 ```
 1. User: "The build is failing"
-2. Agent: calls lq_run("make", json=true, quiet=true)
+2. Agent: calls run(command="make")
 3. Agent: parses errors from response
-4. Agent: presents summary to user
+4. Agent: presents summary to user with refs
 5. User: "What's error 1:3 about?"
-6. Agent: calls lq_event("1:3")
-7. Agent: calls lq_context("1:3") for surrounding lines
+6. Agent: calls event(ref="1:3")
+7. Agent: calls context(ref="1:3", lines=5)
 8. Agent: explains the error with full context
+```
+
+**Regression Analysis:**
+```
+1. User: "The build was passing yesterday, now it fails"
+2. Agent: calls history(limit=10) to find runs
+3. Agent: identifies last passing run (run_id=5) and failing run (run_id=6)
+4. Agent: calls diff(run1=5, run2=6)
+5. Agent: presents new errors that appeared
+6. Agent: uses event() and context() to explain root cause
+```
+
+**Using Prompts:**
+```
+1. User: "Help me fix these build errors"
+2. Agent: calls get_prompt("fix-errors")
+3. Prompt provides structured guidance with current status and error list
+4. Agent follows the instructions in the prompt systematically
+```
+
+### Claude Desktop Configuration
+
+Add to your Claude Desktop MCP settings (`~/.config/claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "lq": {
+      "command": "lq",
+      "args": ["serve"],
+      "cwd": "/path/to/your/project"
+    }
+  }
+}
+```
+
+### Programmatic MCP Client Example
+
+```python
+from fastmcp import Client
+from lq.serve import mcp
+
+async with Client(mcp) as client:
+    # Run a build
+    result = await client.call_tool("run", {"command": "make"})
+
+    # Get errors
+    errors = await client.call_tool("errors", {"limit": 10})
+
+    # Drill down
+    for err in errors.data["errors"]:
+        detail = await client.call_tool("event", {"ref": err["ref"]})
+        context = await client.call_tool("context", {"ref": err["ref"]})
 ```
 
 ## Best Practices
