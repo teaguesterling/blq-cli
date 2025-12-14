@@ -475,6 +475,103 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
         }
 
 
+def _register_command_impl(
+    name: str,
+    cmd: str,
+    description: str = "",
+    timeout: int = 300,
+    capture: bool = True,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Implementation of register_command."""
+    try:
+        from lq.cli import RegisteredCommand, load_commands, save_commands
+        lq_dir = Path(".lq")
+
+        if not lq_dir.exists():
+            return {"success": False, "error": "No lq repository found. Run 'lq init' first."}
+
+        commands = load_commands(lq_dir)
+
+        if name in commands and not force:
+            return {
+                "success": False,
+                "error": f"Command '{name}' already exists. Use force=true to overwrite.",
+            }
+
+        commands[name] = RegisteredCommand(
+            name=name,
+            cmd=cmd,
+            description=description,
+            timeout=timeout,
+            capture=capture,
+        )
+        save_commands(lq_dir, commands)
+
+        return {
+            "success": True,
+            "message": f"Registered command '{name}': {cmd}",
+            "command": {
+                "name": name,
+                "cmd": cmd,
+                "description": description,
+                "timeout": timeout,
+                "capture": capture,
+            },
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _unregister_command_impl(name: str) -> dict[str, Any]:
+    """Implementation of unregister_command."""
+    try:
+        from lq.cli import load_commands, save_commands
+        lq_dir = Path(".lq")
+
+        if not lq_dir.exists():
+            return {"success": False, "error": "No lq repository found."}
+
+        commands = load_commands(lq_dir)
+
+        if name not in commands:
+            return {"success": False, "error": f"Command '{name}' not found."}
+
+        del commands[name]
+        save_commands(lq_dir, commands)
+
+        return {"success": True, "message": f"Unregistered command '{name}'"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _list_commands_impl() -> dict[str, Any]:
+    """Implementation of list_commands."""
+    try:
+        from lq.cli import load_commands
+        lq_dir = Path(".lq")
+
+        if not lq_dir.exists():
+            return {"commands": []}
+
+        commands = load_commands(lq_dir)
+
+        return {
+            "commands": [
+                {
+                    "name": name,
+                    "cmd": cmd.cmd,
+                    "description": cmd.description,
+                    "timeout": cmd.timeout,
+                    "capture": cmd.capture,
+                }
+                for name, cmd in commands.items()
+            ]
+        }
+    except Exception as e:
+        return {"commands": [], "error": str(e)}
+
+
 # ============================================================================
 # Tools (thin wrappers around implementations)
 # ============================================================================
@@ -612,6 +709,54 @@ def diff(run1: int, run2: int) -> dict[str, Any]:
         Diff summary with fixed and new errors
     """
     return _diff_impl(run1, run2)
+
+
+@mcp.tool()
+def register_command(
+    name: str,
+    cmd: str,
+    description: str = "",
+    timeout: int = 300,
+    capture: bool = True,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Register a new command.
+
+    Args:
+        name: Command name (e.g., 'build', 'test')
+        cmd: Command to run
+        description: Command description
+        timeout: Timeout in seconds (default: 300)
+        capture: Whether to capture and parse logs (default: true)
+        force: Overwrite existing command if it exists
+
+    Returns:
+        Success status and registered command details
+    """
+    return _register_command_impl(name, cmd, description, timeout, capture, force)
+
+
+@mcp.tool()
+def unregister_command(name: str) -> dict[str, Any]:
+    """Remove a registered command.
+
+    Args:
+        name: Command name to remove
+
+    Returns:
+        Success status
+    """
+    return _unregister_command_impl(name)
+
+
+@mcp.tool()
+def list_commands() -> dict[str, Any]:
+    """List all registered commands.
+
+    Returns:
+        List of registered commands with their configuration
+    """
+    return _list_commands_impl()
 
 
 # ============================================================================
