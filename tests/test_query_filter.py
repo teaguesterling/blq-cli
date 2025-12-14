@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import os
 from pathlib import Path
 
 import duckdb
@@ -11,15 +10,13 @@ import pytest
 
 from lq.cli import (
     ConnectionFactory,
-    parse_filter_expression,
-    format_query_output,
-    query_source,
-    cmd_query,
     cmd_filter,
-    cmd_init,
+    cmd_query,
     cmd_run,
+    format_query_output,
+    parse_filter_expression,
+    query_source,
 )
-
 
 # ============================================================================
 # ConnectionFactory Tests
@@ -131,11 +128,13 @@ class TestFormatQueryOutput:
     @pytest.fixture
     def sample_df(self):
         """Create a sample DataFrame for testing."""
-        return pd.DataFrame({
-            "severity": ["error", "warning"],
-            "file_path": ["main.c", "utils.c"],
-            "message": ["undefined var", "unused var"],
-        })
+        return pd.DataFrame(
+            {
+                "severity": ["error", "warning"],
+                "file_path": ["main.c", "utils.c"],
+                "message": ["undefined var", "unused var"],
+            }
+        )
 
     def test_table_format(self, sample_df):
         """Format as table (default)."""

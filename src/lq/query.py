@@ -29,8 +29,9 @@ Example usage:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import duckdb
 import pandas as pd
@@ -538,9 +539,7 @@ class LogStore:
             lq_path = p / ".lq"
             if lq_path.exists():
                 return lq_path
-        raise FileNotFoundError(
-            ".lq directory not found. Run 'lq init' to initialize."
-        )
+        raise FileNotFoundError(".lq directory not found. Run 'lq init' to initialize.")
 
     def _ensure_schema(self) -> None:
         """Load schema if not already loaded."""
@@ -560,10 +559,18 @@ class LogStore:
                 if not stmt:
                     continue
                 # Skip lq_base_path definition (we set it above)
-                if "lq_base_path()" in stmt and "CREATE" in stmt.upper() and "MACRO" in stmt.upper():
+                if (
+                    "lq_base_path()" in stmt
+                    and "CREATE" in stmt.upper()
+                    and "MACRO" in stmt.upper()
+                ):
                     continue
                 # Skip pure comments
-                lines = [l for l in stmt.split("\n") if l.strip() and not l.strip().startswith("--")]
+                lines = [
+                    line
+                    for line in stmt.split("\n")
+                    if line.strip() and not line.strip().startswith("--")
+                ]
                 if not lines:
                     continue
                 try:
@@ -652,9 +659,7 @@ class LogStore:
             Latest run_id or None if no runs
         """
         self._ensure_schema()
-        result = self._conn.sql(
-            "SELECT MAX(run_id) FROM lq_events"
-        ).fetchone()
+        result = self._conn.sql("SELECT MAX(run_id) FROM lq_events").fetchone()
         return result[0] if result and result[0] is not None else None
 
     def event(self, run_id: int, event_id: int) -> dict[str, Any] | None:
@@ -667,11 +672,7 @@ class LogStore:
         Returns:
             Event as dict or None if not found
         """
-        result = (
-            self.events()
-            .filter(run_id=run_id, event_id=event_id)
-            .fetchone()
-        )
+        result = self.events().filter(run_id=run_id, event_id=event_id).fetchone()
         if result is None:
             return None
 

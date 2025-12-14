@@ -16,6 +16,6 @@ Example usage:
 
 __version__ = "0.1.0"
 
-from lq.query import LogQuery, LogStore, LogQueryGrouped
+from lq.query import LogQuery, LogQueryGrouped, LogStore
 
 __all__ = ["LogQuery", "LogStore", "LogQueryGrouped", "__version__"]

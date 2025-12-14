@@ -5,12 +5,10 @@ import os
 from pathlib import Path
 
 import duckdb
-import pandas as pd
 import pytest
 
-from lq.query import LogQuery, LogStore, LogQueryGrouped
-from lq.cli import cmd_init, cmd_run
-
+from lq.cli import cmd_run
+from lq.query import LogQuery, LogStore
 
 # ============================================================================
 # LogQuery Tests
@@ -117,12 +115,7 @@ class TestLogQueryFilter:
 
     def test_filter_chained(self, query):
         """Chain multiple filter calls."""
-        df = (
-            query
-            .filter(severity=["error", "warning"])
-            .filter(file_path="%main%")
-            .df()
-        )
+        df = query.filter(severity=["error", "warning"]).filter(file_path="%main%").df()
         assert len(df) == 3
 
     def test_exclude(self, query):
@@ -177,8 +170,7 @@ class TestLogQueryProjection:
     def test_combined_operations(self, query):
         """Combine filter, select, order, limit."""
         df = (
-            query
-            .filter(severity=["error", "warning"])
+            query.filter(severity=["error", "warning"])
             .select("file_path", "message")
             .order_by("file_path")
             .limit(2)
