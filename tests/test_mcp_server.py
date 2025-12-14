@@ -22,10 +22,10 @@ def get_data(result):
 @pytest.fixture
 def mcp_server(initialized_project, sample_build_script):
     """Create MCP server with initialized project and sample data."""
-    # Import here to avoid errors if fastmcp not installed
     # Run a build to generate some data
     import subprocess
 
+    # Import here to avoid errors if fastmcp not installed
     from lq.serve import mcp
 
     subprocess.run(
