@@ -244,11 +244,13 @@ DEFAULT_CAPTURE_ENV = [
 # Project Configuration
 # ============================================================================
 
+
 @dataclass
 class ProjectInfo:
     """Project identity derived from git remote."""
+
     namespace: str | None = None  # e.g., "teaguesterling" from github.com/teaguesterling/lq
-    project: str | None = None    # e.g., "lq"
+    project: str | None = None  # e.g., "lq"
 
     def is_detected(self) -> bool:
         """Return True if project info was successfully detected."""
@@ -317,7 +319,7 @@ def detect_project_info() -> ProjectInfo:
             url = result.stdout.strip()
 
             # Try SSH format: git@host:owner/project.git
-            ssh_match = re.match(r'^git@([^:]+):([^/]+)/([^/]+?)(?:\.git)?$', url)
+            ssh_match = re.match(r"^git@([^:]+):([^/]+)/([^/]+?)(?:\.git)?$", url)
             if ssh_match:
                 host = ssh_match.group(1)
                 owner = ssh_match.group(2)
@@ -329,7 +331,7 @@ def detect_project_info() -> ProjectInfo:
                 )
 
             # Try HTTPS/SSH URL format: https://host/owner/project.git
-            url_match = re.match(r'^(?:https?|ssh)://([^/]+)/([^/]+)/([^/]+?)(?:\.git)?$', url)
+            url_match = re.match(r"^(?:https?|ssh)://([^/]+)/([^/]+)/([^/]+?)(?:\.git)?$", url)
             if url_match:
                 host = url_match.group(1)
                 owner = url_match.group(2)
@@ -341,7 +343,7 @@ def detect_project_info() -> ProjectInfo:
                 )
 
             # Try simple path format: owner/project (assume local/unknown provider)
-            path_match = re.match(r'^([^/]+)/([^/]+?)(?:\.git)?$', url)
+            path_match = re.match(r"^([^/]+)/([^/]+?)(?:\.git)?$", url)
             if path_match:
                 return ProjectInfo(
                     namespace=f"git__{path_match.group(1)}",
@@ -364,6 +366,7 @@ def detect_project_info() -> ProjectInfo:
 @dataclass
 class LqConfig:
     """Project configuration from config.yaml."""
+
     capture_env: list[str] = field(default_factory=lambda: DEFAULT_CAPTURE_ENV.copy())
     namespace: str | None = None
     project: str | None = None
@@ -855,8 +858,7 @@ def parse_log_content(content: str, format_hint: str = "auto") -> list[dict[str,
     try:
         conn.execute("LOAD duck_hunt")
         result = conn.execute(
-            "SELECT * FROM parse_duck_hunt_log($1, $2)",
-            [content, format_hint]
+            "SELECT * FROM parse_duck_hunt_log($1, $2)", [content, format_hint]
         ).fetchall()
         columns = [desc[0] for desc in conn.description]
         events = [dict(zip(columns, row)) for row in result]
@@ -979,81 +981,132 @@ def _install_extensions() -> None:
 # Build system detection rules
 # Each entry: (file_to_check, [(command_name, command, description), ...])
 BUILD_SYSTEM_DETECTORS: list[tuple[str, list[tuple[str, str, str]]]] = [
-    ("Makefile", [
-        ("build", "make", "Build the project"),
-        ("test", "make test", "Run tests"),
-        ("clean", "make clean", "Clean build artifacts"),
-    ]),
+    (
+        "Makefile",
+        [
+            ("build", "make", "Build the project"),
+            ("test", "make test", "Run tests"),
+            ("clean", "make clean", "Clean build artifacts"),
+        ],
+    ),
     # Yarn takes precedence over npm if yarn.lock exists
-    ("yarn.lock", [
-        ("build", "yarn build", "Build the project"),
-        ("test", "yarn test", "Run tests"),
-        ("lint", "yarn lint", "Run linter"),
-    ]),
-    ("package.json", [
-        ("build", "npm run build", "Build the project"),
-        ("test", "npm test", "Run tests"),
-        ("lint", "npm run lint", "Run linter"),
-    ]),
-    ("pyproject.toml", [
-        ("test", "pytest", "Run tests"),
-        ("lint", "ruff check .", "Run linter"),
-    ]),
-    ("Cargo.toml", [
-        ("build", "cargo build", "Build the project"),
-        ("test", "cargo test", "Run tests"),
-    ]),
-    ("go.mod", [
-        ("build", "go build ./...", "Build the project"),
-        ("test", "go test ./...", "Run tests"),
-    ]),
-    ("CMakeLists.txt", [
-        ("build", "cmake --build .", "Build the project"),
-        ("test", "ctest", "Run tests"),
-    ]),
+    (
+        "yarn.lock",
+        [
+            ("build", "yarn build", "Build the project"),
+            ("test", "yarn test", "Run tests"),
+            ("lint", "yarn lint", "Run linter"),
+        ],
+    ),
+    (
+        "package.json",
+        [
+            ("build", "npm run build", "Build the project"),
+            ("test", "npm test", "Run tests"),
+            ("lint", "npm run lint", "Run linter"),
+        ],
+    ),
+    (
+        "pyproject.toml",
+        [
+            ("test", "pytest", "Run tests"),
+            ("lint", "ruff check .", "Run linter"),
+        ],
+    ),
+    (
+        "Cargo.toml",
+        [
+            ("build", "cargo build", "Build the project"),
+            ("test", "cargo test", "Run tests"),
+        ],
+    ),
+    (
+        "go.mod",
+        [
+            ("build", "go build ./...", "Build the project"),
+            ("test", "go test ./...", "Run tests"),
+        ],
+    ),
+    (
+        "CMakeLists.txt",
+        [
+            ("build", "cmake --build .", "Build the project"),
+            ("test", "ctest", "Run tests"),
+        ],
+    ),
     # Autotools
-    ("configure", [
-        ("configure", "./configure", "Configure the build"),
-    ]),
-    ("configure.ac", [
-        ("autoreconf", "autoreconf -i", "Generate configure script"),
-    ]),
+    (
+        "configure",
+        [
+            ("configure", "./configure", "Configure the build"),
+        ],
+    ),
+    (
+        "configure.ac",
+        [
+            ("autoreconf", "autoreconf -i", "Generate configure script"),
+        ],
+    ),
     # Java build systems
-    ("build.gradle", [
-        ("build", "./gradlew build", "Build the project"),
-        ("test", "./gradlew test", "Run tests"),
-        ("clean", "./gradlew clean", "Clean build artifacts"),
-    ]),
-    ("build.gradle.kts", [
-        ("build", "./gradlew build", "Build the project"),
-        ("test", "./gradlew test", "Run tests"),
-        ("clean", "./gradlew clean", "Clean build artifacts"),
-    ]),
-    ("pom.xml", [
-        ("build", "mvn package", "Build the project"),
-        ("test", "mvn test", "Run tests"),
-        ("clean", "mvn clean", "Clean build artifacts"),
-    ]),
+    (
+        "build.gradle",
+        [
+            ("build", "./gradlew build", "Build the project"),
+            ("test", "./gradlew test", "Run tests"),
+            ("clean", "./gradlew clean", "Clean build artifacts"),
+        ],
+    ),
+    (
+        "build.gradle.kts",
+        [
+            ("build", "./gradlew build", "Build the project"),
+            ("test", "./gradlew test", "Run tests"),
+            ("clean", "./gradlew clean", "Clean build artifacts"),
+        ],
+    ),
+    (
+        "pom.xml",
+        [
+            ("build", "mvn package", "Build the project"),
+            ("test", "mvn test", "Run tests"),
+            ("clean", "mvn clean", "Clean build artifacts"),
+        ],
+    ),
     # Docker
-    ("Dockerfile", [
-        ("docker-build", "docker build -t app .", "Build Docker image"),
-    ]),
-    ("docker-compose.yml", [
-        ("docker-up", "docker-compose up", "Start Docker services"),
-        ("docker-build", "docker-compose build", "Build Docker services"),
-    ]),
-    ("docker-compose.yaml", [
-        ("docker-up", "docker-compose up", "Start Docker services"),
-        ("docker-build", "docker-compose build", "Build Docker services"),
-    ]),
-    ("compose.yml", [
-        ("docker-up", "docker compose up", "Start Docker services"),
-        ("docker-build", "docker compose build", "Build Docker services"),
-    ]),
-    ("compose.yaml", [
-        ("docker-up", "docker compose up", "Start Docker services"),
-        ("docker-build", "docker compose build", "Build Docker services"),
-    ]),
+    (
+        "Dockerfile",
+        [
+            ("docker-build", "docker build -t app .", "Build Docker image"),
+        ],
+    ),
+    (
+        "docker-compose.yml",
+        [
+            ("docker-up", "docker-compose up", "Start Docker services"),
+            ("docker-build", "docker-compose build", "Build Docker services"),
+        ],
+    ),
+    (
+        "docker-compose.yaml",
+        [
+            ("docker-up", "docker-compose up", "Start Docker services"),
+            ("docker-build", "docker-compose build", "Build Docker services"),
+        ],
+    ),
+    (
+        "compose.yml",
+        [
+            ("docker-up", "docker compose up", "Start Docker services"),
+            ("docker-build", "docker compose build", "Build Docker services"),
+        ],
+    ),
+    (
+        "compose.yaml",
+        [
+            ("docker-up", "docker compose up", "Start Docker services"),
+            ("docker-build", "docker compose build", "Build Docker services"),
+        ],
+    ),
 ]
 
 
@@ -1085,6 +1138,7 @@ def _package_json_has_script(path: Path, script_name: str) -> bool:
     """Check if package.json has a specific script defined."""
     try:
         import json
+
         data = json.loads(path.read_text())
         scripts = data.get("scripts", {})
         # Map our command names to npm script names
@@ -1193,6 +1247,7 @@ def find_executable(command: str) -> str | None:
 @dataclass
 class GitInfo:
     """Git repository state at time of run."""
+
     commit: str | None = None
     branch: str | None = None
     dirty: bool | None = None
@@ -1247,71 +1302,92 @@ def capture_git_info() -> GitInfo:
 
 # CI provider detection: env var to check -> (provider name, env vars to capture)
 CI_PROVIDERS = {
-    "GITHUB_ACTIONS": ("github", [
-        "GITHUB_RUN_ID",
-        "GITHUB_RUN_NUMBER",
-        "GITHUB_WORKFLOW",
-        "GITHUB_JOB",
-        "GITHUB_REF",
-        "GITHUB_SHA",
-        "GITHUB_REPOSITORY",
-        "GITHUB_ACTOR",
-        "GITHUB_EVENT_NAME",
-        "GITHUB_PR_NUMBER",
-    ]),
-    "GITLAB_CI": ("gitlab", [
-        "CI_JOB_ID",
-        "CI_PIPELINE_ID",
-        "CI_COMMIT_SHA",
-        "CI_COMMIT_REF_NAME",
-        "CI_PROJECT_PATH",
-        "CI_MERGE_REQUEST_IID",
-        "GITLAB_USER_LOGIN",
-    ]),
-    "JENKINS_URL": ("jenkins", [
-        "BUILD_NUMBER",
-        "BUILD_ID",
-        "JOB_NAME",
-        "BUILD_URL",
-        "GIT_COMMIT",
-        "GIT_BRANCH",
-        "CHANGE_ID",
-    ]),
-    "CIRCLECI": ("circleci", [
-        "CIRCLE_BUILD_NUM",
-        "CIRCLE_WORKFLOW_ID",
-        "CIRCLE_JOB",
-        "CIRCLE_SHA1",
-        "CIRCLE_BRANCH",
-        "CIRCLE_PR_NUMBER",
-        "CIRCLE_PROJECT_REPONAME",
-    ]),
-    "TRAVIS": ("travis", [
-        "TRAVIS_BUILD_ID",
-        "TRAVIS_BUILD_NUMBER",
-        "TRAVIS_JOB_ID",
-        "TRAVIS_COMMIT",
-        "TRAVIS_BRANCH",
-        "TRAVIS_PULL_REQUEST",
-        "TRAVIS_REPO_SLUG",
-    ]),
-    "BUILDKITE": ("buildkite", [
-        "BUILDKITE_BUILD_ID",
-        "BUILDKITE_BUILD_NUMBER",
-        "BUILDKITE_JOB_ID",
-        "BUILDKITE_COMMIT",
-        "BUILDKITE_BRANCH",
-        "BUILDKITE_PULL_REQUEST",
-        "BUILDKITE_PIPELINE_SLUG",
-    ]),
-    "AZURE_PIPELINES": ("azure", [
-        "BUILD_BUILDID",
-        "BUILD_BUILDNUMBER",
-        "BUILD_SOURCEVERSION",
-        "BUILD_SOURCEBRANCH",
-        "SYSTEM_PULLREQUEST_PULLREQUESTID",
-        "BUILD_REPOSITORY_NAME",
-    ]),
+    "GITHUB_ACTIONS": (
+        "github",
+        [
+            "GITHUB_RUN_ID",
+            "GITHUB_RUN_NUMBER",
+            "GITHUB_WORKFLOW",
+            "GITHUB_JOB",
+            "GITHUB_REF",
+            "GITHUB_SHA",
+            "GITHUB_REPOSITORY",
+            "GITHUB_ACTOR",
+            "GITHUB_EVENT_NAME",
+            "GITHUB_PR_NUMBER",
+        ],
+    ),
+    "GITLAB_CI": (
+        "gitlab",
+        [
+            "CI_JOB_ID",
+            "CI_PIPELINE_ID",
+            "CI_COMMIT_SHA",
+            "CI_COMMIT_REF_NAME",
+            "CI_PROJECT_PATH",
+            "CI_MERGE_REQUEST_IID",
+            "GITLAB_USER_LOGIN",
+        ],
+    ),
+    "JENKINS_URL": (
+        "jenkins",
+        [
+            "BUILD_NUMBER",
+            "BUILD_ID",
+            "JOB_NAME",
+            "BUILD_URL",
+            "GIT_COMMIT",
+            "GIT_BRANCH",
+            "CHANGE_ID",
+        ],
+    ),
+    "CIRCLECI": (
+        "circleci",
+        [
+            "CIRCLE_BUILD_NUM",
+            "CIRCLE_WORKFLOW_ID",
+            "CIRCLE_JOB",
+            "CIRCLE_SHA1",
+            "CIRCLE_BRANCH",
+            "CIRCLE_PR_NUMBER",
+            "CIRCLE_PROJECT_REPONAME",
+        ],
+    ),
+    "TRAVIS": (
+        "travis",
+        [
+            "TRAVIS_BUILD_ID",
+            "TRAVIS_BUILD_NUMBER",
+            "TRAVIS_JOB_ID",
+            "TRAVIS_COMMIT",
+            "TRAVIS_BRANCH",
+            "TRAVIS_PULL_REQUEST",
+            "TRAVIS_REPO_SLUG",
+        ],
+    ),
+    "BUILDKITE": (
+        "buildkite",
+        [
+            "BUILDKITE_BUILD_ID",
+            "BUILDKITE_BUILD_NUMBER",
+            "BUILDKITE_JOB_ID",
+            "BUILDKITE_COMMIT",
+            "BUILDKITE_BRANCH",
+            "BUILDKITE_PULL_REQUEST",
+            "BUILDKITE_PIPELINE_SLUG",
+        ],
+    ),
+    "AZURE_PIPELINES": (
+        "azure",
+        [
+            "BUILD_BUILDID",
+            "BUILD_BUILDNUMBER",
+            "BUILD_SOURCEVERSION",
+            "BUILD_SOURCEBRANCH",
+            "SYSTEM_PULLREQUEST_PULLREQUESTID",
+            "BUILD_REPOSITORY_NAME",
+        ],
+    ),
 }
 
 
@@ -1331,7 +1407,7 @@ def capture_ci_info() -> dict[str, str] | None:
                     short_key = var
                     for prefix in ["GITHUB_", "CI_", "CIRCLE_", "TRAVIS_", "BUILDKITE_", "BUILD_"]:
                         if short_key.startswith(prefix):
-                            short_key = short_key[len(prefix):]
+                            short_key = short_key[len(prefix) :]
                             break
                     ci_info[short_key.lower()] = value
             return ci_info
@@ -1426,8 +1502,9 @@ def cmd_run(args: argparse.Namespace) -> None:
     # No-capture mode: just run and exit with the command's exit code
     if not should_capture:
         if not quiet:
-            print(f"\n[lq] Completed in {duration_sec:.1f}s (exit code {exit_code})",
-                  file=sys.stderr)
+            print(
+                f"\n[lq] Completed in {duration_sec:.1f}s (exit code {exit_code})", file=sys.stderr
+            )
         sys.exit(exit_code)
 
     # Always save raw output when using structured output (needed for context)
@@ -1640,12 +1717,7 @@ def cmd_warnings(args: argparse.Namespace) -> None:
     """Show recent warnings."""
     try:
         store = get_store_for_args(args)
-        result = (
-            store.warnings()
-            .order_by("run_id", desc=True)
-            .limit(args.limit)
-            .df()
-        )
+        result = store.warnings().order_by("run_id", desc=True).limit(args.limit).df()
         print(result.to_string(index=False))
     except duckdb.Error as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1898,6 +1970,7 @@ def cmd_unregister(args: argparse.Namespace) -> None:
 # Sync Command
 # ============================================================================
 
+
 def get_sync_destination(destination: str | None = None) -> Path:
     """Get the sync destination directory.
 
@@ -2017,8 +2090,9 @@ def _soft_sync(source: Path, target: Path, force: bool, verbose: bool) -> None:
                 print("Use --force to replace (will delete existing data!)", file=sys.stderr)
                 sys.exit(1)
         else:
-            print(f"Error: Target exists and is not a symlink or directory: {target}",
-                  file=sys.stderr)
+            print(
+                f"Error: Target exists and is not a symlink or directory: {target}", file=sys.stderr
+            )
             sys.exit(1)
 
     # Create symlink
@@ -2398,15 +2472,17 @@ def main() -> None:
         help="Log format for parsing (default: auto). Use 'lq formats' to list available formats.",
     )
     parser.add_argument(
-        "-g", "--global",
+        "-g",
+        "--global",
         action="store_true",
         dest="global_",
-        help="Query global store (~/.lq/projects/) instead of local .lq"
+        help="Query global store (~/.lq/projects/) instead of local .lq",
     )
     parser.add_argument(
-        "-d", "--database",
+        "-d",
+        "--database",
         metavar="PATH",
-        help="Query custom database path (local or remote, e.g., s3://bucket/lq/)"
+        help="Query custom database path (local or remote, e.g., s3://bucket/lq/)",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command")
@@ -2416,23 +2492,16 @@ def main() -> None:
     p_init.add_argument(
         "--mcp", "-m", action="store_true", help="Create .mcp.json for MCP server discovery"
     )
+    p_init.add_argument("--project", "-p", help="Project name (overrides auto-detection)")
+    p_init.add_argument("--namespace", "-n", help="Project namespace (overrides auto-detection)")
     p_init.add_argument(
-        "--project", "-p",
-        help="Project name (overrides auto-detection)"
+        "--detect", "-d", action="store_true", help="Auto-detect and register build/test commands"
     )
     p_init.add_argument(
-        "--namespace", "-n",
-        help="Project namespace (overrides auto-detection)"
-    )
-    p_init.add_argument(
-        "--detect", "-d",
+        "--yes",
+        "-y",
         action="store_true",
-        help="Auto-detect and register build/test commands"
-    )
-    p_init.add_argument(
-        "--yes", "-y",
-        action="store_true",
-        help="Non-interactive mode (auto-confirm detected commands)"
+        help="Non-interactive mode (auto-confirm detected commands)",
     )
     p_init.set_defaults(func=cmd_init)
 
@@ -2457,10 +2526,21 @@ def main() -> None:
     p_run.set_defaults(func=cmd_run)
     # Capture control: runtime flags override command config
     capture_group = p_run.add_mutually_exclusive_group()
-    capture_group.add_argument("--capture", "-C", action="store_true", dest="capture", default=None,
-                               help="Force log capture (override command config)")
-    capture_group.add_argument("--no-capture", "-N", action="store_false", dest="capture",
-                               help="Skip log capture, just run command")
+    capture_group.add_argument(
+        "--capture",
+        "-C",
+        action="store_true",
+        dest="capture",
+        default=None,
+        help="Force log capture (override command config)",
+    )
+    capture_group.add_argument(
+        "--no-capture",
+        "-N",
+        action="store_false",
+        dest="capture",
+        help="Skip log capture, just run command",
+    )
 
     # import
     p_import = subparsers.add_parser("import", help="Import existing log file")
@@ -2547,8 +2627,9 @@ def main() -> None:
         "--timeout", "-t", type=int, default=300, help="Timeout in seconds (default: 300)"
     )
     p_register.add_argument("--format", "-f", default="auto", help="Log format hint")
-    p_register.add_argument("--no-capture", "-N", action="store_true",
-                           help="Don't capture logs by default")
+    p_register.add_argument(
+        "--no-capture", "-N", action="store_true", help="Don't capture logs by default"
+    )
     p_register.add_argument("--force", action="store_true", help="Overwrite existing command")
     p_register.set_defaults(func=cmd_register)
 
@@ -2559,20 +2640,19 @@ def main() -> None:
 
     # sync
     p_sync = subparsers.add_parser("sync", help="Sync project logs to central location")
-    p_sync.add_argument("destination", nargs="?",
-                        help="Destination path", default=GLOBAL_PROJECTS_PATH)
-    p_sync.add_argument("--soft", "-s", action="store_true", default=True,
-                        help="Create symlink (default)")
-    p_sync.add_argument("--hard", "-H", action="store_true",
-                        help="Copy files instead of symlink")
-    p_sync.add_argument("--force", "-f", action="store_true",
-                        help="Replace existing sync target")
-    p_sync.add_argument("--dry-run", "-n", action="store_true",
-                        help="Show what would be done without doing it")
-    p_sync.add_argument("--status", action="store_true",
-                        help="Show current sync status")
-    p_sync.add_argument("--verbose", "-v", action="store_true",
-                        help="Verbose output")
+    p_sync.add_argument(
+        "destination", nargs="?", help="Destination path", default=GLOBAL_PROJECTS_PATH
+    )
+    p_sync.add_argument(
+        "--soft", "-s", action="store_true", default=True, help="Create symlink (default)"
+    )
+    p_sync.add_argument("--hard", "-H", action="store_true", help="Copy files instead of symlink")
+    p_sync.add_argument("--force", "-f", action="store_true", help="Replace existing sync target")
+    p_sync.add_argument(
+        "--dry-run", "-n", action="store_true", help="Show what would be done without doing it"
+    )
+    p_sync.add_argument("--status", action="store_true", help="Show current sync status")
+    p_sync.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     p_sync.set_defaults(func=cmd_sync)
 
     # query (with alias 'q')
