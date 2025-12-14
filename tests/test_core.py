@@ -137,6 +137,7 @@ class TestGetNextRunId:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
         try:
             cmd_run(args)
@@ -179,6 +180,7 @@ class TestGetConnection:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
         try:
             cmd_run(args)
@@ -269,6 +271,7 @@ class TestCmdRun:
             quiet=False,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -296,6 +299,7 @@ class TestCmdRun:
             quiet=False,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -321,6 +325,7 @@ class TestCmdRun:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
 
         try:
@@ -343,6 +348,7 @@ class TestCmdRun:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
 
         try:
@@ -400,6 +406,7 @@ class TestCmdEvent:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
         try:
             cmd_run(args)
@@ -429,6 +436,7 @@ class TestCmdEvent:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
         try:
             cmd_run(args)
@@ -463,6 +471,7 @@ class TestCmdContext:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
         try:
             cmd_run(args)
@@ -501,6 +510,7 @@ class TestCmdErrors:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
         try:
             cmd_run(args)
@@ -529,6 +539,7 @@ class TestCmdErrors:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
         try:
             cmd_run(args)
@@ -562,6 +573,7 @@ class TestCmdStatus:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
         try:
             cmd_run(args)

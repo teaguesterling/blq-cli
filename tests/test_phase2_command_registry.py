@@ -148,6 +148,7 @@ class TestCommandRegistryCLI:
             description="Build the project",
             timeout=300,
             format="auto",
+            no_capture=False,
             force=False,
         )
 
@@ -173,6 +174,7 @@ class TestCommandRegistryCLI:
             description="v1",
             timeout=300,
             format="auto",
+            no_capture=False,
             force=False,
         )
         cmd_register(args)
@@ -184,6 +186,7 @@ class TestCommandRegistryCLI:
             description="v2",
             timeout=300,
             format="auto",
+            no_capture=False,
             force=True,
         )
         cmd_register(args)
@@ -204,6 +207,7 @@ class TestCommandRegistryCLI:
             description="v1",
             timeout=300,
             format="auto",
+            no_capture=False,
             force=False,
         )
         cmd_register(args)
@@ -215,6 +219,7 @@ class TestCommandRegistryCLI:
             description="v2",
             timeout=300,
             format="auto",
+            no_capture=False,
             force=False,
         )
 
@@ -237,6 +242,7 @@ class TestCommandRegistryCLI:
             description="",
             timeout=300,
             format="auto",
+            no_capture=False,
             force=False,
         )
         cmd_register(args)
@@ -292,6 +298,7 @@ class TestCommandRegistryCLI:
                 description=desc,
                 timeout=300,
                 format="auto",
+                no_capture=False,
                 force=False,
             )
             cmd_register(args)
@@ -319,6 +326,7 @@ class TestCommandRegistryCLI:
             description="Build",
             timeout=300,
             format="auto",
+            no_capture=False,
             force=False,
         )
         cmd_register(args)
@@ -350,6 +358,7 @@ class TestRunRegisteredCommand:
             description="Run success script",
             timeout=300,
             format="auto",
+            no_capture=False,
             force=False,
         )
         cmd_register(args)
@@ -366,6 +375,7 @@ class TestRunRegisteredCommand:
             quiet=False,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
 
         # Should not raise (exit code 0)
@@ -397,6 +407,7 @@ class TestRunRegisteredCommand:
             quiet=False,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
 
         try:
@@ -421,6 +432,7 @@ class TestRunRegisteredCommand:
             description="Run linter",
             timeout=300,
             format="eslint_json",
+            no_capture=False,
             force=False,
         )
         cmd_register(args)
@@ -442,6 +454,7 @@ class TestRunRegisteredCommand:
             description="",
             timeout=300,
             format="auto",
+            no_capture=False,
             force=False,
         )
         cmd_register(args)
@@ -458,6 +471,7 @@ class TestRunRegisteredCommand:
             quiet=False,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
 
         # This will fail because 'build extra args' isn't a valid command

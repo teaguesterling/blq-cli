@@ -374,6 +374,7 @@ class RegisteredCommand:
     description: str = ""
     timeout: int = 300
     format: str = "auto"
+    capture: bool = True  # Whether to capture and parse logs (default: True)
     capture_env: list[str] = field(default_factory=list)  # Additional env vars for this command
 
     def to_dict(self) -> dict[str, Any]:
@@ -383,6 +384,8 @@ class RegisteredCommand:
             "timeout": self.timeout,
             "format": self.format,
         }
+        if not self.capture:
+            d["capture"] = False
         if self.capture_env:
             d["capture_env"] = self.capture_env
         return d
@@ -413,6 +416,7 @@ def load_commands(lq_dir: Path) -> dict[str, RegisteredCommand]:
                 description=config.get("description", ""),
                 timeout=config.get("timeout", 300),
                 format=config.get("format", "auto"),
+                capture=config.get("capture", True),
                 capture_env=capture_env,
             )
     return commands
@@ -1096,6 +1100,9 @@ def cmd_run(args: argparse.Namespace) -> None:
     # Build list of env vars to capture (config defaults + command-specific)
     capture_env_vars = config.capture_env.copy()
 
+    # Default capture setting (can be overridden by command config)
+    should_capture = True
+
     if first_arg in registered_commands and len(args.command) == 1:
         # Use registered command
         reg_cmd = registered_commands[first_arg]
@@ -1103,6 +1110,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         source_name = args.name or first_arg
         format_hint = args.format if args.format != "auto" else reg_cmd.format
         timeout = reg_cmd.timeout
+        should_capture = reg_cmd.capture
         # Add command-specific env vars
         for var in reg_cmd.capture_env:
             if var not in capture_env_vars:
@@ -1113,6 +1121,10 @@ def cmd_run(args: argparse.Namespace) -> None:
         source_name = args.name or first_arg
         format_hint = args.format
         timeout = None  # No timeout for ad-hoc commands
+
+    # Runtime flag overrides command config
+    if args.capture is not None:
+        should_capture = args.capture
 
     run_id = get_next_run_id(lq_dir)
     started_at = datetime.now()
@@ -1155,6 +1167,12 @@ def cmd_run(args: argparse.Namespace) -> None:
     completed_at = datetime.now()
     output = "".join(output_lines)
     duration_sec = (completed_at - started_at).total_seconds()
+
+    # No-capture mode: just run and exit with the command's exit code
+    if not should_capture:
+        if not quiet:
+            print(f"\n[lq] Completed in {duration_sec:.1f}s (exit code {exit_code})", file=sys.stderr)
+        sys.exit(exit_code)
 
     # Always save raw output when using structured output (needed for context)
     if args.keep_raw or structured_output:
@@ -1578,11 +1596,12 @@ def cmd_commands(args: argparse.Namespace) -> None:
         data = {name: cmd.to_dict() for name, cmd in commands.items()}
         print(json.dumps(data, indent=2))
     else:
-        print(f"{'Name':<15} {'Command':<40} Description")
-        print("-" * 70)
+        print(f"{'Name':<15} {'Command':<40} {'Capture':<8} Description")
+        print("-" * 80)
         for name, cmd in commands.items():
             cmd_display = cmd.cmd[:37] + "..." if len(cmd.cmd) > 40 else cmd.cmd
-            print(f"{name:<15} {cmd_display:<40} {cmd.description}")
+            capture_str = "yes" if cmd.capture else "no"
+            print(f"{name:<15} {cmd_display:<40} {capture_str:<8} {cmd.description}")
 
 
 def cmd_register(args: argparse.Namespace) -> None:
@@ -1597,16 +1616,19 @@ def cmd_register(args: argparse.Namespace) -> None:
         print(f"Command '{name}' already exists. Use --force to overwrite.", file=sys.stderr)
         sys.exit(1)
 
+    capture = not getattr(args, "no_capture", False)
     commands[name] = RegisteredCommand(
         name=name,
         cmd=cmd_str,
         description=args.description or "",
         timeout=args.timeout,
         format=args.format,
+        capture=capture,
     )
 
     save_commands(lq_dir, commands)
-    print(f"Registered command '{name}': {cmd_str}")
+    capture_note = " (no capture)" if not capture else ""
+    print(f"Registered command '{name}': {cmd_str}{capture_note}")
 
 
 def cmd_unregister(args: argparse.Namespace) -> None:
@@ -1942,6 +1964,12 @@ def main() -> None:
     p_run.add_argument("--quiet", "-q", action="store_true", help="Suppress streaming output")
     p_run.add_argument("--include-warnings", "-w", action="store_true", help="Include warnings in structured output")
     p_run.add_argument("--error-limit", type=int, default=20, help="Max errors/warnings in output (default: 20)")
+    # Capture control: runtime flags override command config
+    capture_group = p_run.add_mutually_exclusive_group()
+    capture_group.add_argument("--capture", "-C", action="store_true", dest="capture", default=None,
+                               help="Force log capture (override command config)")
+    capture_group.add_argument("--no-capture", "-N", action="store_false", dest="capture",
+                               help="Skip log capture, just run command")
     p_run.set_defaults(func=cmd_run)
 
     # import
@@ -2025,6 +2053,7 @@ def main() -> None:
     p_register.add_argument("--description", "-d", help="Command description")
     p_register.add_argument("--timeout", "-t", type=int, default=300, help="Timeout in seconds (default: 300)")
     p_register.add_argument("--format", "-f", default="auto", help="Log format hint")
+    p_register.add_argument("--no-capture", "-N", action="store_true", help="Don't capture logs by default")
     p_register.add_argument("--force", action="store_true", help="Overwrite existing command")
     p_register.set_defaults(func=cmd_register)
 

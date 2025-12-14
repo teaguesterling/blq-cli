@@ -302,6 +302,7 @@ class TestLogStore:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
         try:
             cmd_run(args)
@@ -325,6 +326,7 @@ class TestLogStore:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
         try:
             cmd_run(args)
@@ -347,6 +349,7 @@ class TestLogStore:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
         try:
             cmd_run(args)
@@ -369,6 +372,7 @@ class TestLogStore:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
         try:
             cmd_run(args)
@@ -391,6 +395,7 @@ class TestLogStore:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
         try:
             cmd_run(args)
@@ -416,6 +421,7 @@ class TestLogStore:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
         try:
             cmd_run(args)
@@ -446,6 +452,7 @@ class TestLogStoreChaining:
             quiet=True,
             include_warnings=False,
             error_limit=20,
+            capture=None,
         )
         try:
             cmd_run(args)
