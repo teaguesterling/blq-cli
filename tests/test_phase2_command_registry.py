@@ -7,7 +7,6 @@ import pytest
 
 from lq.cli import (
     RegisteredCommand,
-    _parse_simple_yaml,
     load_commands,
     save_commands,
 )
