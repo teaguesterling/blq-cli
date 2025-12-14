@@ -21,8 +21,10 @@ pip install lq
 
 Initialize in your project (installs duck_hunt extension):
 ```bash
-lq init         # Basic init
-lq init --mcp   # Also create .mcp.json for AI agents
+lq init                     # Basic init
+lq init --mcp               # Also create .mcp.json for AI agents
+lq init --detect --yes      # Auto-detect and register build/test commands
+lq init --project myapp --namespace myorg  # Override project identification
 ```
 
 ## Quick Start
@@ -171,17 +173,26 @@ Output includes event references for drill-down:
 Register frequently-used commands:
 
 ```bash
-# Register commands
+# Auto-detect commands from build files (Makefile, package.json, etc.)
+lq init --detect --yes
+
+# Or register manually
 lq register build "make -j8" --description "Build project"
 lq register test "pytest -v" --timeout 600
+lq register format "black ." --no-capture  # Skip log capture for fast commands
 
 # Run by name
 lq run build
 lq run test
 
+# Run without log capture (fast mode for CI/pre-commit)
+lq run --no-capture format
+
 # List registered commands
 lq commands
 ```
+
+**Auto-detected build systems:** Makefile, package.json, pyproject.toml, Cargo.toml, go.mod, CMakeLists.txt, Dockerfile, docker-compose.yml
 
 ## Run Metadata
 

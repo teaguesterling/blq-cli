@@ -18,6 +18,8 @@ This is the initial scaffolding for `lq` (Log Query) - a CLI tool for capturing,
 - MCP server (`lq serve`) for AI agent integration
 - Run metadata capture (environment, git, system, CI context)
 - Project detection from git remote or filesystem path
+- Command auto-detection from build files (`lq init --detect`)
+- Capture/no-capture mode for fast execution (`lq run --no-capture`)
 - 173 unit tests
 - Comprehensive documentation (README, docs/)
 
@@ -95,6 +97,31 @@ project:
 
 Fallback for non-git projects uses filesystem path:
 - `/home/user/Projects/myapp` → `namespace=home__user__Projects, project=myapp`
+
+## Command Auto-Detection
+
+`lq init --detect` scans for build system files and registers appropriate commands:
+
+| File | Commands |
+|------|----------|
+| `Makefile` | build, test, clean |
+| `package.json` | build, test, lint (if scripts exist) |
+| `pyproject.toml` | test (pytest), lint (ruff) |
+| `Cargo.toml` | build, test |
+| `go.mod` | build, test |
+| `CMakeLists.txt` | build, test |
+| `Dockerfile` | docker-build |
+| `docker-compose.yml` | docker-up, docker-build |
+
+Commands can have `capture: false` for fast execution without log parsing:
+```yaml
+commands:
+  format:
+    cmd: "black ."
+    capture: false  # Skip log capture
+```
+
+Runtime override: `lq run --no-capture <cmd>` or `lq run --capture <cmd>`
 
 ## Key Design Decisions
 
