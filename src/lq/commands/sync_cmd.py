@@ -15,8 +15,8 @@ from pathlib import Path
 from lq.commands.core import (
     GLOBAL_LQ_DIR,
     LOGS_DIR,
-    LqConfig,
     PROJECTS_DIR,
+    LqConfig,
     ensure_initialized,
 )
 

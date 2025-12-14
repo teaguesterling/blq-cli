@@ -8,15 +8,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from importlib import resources
 from pathlib import Path
 
 from lq.commands.core import (
-    CONFIG_FILE,
-    LQ_DIR,
     LOGS_DIR,
+    LQ_DIR,
     RAW_DIR,
     SCHEMA_FILE,
     ConnectionFactory,

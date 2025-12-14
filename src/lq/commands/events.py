@@ -9,13 +9,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 
 import duckdb
 
 from lq.commands.core import (
-    EventRef,
     RAW_DIR,
+    EventRef,
     ensure_initialized,
 )
 from lq.query import LogStore

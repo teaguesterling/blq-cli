@@ -9,15 +9,12 @@ from __future__ import annotations
 
 import json
 import os
-import platform
 import re
 import shutil
-import socket
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from importlib import resources
 from pathlib import Path
 from typing import Any
 

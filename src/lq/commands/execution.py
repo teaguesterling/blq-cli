@@ -16,9 +16,9 @@ from datetime import datetime
 from pathlib import Path
 
 from lq.commands.core import (
+    RAW_DIR,
     EventSummary,
     LqConfig,
-    RAW_DIR,
     RunResult,
     capture_ci_info,
     capture_environment,
