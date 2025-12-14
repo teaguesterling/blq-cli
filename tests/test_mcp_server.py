@@ -9,7 +9,8 @@ import pytest
 # Skip all tests if fastmcp not installed
 fastmcp = pytest.importorskip("fastmcp")
 
-from fastmcp import Client
+if fastmcp:
+    from fastmcp import Client
 
 
 def get_data(result):

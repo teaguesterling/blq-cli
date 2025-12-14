@@ -47,7 +47,7 @@ class TestConnectionFactory:
         # This will depend on whether duck_hunt is installed in the test env
         # We just verify it doesn't crash
         try:
-            conn = ConnectionFactory.create(
+            ConnectionFactory.create(
                 load_schema=False,
                 require_duck_hunt=True,
             )

@@ -22,7 +22,10 @@ from lq.query import LogStore
 # Create the MCP server
 mcp = FastMCP(
     "lq",
-    instructions="Log Query - capture and query build/test logs. Use tools to run builds, query errors, and analyze results.",
+    instructions=(
+        "Log Query - capture and query build/test logs. "
+        "Use tools to run builds, query errors, and analyze results."
+    ),
 )
 
 
@@ -739,7 +742,8 @@ def analyze_regression(good_run: int | None = None, bad_run: int | None = None) 
 
 | Metric | Run {good_run} (good) | Run {bad_run} (bad) | Delta |
 |--------|--------------|-------------|-------|
-| Errors | {summary.get("run1_errors", 0)} | {summary.get("run2_errors", 0)} | +{summary.get("new", 0)} |
+| Errors | {summary.get("run1_errors", 0)} | {summary.get("run2_errors", 0)} | \
++{summary.get("new", 0)} |
 
 ## New Errors (not in Run {good_run})
 

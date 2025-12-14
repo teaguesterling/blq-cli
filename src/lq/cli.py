@@ -147,7 +147,8 @@ class RunResult:
             f"## {badge} Build Result: {self.status}",
             "",
             f"**Command:** `{self.command}`",
-            f"**Duration:** {self.duration_sec:.1f}s | **Exit code:** {self.exit_code} | **Run ID:** {self.run_id}",
+            f"**Duration:** {self.duration_sec:.1f}s | **Exit code:** {self.exit_code} | "
+            f"**Run ID:** {self.run_id}",
             "",
         ]
 
@@ -747,7 +748,6 @@ def cmd_run(args: argparse.Namespace) -> None:
         command = reg_cmd.cmd
         source_name = args.name or first_arg
         format_hint = args.format if args.format != "auto" else reg_cmd.format
-        timeout = reg_cmd.timeout
     else:
         # Use literal command
         command = " ".join(args.command)
@@ -862,7 +862,8 @@ def cmd_run(args: argparse.Namespace) -> None:
     else:
         # Traditional output
         print(
-            f"\n[lq] Captured {len(events)} events ({len(error_events)} errors, {len(warning_events)} warnings)",
+            f"\n[lq] Captured {len(events)} events "
+            f"({len(error_events)} errors, {len(warning_events)} warnings)",
             file=sys.stderr,
         )
         print(f"[lq] Saved to {filepath}", file=sys.stderr)
