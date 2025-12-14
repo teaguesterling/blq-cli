@@ -18,6 +18,7 @@ import pandas as pd
 from lq.commands.core import (
     SCHEMA_FILE,
     ensure_initialized,
+    get_store_for_args,
 )
 from lq.query import LogQuery, LogStore
 
@@ -281,8 +282,6 @@ def cmd_filter(args: argparse.Namespace) -> None:
 
 def cmd_sql(args: argparse.Namespace) -> None:
     """Run arbitrary SQL."""
-    from lq.commands.core import get_store_for_args
-    
     sql = " ".join(args.query)
     try:
         store = get_store_for_args(args)

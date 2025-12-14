@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
+from importlib import resources
 from pathlib import Path
 
 from lq.commands.core import (
@@ -144,7 +146,6 @@ def _install_extensions() -> None:
     if ConnectionFactory.install_duck_hunt(conn):
         print("  duck_hunt  - Installed successfully")
     else:
-        import sys
         print("  duck_hunt  - Installation failed (some features unavailable)", file=sys.stderr)
         print("             Run manually: INSTALL duck_hunt FROM community", file=sys.stderr)
 
@@ -242,8 +243,6 @@ def _detect_and_register_commands(lq_dir: Path, auto_yes: bool) -> None:
 
 def cmd_init(args: argparse.Namespace) -> None:
     """Initialize .lq directory and install required extensions."""
-    from importlib import resources
-    
     lq_dir = Path.cwd() / LQ_DIR
     mcp_config_path = Path.cwd() / MCP_CONFIG_FILE
     create_mcp = getattr(args, "mcp", False)
@@ -271,7 +270,6 @@ def cmd_init(args: argparse.Namespace) -> None:
         schema_content = resources.files("lq").joinpath("schema.sql").read_text()
         (lq_dir / SCHEMA_FILE).write_text(schema_content)
     except Exception as e:
-        import sys
         print(f"Warning: Could not copy schema.sql: {e}", file=sys.stderr)
 
     # Detect project info from git remote (can be overridden)

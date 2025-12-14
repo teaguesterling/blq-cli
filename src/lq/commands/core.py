@@ -13,6 +13,7 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from importlib import resources
@@ -468,7 +469,6 @@ def get_lq_dir() -> Path | None:
 
 def ensure_initialized() -> Path:
     """Ensure .lq directory exists."""
-    import sys
     lq_dir = get_lq_dir()
     if lq_dir is None or not lq_dir.exists():
         print("Error: .lq not initialized. Run 'lq init' first.", file=sys.stderr)
