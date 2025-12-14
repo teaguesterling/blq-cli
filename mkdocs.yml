@@ -49,9 +49,10 @@ nav:
   - Getting Started: getting-started.md
   - Commands:
       - Overview: commands/index.md
+      - Run: commands/run.md
       - Query: commands/query.md
       - Filter: commands/filter.md
-      - Run: commands/run.md
+      - Sync: commands/sync.md
   - Guides:
       - Query Guide: query-guide.md
       - Python API: python-api.md
@@ -59,3 +60,4 @@ nav:
       - MCP Server: mcp.md
   - Development:
       - CI/CD Setup: ci-cd.md
+      - Design - Sync: design-sync.md

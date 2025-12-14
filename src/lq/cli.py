@@ -178,10 +178,22 @@ def main() -> None:
         "--detect", "-d", action="store_true", help="Auto-detect and register build/test commands"
     )
     p_init.add_argument(
+        "--detect-mode",
+        choices=["none", "simple", "inspect", "auto"],
+        default="auto",
+        help="Detection mode: none, simple (build files), inspect (parse CI/Makefiles), auto",
+    )
+    p_init.add_argument(
         "--yes",
         "-y",
         action="store_true",
         help="Non-interactive mode (auto-confirm detected commands)",
+    )
+    p_init.add_argument(
+        "--force",
+        "-f",
+        action="store_true",
+        help="Reinitialize config files (schema, config) without deleting data",
     )
     p_init.set_defaults(func=cmd_init)
 
