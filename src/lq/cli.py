@@ -237,9 +237,88 @@ DEFAULT_CAPTURE_ENV = [
 # ============================================================================
 
 @dataclass
+class ProjectInfo:
+    """Project identity derived from git remote."""
+    namespace: str | None = None  # e.g., "teaguesterling" from github.com/teaguesterling/lq
+    project: str | None = None    # e.g., "lq"
+
+    def is_detected(self) -> bool:
+        """Return True if project info was successfully detected."""
+        return self.namespace is not None and self.project is not None
+
+
+def detect_project_info() -> ProjectInfo:
+    """Detect project namespace and name from git remote or filesystem path.
+
+    Detection order:
+    1. Git remote origin URL (if available)
+    2. Fallback to filesystem path (parent dirs as namespace, cwd as project)
+
+    Git remote formats supported:
+    - git@github.com:namespace/project.git
+    - https://github.com/namespace/project.git
+    - ssh://git@github.com/namespace/project.git
+
+    Filesystem fallback:
+    - /home/teague/Projects/myapp → namespace=home__teague__Projects, project=myapp
+
+    Returns:
+        ProjectInfo with namespace and project.
+    """
+    # Try git remote first
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            url = result.stdout.strip()
+
+            # Try SSH format: git@host:namespace/project.git
+            ssh_match = re.match(r'^git@[^:]+:([^/]+)/([^/]+?)(?:\.git)?$', url)
+            if ssh_match:
+                return ProjectInfo(
+                    namespace=ssh_match.group(1),
+                    project=ssh_match.group(2),
+                )
+
+            # Try HTTPS/SSH URL format: https://host/namespace/project.git
+            url_match = re.match(r'^(?:https?|ssh)://[^/]+/([^/]+)/([^/]+?)(?:\.git)?$', url)
+            if url_match:
+                return ProjectInfo(
+                    namespace=url_match.group(1),
+                    project=url_match.group(2),
+                )
+
+            # Try simple path format: namespace/project
+            path_match = re.match(r'^([^/]+)/([^/]+?)(?:\.git)?$', url)
+            if path_match:
+                return ProjectInfo(
+                    namespace=path_match.group(1),
+                    project=path_match.group(2),
+                )
+
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+
+    # Fallback to filesystem path
+    cwd = Path.cwd()
+    project = cwd.name
+    # Tokenize parent path: /home/teague/Projects → home__teague__Projects
+    parent = str(cwd.parent).lstrip("/")
+    namespace = parent.replace("/", "__") if parent else "local"
+
+    return ProjectInfo(namespace=namespace, project=project)
+
+
+@dataclass
 class LqConfig:
     """Project configuration from config.yaml."""
     capture_env: list[str] = field(default_factory=lambda: DEFAULT_CAPTURE_ENV.copy())
+    namespace: str | None = None
+    project: str | None = None
 
     @classmethod
     def load(cls, lq_dir: Path) -> "LqConfig":
@@ -258,13 +337,27 @@ class LqConfig:
         elif not isinstance(capture_env, list):
             capture_env = DEFAULT_CAPTURE_ENV.copy()
 
-        return cls(capture_env=capture_env)
+        # Load project info
+        project_data = data.get("project", {})
+        namespace = project_data.get("namespace")
+        project = project_data.get("project")
+
+        return cls(capture_env=capture_env, namespace=namespace, project=project)
 
 
 def save_config(lq_dir: Path, config: LqConfig) -> None:
     """Save config to config.yaml."""
     config_path = lq_dir / CONFIG_FILE
     data = {"capture_env": config.capture_env}
+
+    # Include project info if present
+    if config.namespace or config.project:
+        data["project"] = {}
+        if config.namespace:
+            data["project"]["namespace"] = config.namespace
+        if config.project:
+            data["project"]["project"] = config.project
+
     with open(config_path, "w") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
@@ -736,10 +829,20 @@ def cmd_init(args: argparse.Namespace) -> None:
     except Exception as e:
         print(f"Warning: Could not copy schema.sql: {e}", file=sys.stderr)
 
+    # Detect project info from git remote
+    project_info = detect_project_info()
+    config = LqConfig(
+        namespace=project_info.namespace,
+        project=project_info.project,
+    )
+    save_config(lq_dir, config)
+
     print(f"Initialized .lq at {lq_dir}")
     print("  logs/      - Hive-partitioned parquet files")
     print("  raw/       - Raw log files (optional)")
     print("  schema.sql - SQL schema and macros")
+    if project_info.is_detected():
+        print(f"  project    - {project_info.namespace}/{project_info.project}")
 
     # Install required extensions
     _install_extensions()
