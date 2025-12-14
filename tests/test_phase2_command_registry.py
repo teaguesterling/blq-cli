@@ -9,7 +9,6 @@ from lq.cli import (
     RegisteredCommand,
     load_commands,
     save_commands,
-    _parse_simple_yaml,
 )
 
 
@@ -133,91 +132,6 @@ class TestLoadSaveCommands:
 
         loaded = load_commands(lq_dir)
         assert loaded == {}
-
-
-class TestParseSimpleYaml:
-    """Tests for the fallback YAML parser."""
-
-    def test_parse_basic_structure(self):
-        """Parse basic commands.yaml structure."""
-        content = """commands:
-  build:
-    cmd: "make -j8"
-    description: "Build the project"
-"""
-        result = _parse_simple_yaml(content)
-
-        assert "commands" in result
-        assert "build" in result["commands"]
-        assert result["commands"]["build"]["cmd"] == "make -j8"
-        assert result["commands"]["build"]["description"] == "Build the project"
-
-    def test_parse_multiple_commands(self):
-        """Parse multiple commands."""
-        content = """commands:
-  build:
-    cmd: "make -j8"
-  test:
-    cmd: "pytest"
-  lint:
-    cmd: "ruff check ."
-"""
-        result = _parse_simple_yaml(content)
-
-        assert len(result["commands"]) == 3
-        assert result["commands"]["build"]["cmd"] == "make -j8"
-        assert result["commands"]["test"]["cmd"] == "pytest"
-        assert result["commands"]["lint"]["cmd"] == "ruff check ."
-
-    def test_parse_timeout_as_int(self):
-        """Parse timeout as integer."""
-        content = """commands:
-  build:
-    cmd: "make"
-    timeout: 600
-"""
-        result = _parse_simple_yaml(content)
-
-        assert result["commands"]["build"]["timeout"] == 600
-        assert isinstance(result["commands"]["build"]["timeout"], int)
-
-    def test_parse_strips_quotes(self):
-        """Parse strips quotes from values."""
-        content = """commands:
-  build:
-    cmd: "make -j8"
-    description: 'Build project'
-"""
-        result = _parse_simple_yaml(content)
-
-        assert result["commands"]["build"]["cmd"] == "make -j8"
-        assert result["commands"]["build"]["description"] == "Build project"
-
-    def test_parse_ignores_comments(self):
-        """Parse ignores comment lines."""
-        content = """# This is a comment
-commands:
-  # Another comment
-  build:
-    cmd: "make"
-    # Inline comments not supported but line comments are
-"""
-        result = _parse_simple_yaml(content)
-
-        assert "build" in result["commands"]
-
-    def test_parse_empty_content(self):
-        """Parse empty content returns empty commands."""
-        result = _parse_simple_yaml("")
-        assert result == {"commands": {}}
-
-    def test_parse_only_comments(self):
-        """Parse content with only comments."""
-        content = """# Just comments
-# Nothing else
-"""
-        result = _parse_simple_yaml(content)
-        assert result == {"commands": {}}
 
 
 class TestCommandRegistryCLI:

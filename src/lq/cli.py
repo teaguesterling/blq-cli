@@ -38,11 +38,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import platform
 import re
 import shutil
+import socket
 import subprocess
 import sys
 from dataclasses import dataclass, field, asdict
+
+import yaml
 from datetime import datetime, timedelta
 from importlib import resources
 from pathlib import Path
@@ -183,6 +188,85 @@ LOGS_DIR = "logs"
 RAW_DIR = "raw"
 SCHEMA_FILE = "schema.sql"
 COMMANDS_FILE = "commands.yaml"
+CONFIG_FILE = "config.yaml"
+
+# Default environment variables to capture for all runs
+DEFAULT_CAPTURE_ENV = [
+    # Path and executables
+    "PATH",
+    "HOME",
+    "USER",
+    "SHELL",
+    # Python
+    "PYTHONPATH",
+    "VIRTUAL_ENV",
+    "CONDA_DEFAULT_ENV",
+    "CONDA_PREFIX",
+    # C/C++
+    "CC",
+    "CXX",
+    "CFLAGS",
+    "CXXFLAGS",
+    "LDFLAGS",
+    "LD_LIBRARY_PATH",
+    # Build tools
+    "MAKEFLAGS",
+    "CMAKE_PREFIX_PATH",
+    # Node.js
+    "NODE_PATH",
+    "NPM_CONFIG_PREFIX",
+    # Rust
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    # Go
+    "GOPATH",
+    "GOROOT",
+    # Java
+    "JAVA_HOME",
+    "CLASSPATH",
+    # CI/CD
+    "CI",
+    "GITHUB_ACTIONS",
+    "GITLAB_CI",
+    "JENKINS_URL",
+]
+
+
+# ============================================================================
+# Project Configuration
+# ============================================================================
+
+@dataclass
+class LqConfig:
+    """Project configuration from config.yaml."""
+    capture_env: list[str] = field(default_factory=lambda: DEFAULT_CAPTURE_ENV.copy())
+
+    @classmethod
+    def load(cls, lq_dir: Path) -> "LqConfig":
+        """Load config from config.yaml, falling back to defaults."""
+        config_path = lq_dir / CONFIG_FILE
+        if not config_path.exists():
+            return cls()
+
+        with open(config_path) as f:
+            data = yaml.safe_load(f) or {}
+
+        # Merge with defaults - config can extend or replace
+        capture_env = data.get("capture_env")
+        if capture_env is None:
+            capture_env = DEFAULT_CAPTURE_ENV.copy()
+        elif not isinstance(capture_env, list):
+            capture_env = DEFAULT_CAPTURE_ENV.copy()
+
+        return cls(capture_env=capture_env)
+
+
+def save_config(lq_dir: Path, config: LqConfig) -> None:
+    """Save config to config.yaml."""
+    config_path = lq_dir / CONFIG_FILE
+    data = {"capture_env": config.capture_env}
+    with open(config_path, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
 # ============================================================================
@@ -197,14 +281,18 @@ class RegisteredCommand:
     description: str = ""
     timeout: int = 300
     format: str = "auto"
+    capture_env: list[str] = field(default_factory=list)  # Additional env vars for this command
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "cmd": self.cmd,
             "description": self.description,
             "timeout": self.timeout,
             "format": self.format,
         }
+        if self.capture_env:
+            d["capture_env"] = self.capture_env
+        return d
 
 
 def load_commands(lq_dir: Path) -> dict[str, RegisteredCommand]:
@@ -213,13 +301,8 @@ def load_commands(lq_dir: Path) -> dict[str, RegisteredCommand]:
     if not commands_path.exists():
         return {}
 
-    try:
-        import yaml
-        with open(commands_path) as f:
-            data = yaml.safe_load(f) or {}
-    except ImportError:
-        # Fallback to basic YAML parsing if PyYAML not installed
-        data = _parse_simple_yaml(commands_path.read_text())
+    with open(commands_path) as f:
+        data = yaml.safe_load(f) or {}
 
     commands = {}
     for name, config in data.get("commands", {}).items():
@@ -228,12 +311,16 @@ def load_commands(lq_dir: Path) -> dict[str, RegisteredCommand]:
             commands[name] = RegisteredCommand(name=name, cmd=config)
         else:
             # Full format with options
+            capture_env = config.get("capture_env", [])
+            if not isinstance(capture_env, list):
+                capture_env = []
             commands[name] = RegisteredCommand(
                 name=name,
                 cmd=config.get("cmd", ""),
                 description=config.get("description", ""),
                 timeout=config.get("timeout", 300),
                 format=config.get("format", "auto"),
+                capture_env=capture_env,
             )
     return commands
 
@@ -241,60 +328,9 @@ def load_commands(lq_dir: Path) -> dict[str, RegisteredCommand]:
 def save_commands(lq_dir: Path, commands: dict[str, RegisteredCommand]) -> None:
     """Save registered commands to commands.yaml."""
     commands_path = lq_dir / COMMANDS_FILE
-
-    try:
-        import yaml
-        data = {"commands": {name: cmd.to_dict() for name, cmd in commands.items()}}
-        with open(commands_path, "w") as f:
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-    except ImportError:
-        # Fallback to simple YAML writing
-        lines = ["commands:"]
-        for name, cmd in commands.items():
-            lines.append(f"  {name}:")
-            lines.append(f'    cmd: "{cmd.cmd}"')
-            if cmd.description:
-                lines.append(f'    description: "{cmd.description}"')
-            if cmd.timeout != 300:
-                lines.append(f"    timeout: {cmd.timeout}")
-            if cmd.format != "auto":
-                lines.append(f'    format: "{cmd.format}"')
-        commands_path.write_text("\n".join(lines) + "\n")
-
-
-def _parse_simple_yaml(content: str) -> dict:
-    """Basic YAML parser for commands.yaml (fallback if PyYAML not installed)."""
-    result: dict = {"commands": {}}
-    current_cmd = None
-    current_data: dict = {}
-
-    for line in content.split("\n"):
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-
-        indent = len(line) - len(line.lstrip())
-
-        if stripped == "commands:":
-            continue
-        elif indent == 2 and stripped.endswith(":"):
-            # New command
-            if current_cmd:
-                result["commands"][current_cmd] = current_data
-            current_cmd = stripped[:-1]
-            current_data = {}
-        elif indent == 4 and ":" in stripped:
-            # Command property
-            key, value = stripped.split(":", 1)
-            value = value.strip().strip('"').strip("'")
-            if key == "timeout":
-                value = int(value)
-            current_data[key] = value
-
-    if current_cmd:
-        result["commands"][current_cmd] = current_data
-
-    return result
+    data = {"commands": {name: cmd.to_dict() for name, cmd in commands.items()}}
+    with open(commands_path, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
 # ============================================================================
@@ -477,6 +513,20 @@ PARQUET_SCHEMA_COLUMNS = [
     "started_at",
     "completed_at",
     "exit_code",
+    # Execution context
+    "cwd",
+    "executable_path",
+    "environment",  # MAP(VARCHAR, VARCHAR) of captured env vars
+    # System context
+    "hostname",
+    "platform",
+    "arch",
+    # Git context
+    "git_commit",
+    "git_branch",
+    "git_dirty",
+    # CI context
+    "ci",  # MAP(VARCHAR, VARCHAR) with provider-specific fields
     # Event identification
     "event_id",
     "severity",
@@ -522,29 +572,45 @@ def write_run_parquet(
     filename = f"{run_id:03d}_{safe_name}_{time_str}.parquet"
     filepath = partition_dir / filename
 
+    # Columns that should be stored as MAP(VARCHAR, VARCHAR)
+    map_columns = {"environment", "ci"}
+
+    def dict_to_map_entries(d: dict | None) -> list | None:
+        """Convert dict to list of {key, value} structs for DuckDB MAP creation."""
+        if d is None:
+            return None
+        return [{"key": str(k), "value": str(v)} for k, v in d.items()]
+
     # Build enriched events with all schema columns
     enriched_events = []
     for event in events or [{}]:
-        # Merge run metadata and event data
-        merged = {
-            "run_id": run_id,
-            "source_name": run_meta.get("source_name"),
-            "source_type": source_type,
-            "command": run_meta.get("command"),
-            "started_at": run_meta.get("started_at"),
-            "completed_at": run_meta.get("completed_at"),
-            "exit_code": run_meta.get("exit_code"),
-            **event,
-        }
+        # Merge run metadata and event data (run_meta first, then event overrides)
+        merged = {**run_meta, **event}
         # Build row with all columns in canonical order (None for missing)
-        enriched = {col: merged.get(col) for col in PARQUET_SCHEMA_COLUMNS}
+        enriched = {}
+        for col in PARQUET_SCHEMA_COLUMNS:
+            val = merged.get(col)
+            # Convert dict columns to list format for MAP
+            if col in map_columns and isinstance(val, dict):
+                val = dict_to_map_entries(val)
+            enriched[col] = val
         enriched_events.append(enriched)
 
-    # Write using DuckDB
+    # Write using DuckDB with explicit MAP types
     conn = duckdb.connect(":memory:")
     df = pd.DataFrame(enriched_events, columns=PARQUET_SCHEMA_COLUMNS)
     conn.register("events_df", df)
-    conn.execute("CREATE TABLE events AS SELECT * FROM events_df")
+
+    # Build SELECT with map_from_entries for MAP columns
+    select_cols = []
+    for col in PARQUET_SCHEMA_COLUMNS:
+        if col in map_columns:
+            select_cols.append(f"map_from_entries({col}) AS {col}")
+        else:
+            select_cols.append(col)
+
+    create_sql = f"CREATE TABLE events AS SELECT {', '.join(select_cols)} FROM events_df"
+    conn.execute(create_sql)
     conn.execute(f"COPY events TO '{filepath}' (FORMAT PARQUET)")
     conn.close()
 
@@ -710,13 +776,213 @@ def _install_extensions() -> None:
         print("             Run manually: INSTALL duck_hunt FROM community", file=sys.stderr)
 
 
+def capture_environment(env_vars: list[str]) -> dict[str, str]:
+    """Capture specified environment variables.
+
+    Args:
+        env_vars: List of environment variable names to capture
+
+    Returns:
+        Dict of captured env vars (only those that exist)
+    """
+    captured = {}
+    for var in env_vars:
+        value = os.environ.get(var)
+        if value is not None:
+            captured[var] = value
+    return captured
+
+
+def find_executable(command: str) -> str | None:
+    """Find the full path to the executable for a command.
+
+    Args:
+        command: Command string (may include arguments)
+
+    Returns:
+        Full path to executable, or None if not found
+    """
+    # Extract the first word (the executable name)
+    parts = command.split()
+    if not parts:
+        return None
+
+    exe_name = parts[0]
+
+    # If it's already an absolute path, return it
+    if os.path.isabs(exe_name) and os.path.exists(exe_name):
+        return exe_name
+
+    # Use shutil.which to find in PATH
+    return shutil.which(exe_name)
+
+
+@dataclass
+class GitInfo:
+    """Git repository state at time of run."""
+    commit: str | None = None
+    branch: str | None = None
+    dirty: bool | None = None
+
+
+def capture_git_info() -> GitInfo:
+    """Capture current git repository state.
+
+    Returns:
+        GitInfo with commit hash, branch name, and dirty status.
+        Fields are None if not in a git repo or git not available.
+    """
+    info = GitInfo()
+
+    try:
+        # Get current commit hash
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            info.commit = result.stdout.strip()
+
+        # Get current branch name
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            info.branch = result.stdout.strip()
+
+        # Check if working directory is dirty
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            info.dirty = len(result.stdout.strip()) > 0
+
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        # Git not available or timed out
+        pass
+
+    return info
+
+
+# CI provider detection: env var to check -> (provider name, env vars to capture)
+CI_PROVIDERS = {
+    "GITHUB_ACTIONS": ("github", [
+        "GITHUB_RUN_ID",
+        "GITHUB_RUN_NUMBER",
+        "GITHUB_WORKFLOW",
+        "GITHUB_JOB",
+        "GITHUB_REF",
+        "GITHUB_SHA",
+        "GITHUB_REPOSITORY",
+        "GITHUB_ACTOR",
+        "GITHUB_EVENT_NAME",
+        "GITHUB_PR_NUMBER",
+    ]),
+    "GITLAB_CI": ("gitlab", [
+        "CI_JOB_ID",
+        "CI_PIPELINE_ID",
+        "CI_COMMIT_SHA",
+        "CI_COMMIT_REF_NAME",
+        "CI_PROJECT_PATH",
+        "CI_MERGE_REQUEST_IID",
+        "GITLAB_USER_LOGIN",
+    ]),
+    "JENKINS_URL": ("jenkins", [
+        "BUILD_NUMBER",
+        "BUILD_ID",
+        "JOB_NAME",
+        "BUILD_URL",
+        "GIT_COMMIT",
+        "GIT_BRANCH",
+        "CHANGE_ID",
+    ]),
+    "CIRCLECI": ("circleci", [
+        "CIRCLE_BUILD_NUM",
+        "CIRCLE_WORKFLOW_ID",
+        "CIRCLE_JOB",
+        "CIRCLE_SHA1",
+        "CIRCLE_BRANCH",
+        "CIRCLE_PR_NUMBER",
+        "CIRCLE_PROJECT_REPONAME",
+    ]),
+    "TRAVIS": ("travis", [
+        "TRAVIS_BUILD_ID",
+        "TRAVIS_BUILD_NUMBER",
+        "TRAVIS_JOB_ID",
+        "TRAVIS_COMMIT",
+        "TRAVIS_BRANCH",
+        "TRAVIS_PULL_REQUEST",
+        "TRAVIS_REPO_SLUG",
+    ]),
+    "BUILDKITE": ("buildkite", [
+        "BUILDKITE_BUILD_ID",
+        "BUILDKITE_BUILD_NUMBER",
+        "BUILDKITE_JOB_ID",
+        "BUILDKITE_COMMIT",
+        "BUILDKITE_BRANCH",
+        "BUILDKITE_PULL_REQUEST",
+        "BUILDKITE_PIPELINE_SLUG",
+    ]),
+    "AZURE_PIPELINES": ("azure", [
+        "BUILD_BUILDID",
+        "BUILD_BUILDNUMBER",
+        "BUILD_SOURCEVERSION",
+        "BUILD_SOURCEBRANCH",
+        "SYSTEM_PULLREQUEST_PULLREQUESTID",
+        "BUILD_REPOSITORY_NAME",
+    ]),
+}
+
+
+def capture_ci_info() -> dict[str, str] | None:
+    """Detect CI provider and capture relevant environment variables.
+
+    Returns:
+        Dict with 'provider' key and provider-specific env vars, or None if not in CI.
+    """
+    for detect_var, (provider_name, env_vars) in CI_PROVIDERS.items():
+        if os.environ.get(detect_var):
+            ci_info = {"provider": provider_name}
+            for var in env_vars:
+                value = os.environ.get(var)
+                if value is not None:
+                    # Use short key names (strip common prefixes)
+                    short_key = var
+                    for prefix in ["GITHUB_", "CI_", "CIRCLE_", "TRAVIS_", "BUILDKITE_", "BUILD_"]:
+                        if short_key.startswith(prefix):
+                            short_key = short_key[len(prefix):]
+                            break
+                    ci_info[short_key.lower()] = value
+            return ci_info
+
+    # Check generic CI env var
+    if os.environ.get("CI"):
+        return {"provider": "unknown", "ci": "true"}
+
+    return None
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     """Run a command and capture its output."""
     lq_dir = ensure_initialized()
 
+    # Load config for default environment capture
+    config = LqConfig.load(lq_dir)
+
     # Check if first argument is a registered command name
     registered_commands = load_commands(lq_dir)
     first_arg = args.command[0]
+
+    # Build list of env vars to capture (config defaults + command-specific)
+    capture_env_vars = config.capture_env.copy()
 
     if first_arg in registered_commands and len(args.command) == 1:
         # Use registered command
@@ -725,6 +991,10 @@ def cmd_run(args: argparse.Namespace) -> None:
         source_name = args.name or first_arg
         format_hint = args.format if args.format != "auto" else reg_cmd.format
         timeout = reg_cmd.timeout
+        # Add command-specific env vars
+        for var in reg_cmd.capture_env:
+            if var not in capture_env_vars:
+                capture_env_vars.append(var)
     else:
         # Use literal command
         command = " ".join(args.command)
@@ -734,6 +1004,16 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     run_id = get_next_run_id(lq_dir)
     started_at = datetime.now()
+
+    # Capture execution context
+    cwd = os.getcwd()
+    executable_path = find_executable(command)
+    environment = capture_environment(capture_env_vars)
+    hostname = socket.gethostname()
+    platform_name = platform.system()
+    arch = platform.machine()
+    git_info = capture_git_info()
+    ci_info = capture_ci_info()
 
     # Determine output mode
     structured_output = args.json or args.markdown
@@ -781,6 +1061,16 @@ def cmd_run(args: argparse.Namespace) -> None:
         "started_at": started_at.isoformat(),
         "completed_at": completed_at.isoformat(),
         "exit_code": exit_code,
+        "cwd": cwd,
+        "executable_path": executable_path,
+        "environment": environment or None,  # dict -> MAP(VARCHAR, VARCHAR)
+        "hostname": hostname,
+        "platform": platform_name,
+        "arch": arch,
+        "git_commit": git_info.commit,
+        "git_branch": git_info.branch,
+        "git_dirty": git_info.dirty,
+        "ci": ci_info,  # dict -> MAP(VARCHAR, VARCHAR), None if not in CI
     }
 
     filepath = write_run_parquet(events, run_meta, lq_dir)

@@ -225,6 +225,15 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
         if event_data is None:
             return None
 
+        # Environment is now stored as MAP, convert to dict if needed
+        environment = event_data.get("environment")
+        if environment is not None and not isinstance(environment, dict):
+            # Handle legacy JSON format
+            try:
+                environment = json.loads(environment)
+            except (json.JSONDecodeError, TypeError):
+                environment = None
+
         return {
             "ref": ref,
             "run_id": run_id,
@@ -240,6 +249,20 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
             "raw_text": event_data.get("raw_text"),
             "log_line_start": event_data.get("log_line_start"),
             "log_line_end": event_data.get("log_line_end"),
+            # Execution context
+            "cwd": event_data.get("cwd"),
+            "executable_path": event_data.get("executable_path"),
+            "environment": environment,
+            # System context
+            "hostname": event_data.get("hostname"),
+            "platform": event_data.get("platform"),
+            "arch": event_data.get("arch"),
+            # Git context
+            "git_commit": event_data.get("git_commit"),
+            "git_branch": event_data.get("git_branch"),
+            "git_dirty": event_data.get("git_dirty"),
+            # CI context
+            "ci": event_data.get("ci"),
         }
     except (ValueError, FileNotFoundError):
         return None
@@ -365,6 +388,16 @@ def _history_impl(limit: int = 20, source: str | None = None) -> dict[str, Any]:
                 "warning_count": warning_count,
                 "started_at": str(row.get("started_at", "")),
                 "exit_code": int(row.get("exit_code", 0)) if row.get("exit_code") is not None else None,
+                "command": row.get("command"),
+                "cwd": row.get("cwd"),
+                "executable_path": row.get("executable_path"),
+                "hostname": row.get("hostname"),
+                "platform": row.get("platform"),
+                "arch": row.get("arch"),
+                "git_commit": row.get("git_commit"),
+                "git_branch": row.get("git_branch"),
+                "git_dirty": row.get("git_dirty"),
+                "ci": row.get("ci"),
             })
 
         return {"runs": runs}
