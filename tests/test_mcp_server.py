@@ -9,12 +9,13 @@ import pytest
 # Skip all tests if fastmcp not installed
 fastmcp = pytest.importorskip("fastmcp")
 
-from fastmcp import Client
+if fastmcp:
+    from fastmcp import Client
 
 
 def get_data(result):
     """Extract data from CallToolResult."""
-    if hasattr(result, 'data'):
+    if hasattr(result, "data"):
         return result.data
     return result
 
@@ -22,11 +23,12 @@ def get_data(result):
 @pytest.fixture
 def mcp_server(initialized_project, sample_build_script):
     """Create MCP server with initialized project and sample data."""
+    # Run a build to generate some data
+    import subprocess
+
     # Import here to avoid errors if fastmcp not installed
     from lq.serve import mcp
 
-    # Run a build to generate some data
-    import subprocess
     subprocess.run(
         ["lq", "run", "--quiet", str(sample_build_script)],
         capture_output=True,
@@ -39,6 +41,7 @@ def mcp_server(initialized_project, sample_build_script):
 def mcp_server_empty(initialized_project):
     """Create MCP server with initialized project but no data."""
     from lq.serve import mcp
+
     return mcp
 
 
@@ -54,10 +57,7 @@ class TestRunTool:
     async def test_run_command(self, mcp_server_empty, sample_build_script):
         """Run a command and capture output."""
         async with Client(mcp_server_empty) as client:
-            raw = await client.call_tool(
-                "run",
-                {"command": str(sample_build_script)}
-            )
+            raw = await client.call_tool("run", {"command": str(sample_build_script)})
             result = get_data(raw)
 
             assert "run_id" in result
@@ -68,10 +68,7 @@ class TestRunTool:
     async def test_run_with_args(self, mcp_server_empty):
         """Run a command with arguments."""
         async with Client(mcp_server_empty) as client:
-            raw = await client.call_tool(
-                "run",
-                {"command": "echo", "args": ["hello", "world"]}
-            )
+            raw = await client.call_tool("run", {"command": "echo", "args": ["hello", "world"]})
             result = get_data(raw)
 
             assert result["status"] == "OK"
@@ -83,7 +80,7 @@ class TestRunTool:
         async with Client(mcp_server_empty) as client:
             raw = await client.call_tool(
                 "run",
-                {"command": "false"}  # Always exits with 1
+                {"command": "false"},  # Always exits with 1
             )
             result = get_data(raw)
 
@@ -99,8 +96,7 @@ class TestQueryTool:
         """Run a simple SQL query."""
         async with Client(mcp_server) as client:
             raw = await client.call_tool(
-                "query",
-                {"sql": "SELECT COUNT(*) as count FROM lq_events"}
+                "query", {"sql": "SELECT COUNT(*) as count FROM lq_events"}
             )
             result = get_data(raw)
 
@@ -112,13 +108,7 @@ class TestQueryTool:
     async def test_query_with_limit(self, mcp_server):
         """Query with limit parameter."""
         async with Client(mcp_server) as client:
-            raw = await client.call_tool(
-                "query",
-                {
-                    "sql": "SELECT * FROM lq_events",
-                    "limit": 5
-                }
-            )
+            raw = await client.call_tool("query", {"sql": "SELECT * FROM lq_events", "limit": 5})
             result = get_data(raw)
 
             assert len(result["rows"]) <= 5
@@ -128,8 +118,7 @@ class TestQueryTool:
         """Query filtering to errors only."""
         async with Client(mcp_server) as client:
             raw = await client.call_tool(
-                "query",
-                {"sql": "SELECT * FROM lq_events WHERE severity = 'error'"}
+                "query", {"sql": "SELECT * FROM lq_events WHERE severity = 'error'"}
             )
             result = get_data(raw)
 
@@ -158,10 +147,7 @@ class TestErrorsTool:
     async def test_errors_with_limit(self, mcp_server):
         """Get errors with limit."""
         async with Client(mcp_server) as client:
-            raw = await client.call_tool(
-                "errors",
-                {"limit": 5}
-            )
+            raw = await client.call_tool("errors", {"limit": 5})
             result = get_data(raw)
 
             assert len(result["errors"]) <= 5
@@ -170,10 +156,7 @@ class TestErrorsTool:
     async def test_errors_with_file_pattern(self, mcp_server):
         """Get errors filtered by file pattern."""
         async with Client(mcp_server) as client:
-            raw = await client.call_tool(
-                "errors",
-                {"file_pattern": "%main%"}
-            )
+            raw = await client.call_tool("errors", {"file_pattern": "%main%"})
             result = get_data(raw)
 
             for error in result["errors"]:
@@ -223,10 +206,7 @@ class TestEventTool:
             if errors["errors"]:
                 ref = errors["errors"][0]["ref"]
 
-                raw = await client.call_tool(
-                    "event",
-                    {"ref": ref}
-                )
+                raw = await client.call_tool("event", {"ref": ref})
                 result = get_data(raw)
 
                 assert result is not None
@@ -238,10 +218,7 @@ class TestEventTool:
     async def test_event_not_found(self, mcp_server):
         """Event not found returns appropriate response."""
         async with Client(mcp_server) as client:
-            raw = await client.call_tool(
-                "event",
-                {"ref": "99999:99999"}
-            )
+            raw = await client.call_tool("event", {"ref": "99999:99999"})
             result = get_data(raw)
 
             # Should return None
@@ -261,10 +238,7 @@ class TestContextTool:
             if errors["errors"]:
                 ref = errors["errors"][0]["ref"]
 
-                raw = await client.call_tool(
-                    "context",
-                    {"ref": ref}
-                )
+                raw = await client.call_tool("context", {"ref": ref})
                 result = get_data(raw)
 
                 assert "context_lines" in result
@@ -280,10 +254,7 @@ class TestContextTool:
             if errors["errors"]:
                 ref = errors["errors"][0]["ref"]
 
-                raw = await client.call_tool(
-                    "context",
-                    {"ref": ref, "lines": 10}
-                )
+                raw = await client.call_tool("context", {"ref": ref, "lines": 10})
                 result = get_data(raw)
 
                 assert "context_lines" in result
@@ -333,10 +304,7 @@ class TestHistoryTool:
     async def test_history_with_limit(self, mcp_server):
         """Get history with limit."""
         async with Client(mcp_server) as client:
-            raw = await client.call_tool(
-                "history",
-                {"limit": 5}
-            )
+            raw = await client.call_tool("history", {"limit": 5})
             result = get_data(raw)
 
             assert len(result["runs"]) <= 5
@@ -362,25 +330,15 @@ class TestDiffTool:
         """Compare two runs."""
         async with Client(mcp_server_empty) as client:
             # Create two runs
-            run1_raw = await client.call_tool(
-                "run",
-                {"command": str(sample_build_script)}
-            )
+            run1_raw = await client.call_tool("run", {"command": str(sample_build_script)})
             run1 = get_data(run1_raw)
 
-            run2_raw = await client.call_tool(
-                "run",
-                {"command": str(sample_build_script)}
-            )
+            run2_raw = await client.call_tool("run", {"command": str(sample_build_script)})
             run2 = get_data(run2_raw)
 
             if run1.get("run_id") and run2.get("run_id"):
                 raw = await client.call_tool(
-                    "diff",
-                    {
-                        "run1": run1["run_id"],
-                        "run2": run2["run_id"]
-                    }
+                    "diff", {"run1": run1["run_id"], "run2": run2["run_id"]}
                 )
                 result = get_data(raw)
 
@@ -474,10 +432,7 @@ class TestIntegration:
         """Test typical build -> query -> drill-down workflow."""
         async with Client(mcp_server_empty) as client:
             # 1. Run build
-            run_raw = await client.call_tool(
-                "run",
-                {"command": str(sample_build_script)}
-            )
+            run_raw = await client.call_tool("run", {"command": str(sample_build_script)})
             run_result = get_data(run_raw)
             assert "run_id" in run_result
 
@@ -489,10 +444,7 @@ class TestIntegration:
             # 3. If errors, drill down
             if errors_result["errors"]:
                 ref = errors_result["errors"][0]["ref"]
-                event_raw = await client.call_tool(
-                    "event",
-                    {"ref": ref}
-                )
+                event_raw = await client.call_tool("event", {"ref": ref})
                 event_result = get_data(event_raw)
                 assert event_result is not None
 
@@ -513,9 +465,6 @@ class TestIntegration:
             # 3. Query specific run if available
             if hist["runs"]:
                 run_id = hist["runs"][0]["run_id"]
-                errors_raw = await client.call_tool(
-                    "errors",
-                    {"run_id": run_id}
-                )
+                errors_raw = await client.call_tool("errors", {"run_id": run_id})
                 errors = get_data(errors_raw)
                 assert "errors" in errors

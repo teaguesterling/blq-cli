@@ -26,6 +26,7 @@ def lq_dir(temp_dir):
 
     # Copy schema.sql from the package
     from importlib import resources
+
     schema_content = resources.files("lq").joinpath("schema.sql").read_text()
     (lq_path / "schema.sql").write_text(schema_content)
 
@@ -44,8 +45,9 @@ def chdir_temp(temp_dir):
 @pytest.fixture
 def initialized_project(chdir_temp):
     """A project directory with lq initialized."""
-    from lq.cli import cmd_init
     import argparse
+
+    from lq.cli import cmd_init
 
     args = argparse.Namespace()
     cmd_init(args)

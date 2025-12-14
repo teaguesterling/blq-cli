@@ -43,3 +43,6 @@ htmlcov/
 
 # lq data (local to each project)
 .lq/
+
+# Documentation
+site/

@@ -8,22 +8,18 @@ from pathlib import Path
 import pytest
 
 from lq.cli import (
-    LQ_DIR,
-    LOGS_DIR,
-    RAW_DIR,
-    SCHEMA_FILE,
-    get_lq_dir,
-    ensure_initialized,
-    get_next_run_id,
-    get_connection,
-    write_run_parquet,
-    cmd_init,
-    cmd_run,
-    cmd_import,
-    cmd_event,
     cmd_context,
     cmd_errors,
+    cmd_event,
+    cmd_import,
+    cmd_init,
+    cmd_run,
     cmd_status,
+    ensure_initialized,
+    get_connection,
+    get_lq_dir,
+    get_next_run_id,
+    write_run_parquet,
 )
 
 
@@ -62,8 +58,9 @@ class TestGetLqDir:
             # get_lq_dir returns None when no .lq exists, OR a path outside our temp dir
             # (if .lq exists somewhere in the system path)
             if result is not None:
-                assert not str(result).startswith(str(temp_dir)), \
+                assert not str(result).startswith(str(temp_dir)), (
                     f"Unexpected .lq found within test directory: {result}"
+                )
         finally:
             os.chdir(original)
 

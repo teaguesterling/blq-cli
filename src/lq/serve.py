@@ -12,8 +12,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +30,10 @@ def _to_json_safe(value: Any) -> Any:
 # Create the MCP server
 mcp = FastMCP(
     "lq",
-    instructions="Log Query - capture and query build/test logs. Use tools to run builds, query errors, and analyze results.",
+    instructions=(
+        "Log Query - capture and query build/test logs. "
+        "Use tools to run builds, query errors, and analyze results."
+    ),
 )
 
 
@@ -169,15 +170,21 @@ def _errors_impl(
 
         error_list = []
         for _, row in df.iterrows():
-            error_list.append({
-                "ref": _format_ref(int(row.get("run_id", 0)), int(row.get("event_id", 0))),
-                "file_path": row.get("file_path"),
-                "line_number": int(row["line_number"]) if row.get("line_number") is not None else None,
-                "column_number": int(row["column_number"]) if row.get("column_number") is not None else None,
-                "message": row.get("message"),
-                "tool_name": row.get("tool_name"),
-                "category": row.get("category"),
-            })
+            error_list.append(
+                {
+                    "ref": _format_ref(int(row.get("run_id", 0)), int(row.get("event_id", 0))),
+                    "file_path": row.get("file_path"),
+                    "line_number": int(row["line_number"])
+                    if row.get("line_number") is not None
+                    else None,
+                    "column_number": int(row["column_number"])
+                    if row.get("column_number") is not None
+                    else None,
+                    "message": row.get("message"),
+                    "tool_name": row.get("tool_name"),
+                    "category": row.get("category"),
+                }
+            )
 
         return {"errors": error_list, "total_count": total_count}
     except FileNotFoundError:
@@ -208,15 +215,21 @@ def _warnings_impl(
 
         warning_list = []
         for _, row in df.iterrows():
-            warning_list.append({
-                "ref": _format_ref(int(row.get("run_id", 0)), int(row.get("event_id", 0))),
-                "file_path": row.get("file_path"),
-                "line_number": int(row["line_number"]) if row.get("line_number") is not None else None,
-                "column_number": int(row["column_number"]) if row.get("column_number") is not None else None,
-                "message": row.get("message"),
-                "tool_name": row.get("tool_name"),
-                "category": row.get("category"),
-            })
+            warning_list.append(
+                {
+                    "ref": _format_ref(int(row.get("run_id", 0)), int(row.get("event_id", 0))),
+                    "file_path": row.get("file_path"),
+                    "line_number": int(row["line_number"])
+                    if row.get("line_number") is not None
+                    else None,
+                    "column_number": int(row["column_number"])
+                    if row.get("column_number") is not None
+                    else None,
+                    "message": row.get("message"),
+                    "tool_name": row.get("tool_name"),
+                    "category": row.get("category"),
+                }
+            )
 
         return {"warnings": warning_list, "total_count": total_count}
     except FileNotFoundError:
@@ -304,22 +317,23 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
             )
 
             for _, row in nearby.iterrows():
-                is_event = (
-                    row.get("run_id") == run_id and
-                    row.get("event_id") == event_id
+                is_event = row.get("run_id") == run_id and row.get("event_id") == event_id
+                context_lines.append(
+                    {
+                        "line": row.get("log_line_start"),
+                        "text": row.get("raw_text") or row.get("message", ""),
+                        "is_event": is_event,
+                    }
                 )
-                context_lines.append({
-                    "line": row.get("log_line_start"),
-                    "text": row.get("raw_text") or row.get("message", ""),
-                    "is_event": is_event,
-                })
         else:
             # No line info, just return the event itself
-            context_lines.append({
-                "line": None,
-                "text": event_data.get("raw_text") or event_data.get("message", ""),
-                "is_event": True,
-            })
+            context_lines.append(
+                {
+                    "line": None,
+                    "text": event_data.get("raw_text") or event_data.get("message", ""),
+                    "is_event": True,
+                }
+            )
 
         return {"ref": ref, "context_lines": context_lines}
     except (ValueError, FileNotFoundError):
@@ -348,14 +362,16 @@ def _status_impl() -> dict[str, Any]:
             else:
                 status_str = "OK"
 
-            sources.append({
-                "name": row.get("source_name", "unknown"),
-                "status": status_str,
-                "error_count": error_count,
-                "warning_count": warning_count,
-                "last_run": str(row.get("started_at", "")),
-                "run_id": int(row["run_id"]),
-            })
+            sources.append(
+                {
+                    "name": row.get("source_name", "unknown"),
+                    "status": status_str,
+                    "error_count": error_count,
+                    "warning_count": warning_count,
+                    "last_run": str(row.get("started_at", "")),
+                    "run_id": int(row["run_id"]),
+                }
+            )
 
         return {"sources": sources}
     except FileNotFoundError:
@@ -388,26 +404,29 @@ def _history_impl(limit: int = 20, source: str | None = None) -> dict[str, Any]:
             else:
                 status_str = "OK"
 
-            runs.append({
-                "run_id": int(row["run_id"]),
-                "source_name": _to_json_safe(row.get("source_name")) or "unknown",
-                "status": status_str,
-                "error_count": error_count,
-                "warning_count": warning_count,
-                "started_at": str(row.get("started_at", "")),
-                "exit_code": int(row["exit_code"]) if not pd.isna(row.get("exit_code")) else None,
-                "command": _to_json_safe(row.get("command")),
-                "cwd": _to_json_safe(row.get("cwd")),
-                "executable_path": _to_json_safe(row.get("executable_path")),
-                "hostname": _to_json_safe(row.get("hostname")),
-                "platform": _to_json_safe(row.get("platform")),
-                "arch": _to_json_safe(row.get("arch")),
-                "git_commit": _to_json_safe(row.get("git_commit")),
-                "git_branch": _to_json_safe(row.get("git_branch")),
-                "git_dirty": _to_json_safe(row.get("git_dirty")),
-                "ci": _to_json_safe(row.get("ci")),
-            })
-
+            runs.append(
+                {
+                    "run_id": int(row["run_id"]),
+                    "source_name": _to_json_safe(row.get("source_name")) or "unknown",
+                    "status": status_str,
+                    "error_count": error_count,
+                    "warning_count": warning_count,
+                    "started_at": str(row.get("started_at", "")),
+                    "exit_code": int(row["exit_code"]) 
+                    if not pd.isna(row.get("exit_code")) 
+                    else None,
+                    "command": _to_json_safe(row.get("command")),
+                    "cwd": _to_json_safe(row.get("cwd")),
+                    "executable_path": _to_json_safe(row.get("executable_path")),
+                    "hostname": _to_json_safe(row.get("hostname")),
+                    "platform": _to_json_safe(row.get("platform")),
+                    "arch": _to_json_safe(row.get("arch")),
+                    "git_commit": _to_json_safe(row.get("git_commit")),
+                    "git_branch": _to_json_safe(row.get("git_branch")),
+                    "git_dirty": _to_json_safe(row.get("git_dirty")),
+                    "ci": _to_json_safe(row.get("ci")),
+                }
+            )
         return {"runs": runs}
     except FileNotFoundError:
         return {"runs": []}
@@ -440,20 +459,24 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
         fixed = []
         for _, row in errors1.iterrows():
             if get_error_key(row) in fixed_keys:
-                fixed.append({
-                    "file_path": row.get("file_path"),
-                    "message": row.get("message"),
-                })
+                fixed.append(
+                    {
+                        "file_path": row.get("file_path"),
+                        "message": row.get("message"),
+                    }
+                )
 
         new_errors = []
         for _, row in errors2.iterrows():
             if get_error_key(row) in new_keys:
-                new_errors.append({
-                    "ref": _format_ref(run2, int(row.get("event_id", 0))),
-                    "file_path": row.get("file_path"),
-                    "line_number": row.get("line_number"),
-                    "message": row.get("message"),
-                })
+                new_errors.append(
+                    {
+                        "ref": _format_ref(run2, int(row.get("event_id", 0))),
+                        "file_path": row.get("file_path"),
+                        "line_number": row.get("line_number"),
+                        "message": row.get("message"),
+                    }
+                )
 
         return {
             "summary": {
@@ -797,6 +820,7 @@ def resource_commands() -> str:
     """Registered commands."""
     try:
         from lq.cli import load_commands
+
         lq_dir = Path(".lq")
         if lq_dir.exists():
             commands = load_commands(lq_dir)
@@ -819,7 +843,10 @@ def fix_errors(run_id: int | None = None, file_pattern: str | None = None) -> st
     status_result = _status_impl()
 
     # Build status table
-    status_lines = ["| Source | Status | Errors | Warnings |", "|--------|--------|--------|----------|"]
+    status_lines = [
+        "| Source | Status | Errors | Warnings |",
+        "|--------|--------|--------|----------|",
+    ]
     for src in status_result.get("sources", []):
         status_lines.append(
             f"| {src['name']} | {src['status']} | {src['error_count']} | {src['warning_count']} |"
@@ -832,7 +859,9 @@ def fix_errors(run_id: int | None = None, file_pattern: str | None = None) -> st
         loc = f"{err.get('file_path', '?')}:{err.get('line_number', '?')}"
         if err.get("column_number"):
             loc += f":{err['column_number']}"
-        error_lines.append(f"{i}. **ref: {err['ref']}** `{loc}`\n   ```\n   {err.get('message', '')}\n   ```")
+        error_lines.append(
+            f"{i}. **ref: {err['ref']}** `{loc}`\n   ```\n   {err.get('message', '')}\n   ```"
+        )
     error_list = "\n\n".join(error_lines) if error_lines else "No errors found."
 
     return f"""You are helping fix build errors in a software project.
@@ -868,7 +897,7 @@ def analyze_regression(good_run: int | None = None, bad_run: int | None = None) 
     runs = hist.get("runs", [])
 
     if not runs:
-        return "No runs found. Run a build first with `run(command=\"...\")`."
+        return 'No runs found. Run a build first with `run(command="...")`.'
 
     if bad_run is None:
         bad_run = runs[0]["run_id"] if runs else 1
@@ -898,7 +927,8 @@ def analyze_regression(good_run: int | None = None, bad_run: int | None = None) 
 
 | Metric | Run {good_run} (good) | Run {bad_run} (bad) | Delta |
 |--------|--------------|-------------|-------|
-| Errors | {summary.get('run1_errors', 0)} | {summary.get('run2_errors', 0)} | +{summary.get('new', 0)} |
+| Errors | {summary.get("run1_errors", 0)} | {summary.get("run2_errors", 0)} | \
++{summary.get("new", 0)} |
 
 ## New Errors (not in Run {good_run})
 
@@ -920,7 +950,7 @@ def summarize_run(run_id: int | None = None, format: str = "brief") -> str:
     runs = hist.get("runs", [])
 
     if not runs:
-        return "No runs found. Run a build first with `run(command=\"...\")`."
+        return 'No runs found. Run a build first with `run(command="...")`.'
 
     if run_id is None:
         run_id = runs[0]["run_id"]
@@ -948,10 +978,10 @@ def summarize_run(run_id: int | None = None, format: str = "brief") -> str:
 
 ## Run Details
 
-- **Run ID:** {run_info['run_id']}
-- **Status:** {run_info['status']}
-- **Errors:** {run_info.get('error_count', 0)}
-- **Warnings:** {run_info.get('warning_count', 0)}
+- **Run ID:** {run_info["run_id"]}
+- **Status:** {run_info["status"]}
+- **Errors:** {run_info.get("error_count", 0)}
+- **Warnings:** {run_info.get("warning_count", 0)}
 
 ## Error Details
 
@@ -973,7 +1003,7 @@ def investigate_flaky(test_pattern: str | None = None, lookback: int = 10) -> st
     runs = hist.get("runs", [])
 
     if not runs:
-        return "No runs found. Run tests first with `run(command=\"...\")`."
+        return 'No runs found. Run tests first with `run(command="...")`.'
 
     # Build history table
     history_lines = ["| Run | Status | Errors |", "|-----|--------|--------|"]
