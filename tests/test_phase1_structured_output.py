@@ -1,8 +1,6 @@
 """Tests for Phase 1: Structured output and event references."""
 
 import json
-import argparse
-from unittest.mock import patch
 
 import pytest
 

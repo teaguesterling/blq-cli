@@ -42,7 +42,7 @@ import re
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from importlib import resources
 from pathlib import Path
@@ -53,14 +53,15 @@ import pandas as pd
 
 from lq.query import LogQuery, LogStore
 
-
 # ============================================================================
 # Result Types
 # ============================================================================
 
+
 @dataclass
 class EventRef:
     """Reference to a specific event within a run."""
+
     run_id: int
     event_id: int
 
@@ -68,7 +69,7 @@ class EventRef:
         return f"{self.run_id}:{self.event_id}"
 
     @classmethod
-    def parse(cls, ref: str) -> "EventRef":
+    def parse(cls, ref: str) -> EventRef:
         """Parse a reference string like '5:3' into an EventRef."""
         parts = ref.split(":")
         if len(parts) != 2:
@@ -79,6 +80,7 @@ class EventRef:
 @dataclass
 class EventSummary:
     """Summary of a parsed event for structured output."""
+
     ref: str
     severity: str | None
     file_path: str | None
@@ -108,6 +110,7 @@ class EventSummary:
 @dataclass
 class RunResult:
     """Structured result from running a command."""
+
     run_id: int
     command: str
     status: str  # "OK", "FAIL", "WARN"
@@ -144,7 +147,8 @@ class RunResult:
             f"## {badge} Build Result: {self.status}",
             "",
             f"**Command:** `{self.command}`",
-            f"**Duration:** {self.duration_sec:.1f}s | **Exit code:** {self.exit_code} | **Run ID:** {self.run_id}",
+            f"**Duration:** {self.duration_sec:.1f}s | **Exit code:** {self.exit_code} | "
+            f"**Run ID:** {self.run_id}",
             "",
         ]
 
@@ -174,6 +178,7 @@ class RunResult:
 
         return "\n".join(lines)
 
+
 # ============================================================================
 # Configuration
 # ============================================================================
@@ -189,9 +194,11 @@ COMMANDS_FILE = "commands.yaml"
 # Command Registry
 # ============================================================================
 
+
 @dataclass
 class RegisteredCommand:
     """A registered command in the commands.yaml file."""
+
     name: str
     cmd: str
     description: str = ""
@@ -215,6 +222,7 @@ def load_commands(lq_dir: Path) -> dict[str, RegisteredCommand]:
 
     try:
         import yaml
+
         with open(commands_path) as f:
             data = yaml.safe_load(f) or {}
     except ImportError:
@@ -244,6 +252,7 @@ def save_commands(lq_dir: Path, commands: dict[str, RegisteredCommand]) -> None:
 
     try:
         import yaml
+
         data = {"commands": {name: cmd.to_dict() for name, cmd in commands.items()}}
         with open(commands_path, "w") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
@@ -300,6 +309,7 @@ def _parse_simple_yaml(content: str) -> dict:
 # ============================================================================
 # Database Connection
 # ============================================================================
+
 
 def get_lq_dir() -> Path | None:
     """Find .lq directory in current or parent directories.
@@ -423,10 +433,18 @@ class ConnectionFactory:
                 if not stmt:
                     continue
                 # Skip the lq_base_path definition since we already set it with absolute path
-                if "lq_base_path()" in stmt and "CREATE" in stmt.upper() and "MACRO" in stmt.upper():
+                if (
+                    "lq_base_path()" in stmt
+                    and "CREATE" in stmt.upper()
+                    and "MACRO" in stmt.upper()
+                ):
                     continue
                 # Skip pure comment blocks
-                lines = [l for l in stmt.split("\n") if l.strip() and not l.strip().startswith("--")]
+                lines = [
+                    line
+                    for line in stmt.split("\n")
+                    if line.strip() and not line.strip().startswith("--")
+                ]
                 if not lines:
                     continue
                 try:
@@ -555,6 +573,7 @@ def write_run_parquet(
 # Log Parsing
 # ============================================================================
 
+
 def parse_log_content(content: str, format_hint: str = "auto") -> list[dict[str, Any]]:
     """Parse log content, using duck_hunt if available."""
     conn = duckdb.connect(":memory:")
@@ -571,14 +590,13 @@ def parse_log_content(content: str, format_hint: str = "auto") -> list[dict[str,
         try:
             # Register content as a parameter and call parse_duck_hunt_log
             result = conn.execute(
-                "SELECT * FROM parse_duck_hunt_log($1, $2)",
-                [content, format_hint]
+                "SELECT * FROM parse_duck_hunt_log($1, $2)", [content, format_hint]
             ).fetchall()
             columns = [desc[0] for desc in conn.description]
             events = [dict(zip(columns, row)) for row in result]
             conn.close()
             return events
-        except duckdb.Error as e:
+        except duckdb.Error:
             # Fall back to basic parsing if duck_hunt parsing fails
             pass
 
@@ -599,7 +617,11 @@ def parse_log_content(content: str, format_hint: str = "auto") -> list[dict[str,
         message = line_stripped
 
         # Try to parse gcc/clang style: file:line:col: severity: message
-        match = re.match(r'^([^:]+):(\d+):(?:(\d+):)?\s*(error|warning|note):\s*(.+)$', line_stripped, re.IGNORECASE)
+        match = re.match(
+            r"^([^:]+):(\d+):(?:(\d+):)?\s*(error|warning|note):\s*(.+)$",
+            line_stripped,
+            re.IGNORECASE,
+        )
         if match:
             file_path = match.group(1)
             line_number = int(match.group(2))
@@ -612,17 +634,19 @@ def parse_log_content(content: str, format_hint: str = "auto") -> list[dict[str,
             severity = "warning"
 
         if severity:
-            events.append({
-                "event_id": len(events) + 1,
-                "log_line_start": i,
-                "log_line_end": i,
-                "file_path": file_path,
-                "line_number": line_number,
-                "column_number": column_number,
-                "severity": severity,
-                "message": message,
-                "tool_name": "lq_basic",
-            })
+            events.append(
+                {
+                    "event_id": len(events) + 1,
+                    "log_line_start": i,
+                    "log_line_end": i,
+                    "file_path": file_path,
+                    "line_number": line_number,
+                    "column_number": column_number,
+                    "severity": severity,
+                    "message": message,
+                    "tool_name": "lq_basic",
+                }
+            )
 
     return events
 
@@ -724,13 +748,11 @@ def cmd_run(args: argparse.Namespace) -> None:
         command = reg_cmd.cmd
         source_name = args.name or first_arg
         format_hint = args.format if args.format != "auto" else reg_cmd.format
-        timeout = reg_cmd.timeout
     else:
         # Use literal command
         command = " ".join(args.command)
         source_name = args.name or first_arg
         format_hint = args.format
-        timeout = None  # No timeout for ad-hoc commands
 
     run_id = get_next_run_id(lq_dir)
     started_at = datetime.now()
@@ -827,8 +849,8 @@ def cmd_run(args: argparse.Namespace) -> None:
             "errors": len(error_events),
             "warnings": len(warning_events),
         },
-        errors=[make_event_summary(e) for e in error_events[:args.error_limit]],
-        warnings=[make_event_summary(e) for e in warning_events[:args.error_limit]],
+        errors=[make_event_summary(e) for e in error_events[: args.error_limit]],
+        warnings=[make_event_summary(e) for e in warning_events[: args.error_limit]],
         parquet_path=str(filepath),
     )
 
@@ -839,7 +861,11 @@ def cmd_run(args: argparse.Namespace) -> None:
         print(result.to_markdown(include_warnings=args.include_warnings))
     else:
         # Traditional output
-        print(f"\n[lq] Captured {len(events)} events ({len(error_events)} errors, {len(warning_events)} warnings)", file=sys.stderr)
+        print(
+            f"\n[lq] Captured {len(events)} events "
+            f"({len(error_events)} errors, {len(warning_events)} warnings)",
+            file=sys.stderr,
+        )
         print(f"[lq] Saved to {filepath}", file=sys.stderr)
 
     sys.exit(exit_code)
@@ -966,12 +992,7 @@ def cmd_warnings(args: argparse.Namespace) -> None:
 
     try:
         store = LogStore(lq_dir)
-        result = (
-            store.warnings()
-            .order_by("run_id", desc=True)
-            .limit(args.limit)
-            .df()
-        )
+        result = store.warnings().order_by("run_id", desc=True).limit(args.limit).df()
         print(result.to_string(index=False))
     except duckdb.Error as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1025,7 +1046,7 @@ def cmd_shell(args: argparse.Namespace) -> None:
     lq_dir = ensure_initialized()
 
     # Create init file
-    init_sql = f"""
+    init_sql = """
 .prompt 'lq> '
 LOAD duck_hunt;
 """
@@ -1034,6 +1055,7 @@ LOAD duck_hunt;
         init_sql += f".read '{schema_path}'\n"
 
     import tempfile
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".sql", delete=False) as f:
         f.write(init_sql)
         init_file = f.name
@@ -1096,9 +1118,9 @@ def cmd_event(args: argparse.Namespace) -> None:
             print(f"  Severity: {event.get('severity', '?')}")
             print(f"  File: {event.get('file_path', '?')}:{event.get('line_number', '?')}")
             print(f"  Message: {event.get('message', '?')}")
-            if event.get('error_fingerprint'):
+            if event.get("error_fingerprint"):
                 print(f"  Fingerprint: {event.get('error_fingerprint')}")
-            if event.get('log_line_start'):
+            if event.get("log_line_start"):
                 print(f"  Log lines: {event.get('log_line_start')}-{event.get('log_line_end')}")
 
     except duckdb.Error as e:
@@ -1124,10 +1146,10 @@ def cmd_context(args: argparse.Namespace) -> None:
             print(f"Event {args.ref} not found", file=sys.stderr)
             sys.exit(1)
 
-        log_line_start = event.get('log_line_start')
-        log_line_end = event.get('log_line_end')
-        source_name = event.get('source_name')
-        message = event.get('message')
+        log_line_start = event.get("log_line_start")
+        log_line_end = event.get("log_line_end")
+        source_name = event.get("source_name")
+        message = event.get("message")
 
         if log_line_start is None:
             # For structured formats, show message instead
@@ -1225,6 +1247,7 @@ def cmd_unregister(args: argparse.Namespace) -> None:
 # Query and Filter Commands
 # ============================================================================
 
+
 def format_query_output(
     df: pd.DataFrame,
     output_format: str = "table",
@@ -1285,7 +1308,9 @@ def query_source(
         try:
             query = LogQuery.from_file(source_path, format=log_format)
         except duckdb.Error:
-            print("Error: duck_hunt extension required for querying files directly.", file=sys.stderr)
+            print(
+                "Error: duck_hunt extension required for querying files directly.", file=sys.stderr
+            )
             print("Run 'lq init' to install required extensions.", file=sys.stderr)
             print(f"Or import the file first: lq import {source}", file=sys.stderr)
             raise
@@ -1350,7 +1375,9 @@ def parse_filter_expression(expr: str, ignore_case: bool = False) -> str:
             return f"LOWER({key}) = LOWER('{value}')"
         return f"{key} = '{value}'"
 
-    raise ValueError(f"Invalid filter expression: {expr}. Use key=value, key~pattern, or key!=value")
+    raise ValueError(
+        f"Invalid filter expression: {expr}. Use key=value, key~pattern, or key!=value"
+    )
 
 
 def cmd_query(args: argparse.Namespace) -> None:
@@ -1487,7 +1514,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
     """Start the MCP server for AI agent integration."""
     try:
         from lq.serve import serve
-    except ImportError as e:
+    except ImportError:
         print("Error: MCP dependencies not installed.", file=sys.stderr)
         print("Install with: pip install lq[mcp]", file=sys.stderr)
         sys.exit(1)
@@ -1504,6 +1531,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
 # Main
 # ============================================================================
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="lq - Log Query CLI",
@@ -1513,9 +1541,10 @@ def main() -> None:
 
     # Global flags
     parser.add_argument(
-        "-F", "--log-format",
+        "-F",
+        "--log-format",
         default="auto",
-        help="Log format for parsing (default: auto). Use 'lq formats' to list available formats."
+        help="Log format for parsing (default: auto). Use 'lq formats' to list available formats.",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command")
@@ -1523,9 +1552,7 @@ def main() -> None:
     # init
     p_init = subparsers.add_parser("init", help="Initialize .lq directory")
     p_init.add_argument(
-        "--mcp", "-m",
-        action="store_true",
-        help="Create .mcp.json for MCP server discovery"
+        "--mcp", "-m", action="store_true", help="Create .mcp.json for MCP server discovery"
     )
     p_init.set_defaults(func=cmd_init)
 
@@ -1538,8 +1565,15 @@ def main() -> None:
     p_run.add_argument("--json", "-j", action="store_true", help="Output structured JSON result")
     p_run.add_argument("--markdown", "-m", action="store_true", help="Output markdown summary")
     p_run.add_argument("--quiet", "-q", action="store_true", help="Suppress streaming output")
-    p_run.add_argument("--include-warnings", "-w", action="store_true", help="Include warnings in structured output")
-    p_run.add_argument("--error-limit", type=int, default=20, help="Max errors/warnings in output (default: 20)")
+    p_run.add_argument(
+        "--include-warnings",
+        "-w",
+        action="store_true",
+        help="Include warnings in structured output",
+    )
+    p_run.add_argument(
+        "--error-limit", type=int, default=20, help="Max errors/warnings in output (default: 20)"
+    )
     p_run.set_defaults(func=cmd_run)
 
     # import
@@ -1608,7 +1642,9 @@ def main() -> None:
     # context
     p_context = subparsers.add_parser("context", help="Show context lines around an event")
     p_context.add_argument("ref", help="Event reference (e.g., 5:3)")
-    p_context.add_argument("--lines", "-n", type=int, default=3, help="Context lines before/after (default: 3)")
+    p_context.add_argument(
+        "--lines", "-n", type=int, default=3, help="Context lines before/after (default: 3)"
+    )
     p_context.set_defaults(func=cmd_context)
 
     # commands
@@ -1621,7 +1657,9 @@ def main() -> None:
     p_register.add_argument("name", help="Command name (e.g., 'build', 'test')")
     p_register.add_argument("cmd", nargs="+", help="Command to run")
     p_register.add_argument("--description", "-d", help="Command description")
-    p_register.add_argument("--timeout", "-t", type=int, default=300, help="Timeout in seconds (default: 300)")
+    p_register.add_argument(
+        "--timeout", "-t", type=int, default=300, help="Timeout in seconds (default: 300)"
+    )
     p_register.add_argument("--format", "-f", default="auto", help="Log format hint")
     p_register.add_argument("--force", action="store_true", help="Overwrite existing command")
     p_register.set_defaults(func=cmd_register)
@@ -1644,30 +1682,34 @@ def main() -> None:
     p_query.set_defaults(func=cmd_query)
 
     # filter (with alias 'f')
-    p_filter = subparsers.add_parser("filter", aliases=["f"], help="Filter log files with simple syntax")
+    p_filter = subparsers.add_parser(
+        "filter", aliases=["f"], help="Filter log files with simple syntax"
+    )
     p_filter.add_argument("args", nargs="*", help="Filter expressions and/or file(s)")
     p_filter.add_argument("-v", "--invert", action="store_true", help="Invert match (like grep -v)")
     p_filter.add_argument("-c", "--count", action="store_true", help="Only print count of matches")
-    p_filter.add_argument("-i", "--ignore-case", action="store_true", help="Case insensitive matching")
+    p_filter.add_argument(
+        "-i", "--ignore-case", action="store_true", help="Case insensitive matching"
+    )
     p_filter.add_argument("-n", "--limit", type=int, help="Max rows to return")
     p_filter.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_filter.add_argument("--csv", action="store_true", help="Output as CSV")
-    p_filter.add_argument("--markdown", "--md", action="store_true", help="Output as Markdown table")
+    p_filter.add_argument(
+        "--markdown", "--md", action="store_true", help="Output as Markdown table"
+    )
     p_filter.set_defaults(func=cmd_filter)
 
     # serve (MCP server)
     p_serve = subparsers.add_parser("serve", help="Start MCP server for AI agent integration")
     p_serve.add_argument(
-        "--transport", "-t",
+        "--transport",
+        "-t",
         choices=["stdio", "sse"],
         default="stdio",
-        help="Transport type (default: stdio)"
+        help="Transport type (default: stdio)",
     )
     p_serve.add_argument(
-        "--port", "-p",
-        type=int,
-        default=8080,
-        help="Port for SSE transport (default: 8080)"
+        "--port", "-p", type=int, default=8080, help="Port for SSE transport (default: 8080)"
     )
     p_serve.set_defaults(func=cmd_serve)
 

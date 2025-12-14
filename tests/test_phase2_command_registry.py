@@ -7,9 +7,9 @@ import pytest
 
 from lq.cli import (
     RegisteredCommand,
+    _parse_simple_yaml,
     load_commands,
     save_commands,
-    _parse_simple_yaml,
 )
 
 
@@ -226,6 +226,7 @@ class TestCommandRegistryCLI:
     def test_register_command(self, initialized_project, capsys):
         """Register a new command."""
         import argparse
+
         from lq.cli import cmd_register
 
         args = argparse.Namespace(
@@ -250,6 +251,7 @@ class TestCommandRegistryCLI:
     def test_register_command_force_overwrite(self, initialized_project, capsys):
         """Force overwrite existing command."""
         import argparse
+
         from lq.cli import cmd_register
 
         # Register first time
@@ -281,6 +283,7 @@ class TestCommandRegistryCLI:
     def test_register_command_no_force_fails(self, initialized_project, capsys):
         """Refuse to overwrite without force flag."""
         import argparse
+
         from lq.cli import cmd_register
 
         # Register first time
@@ -314,6 +317,7 @@ class TestCommandRegistryCLI:
     def test_unregister_command(self, initialized_project, capsys):
         """Unregister an existing command."""
         import argparse
+
         from lq.cli import cmd_register, cmd_unregister
 
         # Register first
@@ -340,6 +344,7 @@ class TestCommandRegistryCLI:
     def test_unregister_nonexistent_fails(self, initialized_project, capsys):
         """Unregister nonexistent command fails."""
         import argparse
+
         from lq.cli import cmd_unregister
 
         args = argparse.Namespace(name="nonexistent")
@@ -354,6 +359,7 @@ class TestCommandRegistryCLI:
     def test_list_commands_empty(self, initialized_project, capsys):
         """List commands when none registered."""
         import argparse
+
         from lq.cli import cmd_commands
 
         args = argparse.Namespace(json=False)
@@ -365,7 +371,8 @@ class TestCommandRegistryCLI:
     def test_list_commands(self, initialized_project, capsys):
         """List registered commands."""
         import argparse
-        from lq.cli import cmd_register, cmd_commands
+
+        from lq.cli import cmd_commands, cmd_register
 
         # Register some commands
         for name, cmd, desc in [
@@ -397,7 +404,8 @@ class TestCommandRegistryCLI:
     def test_list_commands_json(self, initialized_project, capsys):
         """List commands in JSON format."""
         import argparse
-        from lq.cli import cmd_register, cmd_commands
+
+        from lq.cli import cmd_commands, cmd_register
 
         args = argparse.Namespace(
             name="build",
@@ -427,6 +435,7 @@ class TestRunRegisteredCommand:
     def test_run_by_name(self, initialized_project, sample_success_script, capsys):
         """Run a command by its registered name."""
         import argparse
+
         from lq.cli import cmd_register, cmd_run
 
         # Register the command
@@ -471,6 +480,7 @@ class TestRunRegisteredCommand:
     ):
         """Run literal command when name is not registered."""
         import argparse
+
         from lq.cli import cmd_run
 
         args = argparse.Namespace(
@@ -498,6 +508,7 @@ class TestRunRegisteredCommand:
     def test_run_registered_uses_stored_format(self, initialized_project, capsys):
         """Running registered command uses its stored format hint."""
         import argparse
+
         from lq.cli import cmd_register, load_commands
 
         # Register with specific format
@@ -514,11 +525,10 @@ class TestRunRegisteredCommand:
         commands = load_commands(Path(".lq"))
         assert commands["lint"].format == "eslint_json"
 
-    def test_run_with_multiple_args_not_registered(
-        self, initialized_project, capsys
-    ):
+    def test_run_with_multiple_args_not_registered(self, initialized_project, capsys):
         """Multi-arg command is treated as literal, not registered name."""
         import argparse
+
         from lq.cli import cmd_register, cmd_run
 
         # Register 'build' command

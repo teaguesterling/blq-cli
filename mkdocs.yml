@@ -1,0 +1,61 @@
+site_name: lq Documentation
+site_description: Log Query - capture and query build/test logs with DuckDB
+site_author: Teague Sterling
+site_url: https://lq.readthedocs.io
+
+repo_name: teaguesterling/lq
+repo_url: https://github.com/teaguesterling/lq
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Commands:
+      - Overview: commands/index.md
+      - Query: commands/query.md
+      - Filter: commands/filter.md
+      - Run: commands/run.md
+  - Guides:
+      - Query Guide: query-guide.md
+      - Python API: python-api.md
+      - Integration: integration.md
+      - MCP Server: mcp.md
+  - Development:
+      - CI/CD Setup: ci-cd.md
