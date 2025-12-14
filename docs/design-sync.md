@@ -10,132 +10,231 @@ Projects are identified by `namespace` and `project` stored in `.lq/config.yaml`
 
 ```yaml
 project:
-  namespace: teaguesterling
+  namespace: github__teaguesterling   # provider__owner format
   project: lq
 ```
 
 ### Detection at `lq init`
 
 1. **Git remote** (preferred): Parse `git remote get-url origin`
-   - `git@github.com:owner/repo.git` → namespace=owner, project=repo
-   - `https://github.com/owner/repo` → namespace=owner, project=repo
+   - `git@github.com:owner/repo.git` → namespace=github__owner, project=repo
+   - `https://gitlab.com/org/repo` → namespace=gitlab__org, project=repo
 
 2. **Filesystem fallback**: Tokenize parent path
-   - `/home/teague/Projects/myapp` → namespace=home__teague__Projects, project=myapp
-   - Path separators replaced with `__` for filesystem safety
+   - `/home/teague/Projects/myapp` → namespace=local__home__teague__Projects, project=myapp
 
-## Destination Formats
+### Provider Detection
+
+| Host | Namespace Prefix |
+|------|------------------|
+| github.com | `github__` |
+| gitlab.com | `gitlab__` |
+| bitbucket.org | `bitbucket__` |
+| codeberg.org | `codeberg__` |
+| Self-hosted | `hostname_com__` (sanitized) |
+| No git | `local__` |
+
+## Directory Hierarchy
+
+**Hierarchy order: hostname → namespace → project → date → source**
+
+This ordering optimizes for:
+- "What's on this machine" queries (most common local use case)
+- Date-based consolidation can be done as a separate step
 
 ### Local Central Store
 
 ```
 ~/.lq/projects/
-  namespace=teaguesterling/
-    project=lq/
-      hostname=snape/
+  hostname=snape/
+    namespace=github__teaguesterling/
+      project=lq/
         date=2025-01-15/
           source=run/
             001_build_143022.parquet
 ```
-
-Implementation options:
-- **Symlink** (simplest): `ln -s /path/to/project/.lq/logs ~/.lq/projects/.../hostname=snape`
-- **Copy**: Rsync or file copy for actual data duplication
 
 ### S3 / Cloud Storage
 
 ```
 s3://bucket/lq/
-  namespace=teaguesterling/
-    project=lq/
-      hostname=snape/
+  hostname=snape/
+    namespace=github__teaguesterling/
+      project=lq/
         date=2025-01-15/
           source=run/
             001_build_143022.parquet
 ```
 
-Implementation: Use DuckDB's httpfs extension for direct parquet writes:
-
-```sql
--- Push local data to S3
-COPY (
-  SELECT * FROM read_parquet('.lq/logs/**/*.parquet', hive_partitioning=true)
-)
-TO 's3://bucket/lq/namespace=X/project=Y/hostname=Z/'
-(FORMAT PARQUET, PARTITION_BY (date, source));
-```
-
 ## CLI Interface
 
+### Sync Commands (Implemented)
+
 ```bash
-# Push to configured destination
-lq sync
+# Soft sync (symlink) - default
+lq sync                              # Symlink to ~/.lq/projects/
+lq sync ~/custom/path/               # Custom destination
 
-# Push to explicit destination
-lq sync ~/.lq/projects/
-lq sync s3://my-bucket/lq/
-
-# Dry run - show what would be synced
-lq sync --dry-run
-
-# Pull/query across synced sources
-lq query --include-synced "SELECT * FROM lq_errors()"
+# Options
+lq sync --dry-run                    # Show what would be done
+lq sync --status                     # Show current sync state
+lq sync --force                      # Replace existing sync target
+lq sync --hard                       # Copy files (not yet implemented)
 ```
+
+### Cross-Project Querying
+
+```bash
+# Query local project (default)
+lq errors                            # ./.lq/logs/
+
+# Query global store
+lq errors -g                         # ~/.lq/projects/
+lq errors --global
+
+# Query custom root (S3, remote, etc.)
+lq errors -d s3://bucket/lq/
+lq errors --database ~/other/path/
+```
+
+Global flags work with: `errors`, `warnings`, `query`, `filter`, `status`, `history`, `sql`
 
 ## Configuration
 
 ```yaml
 # .lq/config.yaml
 project:
-  namespace: teaguesterling
+  namespace: github__teaguesterling
   project: lq
 
 sync:
-  destination: ~/.lq/projects/  # or s3://bucket/lq/
-  auto: false                   # auto-sync after each run?
-  include_raw: false            # sync .lq/raw/ as well?
+  destination: ~/.lq/projects/       # or s3://bucket/lq/
+  auto: false                        # auto-sync after each run?
+  include_raw: false                 # sync .lq/raw/ as well?
 ```
 
 ## Implementation Phases
 
-### Phase 1: Project Detection (Implemented)
+### Phase 1: Project Detection ✅
 - [x] Detect namespace/project from git remote
+- [x] Include provider prefix in namespace
 - [x] Fallback to filesystem path tokenization
 - [x] Store in config.yaml at init
 
-### Phase 2: Local Sync
-- [ ] `lq sync` command
-- [ ] Symlink mode for local destinations
-- [ ] Copy mode with incremental sync
+### Phase 2: Local Sync ✅
+- [x] `lq sync` command
+- [x] Symlink mode (soft sync) for local destinations
+- [x] `--dry-run`, `--status`, `--force` flags
+- [x] Hostname-first hierarchy
+- [ ] Copy mode (hard sync) with incremental sync
 - [ ] Track synced files to avoid re-copying
 
-### Phase 3: S3 Sync
+### Phase 3: Cross-Project Querying
+- [ ] `-g`/`--global` flag for global store queries
+- [ ] `-d`/`--database` flag for custom roots
+- [ ] Hive partition columns available in queries (hostname, namespace, project)
+
+### Phase 4: S3 Sync
 - [ ] S3 destination support via DuckDB httpfs
 - [ ] Credentials from environment (AWS_* vars)
 - [ ] Incremental sync (check existing partitions)
 
-### Phase 4: Query Across Sources
-- [ ] `--include-synced` flag for query commands
-- [ ] Union query across local + synced data
-- [ ] Filter by namespace/project/hostname
-
 ## Query Examples
 
-Once sync is implemented, cross-machine queries become possible:
+Cross-machine queries with global flag:
+
+```bash
+# All errors across all synced projects
+lq errors -g
+
+# Filter by project
+lq query -g -f "namespace='github__teaguesterling' AND project='lq'"
+
+# SQL across all projects
+lq sql -g "SELECT hostname, namespace, project, COUNT(*) as errors
+           FROM lq_events WHERE severity='error'
+           GROUP BY ALL ORDER BY errors DESC"
+```
+
+SQL examples:
 
 ```sql
 -- All errors across all machines for this project
 SELECT hostname, COUNT(*) as errors
-FROM read_parquet('~/.lq/projects/namespace=teaguesterling/project=lq/**/*.parquet')
+FROM read_parquet('~/.lq/projects/**/*.parquet', hive_partitioning=true)
 WHERE severity = 'error'
 GROUP BY hostname;
 
 -- Compare build times across CI runners
 SELECT hostname, AVG(duration_sec) as avg_duration
-FROM read_parquet('s3://bucket/lq/namespace=X/project=Y/**/*.parquet')
+FROM read_parquet('~/.lq/projects/**/*.parquet', hive_partitioning=true)
 WHERE source_name = 'build'
 GROUP BY hostname;
+
+-- Errors by project
+SELECT namespace, project, COUNT(*) as errors
+FROM read_parquet('~/.lq/projects/**/*.parquet', hive_partitioning=true)
+WHERE severity = 'error'
+GROUP BY namespace, project
+ORDER BY errors DESC;
 ```
+
+---
+
+# Compaction Feature Design
+
+## Overview
+
+Over time, logs accumulate many small parquet files. Compaction consolidates these for better query performance and storage efficiency.
+
+## Use Cases
+
+1. **Merge files** - Combine many small parquet files into fewer larger ones
+2. **Compress** - Apply better compression to older data
+3. **Summarize** - Aggregate old data, keeping counts but dropping raw messages (lossy)
+4. **Prune** - Delete old data entirely (already implemented via `lq prune`)
+
+## CLI Interface
+
+```bash
+# Compact all partitions (merge small files)
+lq compact
+
+# Only compact data older than 30 days
+lq compact --older-than 30d
+
+# Use better compression
+lq compact --compression zstd
+
+# Summarize old data (lossy - keeps aggregates only)
+lq compact --summarize --older-than 90d
+
+# Dry run
+lq compact --dry-run
+```
+
+## Compaction vs Prune
+
+| Command | Action | Data Loss |
+|---------|--------|-----------|
+| `lq prune` | Delete old partitions | Yes |
+| `lq compact` | Merge files, recompress | No |
+| `lq compact --summarize` | Aggregate old data | Yes (detail) |
+
+## Implementation Notes
+
+- Use DuckDB's `COPY ... TO ... (FORMAT PARQUET)` for rewriting
+- Preserve hive partitioning structure
+- Track which files have been compacted to avoid re-processing
+- Consider minimum file size threshold (don't compact already-large files)
+
+## Future Considerations
+
+- Automatic compaction in background
+- Retention policies in config
+- Different compression levels by age
+
+---
 
 ## Security Considerations
 

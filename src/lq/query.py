@@ -531,6 +531,49 @@ class LogStore:
         return cls(lq_dir)
 
     @classmethod
+    def from_parquet_root(cls, path: Path | str) -> LogStore:
+        """Create a LogStore from a raw parquet directory with hive partitioning.
+
+        Use this for querying global synced projects or custom parquet directories
+        that don't have the full .lq structure (no schema.sql).
+
+        The directory should contain hive-partitioned parquet files:
+            path/hostname=X/namespace=Y/project=Z/date=D/source=S/*.parquet
+
+        Args:
+            path: Path to parquet root directory
+
+        Returns:
+            LogStore instance configured for raw parquet queries
+        """
+        parquet_root = Path(path).expanduser().resolve()
+        if not parquet_root.exists():
+            raise FileNotFoundError(f"Parquet directory not found: {parquet_root}")
+
+        # Create a connection with a view over the parquet files
+        conn = duckdb.connect(":memory:")
+
+        # Create lq_events view from parquet files with hive partitioning
+        # This makes hostname, namespace, project, date, source available as columns
+        # Use explicit hive partition pattern - DuckDB's ** glob doesn't follow symlinks,
+        # but explicit patterns like hostname=*/... do work through symlinks
+        parquet_glob = str(parquet_root / "hostname=*" / "namespace=*" / "project=*" / "**" / "*.parquet")
+        conn.execute(f"""
+            CREATE OR REPLACE VIEW lq_events AS
+            SELECT *
+            FROM read_parquet('{parquet_glob}', hive_partitioning=true, union_by_name=true, filename=true)
+        """)
+
+        # Create instance with special handling for raw parquet
+        # We use the parquet_root as both lq_dir and logs_dir
+        instance = cls.__new__(cls)
+        instance._lq_dir = parquet_root
+        instance._logs_dir = parquet_root
+        instance._conn = conn
+        instance._schema_loaded = True  # Skip schema loading
+        return instance
+
+    @classmethod
     def _find_lq_dir(cls) -> Path:
         """Find .lq directory in current or parent directories."""
         cwd = Path.cwd()

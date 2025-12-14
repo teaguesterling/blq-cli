@@ -192,6 +192,7 @@ COMMANDS_FILE = "commands.yaml"
 CONFIG_FILE = "config.yaml"
 GLOBAL_LQ_DIR = Path.home() / ".lq"
 PROJECTS_DIR = "projects"
+GLOBAL_PROJECTS_PATH = GLOBAL_LQ_DIR / PROJECTS_DIR
 
 # Default environment variables to capture for all runs
 DEFAULT_CAPTURE_ENV = [
@@ -621,6 +622,55 @@ def get_connection(lq_dir: Path | None = None) -> duckdb.DuckDBPyConnection:
     if lq_dir is None:
         lq_dir = ensure_initialized()
     return ConnectionFactory.create(lq_dir=lq_dir, load_schema=True)
+
+
+def get_data_root(args: argparse.Namespace) -> tuple[Path | None, bool]:
+    """Get the data root path based on --global or --database flags.
+
+    Args:
+        args: Parsed arguments with optional 'global_' and 'database' attributes
+
+    Returns:
+        Tuple of (path, is_raw_parquet):
+        - path: Path to data root, or None for local .lq
+        - is_raw_parquet: True if path is a raw parquet directory (no schema.sql)
+    """
+    # Check for --database flag first (explicit path)
+    database = getattr(args, "database", None)
+    if database:
+        db_path = Path(database).expanduser()
+        # Raw parquet directory (no .lq structure)
+        return db_path, True
+
+    # Check for --global flag
+    use_global = getattr(args, "global_", False)
+    if use_global:
+        return GLOBAL_PROJECTS_PATH, True
+
+    # Default: local .lq directory
+    return None, False
+
+
+def get_store_for_args(args: argparse.Namespace) -> LogStore:
+    """Get a LogStore appropriate for the given args.
+
+    Handles --global and --database flags.
+
+    Args:
+        args: Parsed arguments
+
+    Returns:
+        LogStore instance configured for the appropriate data source
+    """
+    data_root, is_raw = get_data_root(args)
+
+    if is_raw and data_root is not None:
+        # Raw parquet directory - use LogStore.from_parquet_root()
+        return LogStore.from_parquet_root(data_root)
+    else:
+        # Standard .lq directory
+        lq_dir = ensure_initialized()
+        return LogStore(lq_dir)
 
 
 def get_next_run_id(lq_dir: Path) -> int:
@@ -1562,10 +1612,8 @@ def cmd_capture(args: argparse.Namespace) -> None:
 
 def cmd_status(args: argparse.Namespace) -> None:
     """Show status of all sources."""
-    lq_dir = ensure_initialized()
-
     try:
-        store = LogStore(lq_dir)
+        store = get_store_for_args(args)
         conn = store.connection
 
         if args.verbose:
@@ -1575,17 +1623,15 @@ def cmd_status(args: argparse.Namespace) -> None:
         print(result.to_string(index=False))
     except duckdb.Error:
         # Fallback if macros aren't working
-        store = LogStore(lq_dir)
+        store = get_store_for_args(args)
         result = store.events().limit(10).df()
         print(result.to_string(index=False))
 
 
 def cmd_errors(args: argparse.Namespace) -> None:
     """Show recent errors."""
-    lq_dir = ensure_initialized()
-
     try:
-        store = LogStore(lq_dir)
+        store = get_store_for_args(args)
         query = store.errors()
 
         # Filter by source if specified
@@ -1612,10 +1658,8 @@ def cmd_errors(args: argparse.Namespace) -> None:
 
 def cmd_warnings(args: argparse.Namespace) -> None:
     """Show recent warnings."""
-    lq_dir = ensure_initialized()
-
     try:
-        store = LogStore(lq_dir)
+        store = get_store_for_args(args)
         result = (
             store.warnings()
             .order_by("run_id", desc=True)
@@ -1629,10 +1673,8 @@ def cmd_warnings(args: argparse.Namespace) -> None:
 
 def cmd_summary(args: argparse.Namespace) -> None:
     """Show aggregate summary."""
-    lq_dir = ensure_initialized()
-
     try:
-        store = LogStore(lq_dir)
+        store = get_store_for_args(args)
         conn = store.connection
 
         if args.latest:
@@ -1646,10 +1688,8 @@ def cmd_summary(args: argparse.Namespace) -> None:
 
 def cmd_history(args: argparse.Namespace) -> None:
     """Show run history."""
-    lq_dir = ensure_initialized()
-
     try:
-        store = LogStore(lq_dir)
+        store = get_store_for_args(args)
         result = store.runs().head(args.limit)
         print(result.to_string(index=False))
     except duckdb.Error as e:
@@ -1658,11 +1698,9 @@ def cmd_history(args: argparse.Namespace) -> None:
 
 def cmd_sql(args: argparse.Namespace) -> None:
     """Run arbitrary SQL."""
-    lq_dir = ensure_initialized()
-
     sql = " ".join(args.query)
     try:
-        store = LogStore(lq_dir)
+        store = get_store_for_args(args)
         result = store.connection.execute(sql).fetchdf()
         print(result.to_string(index=False))
     except duckdb.Error as e:
@@ -2369,6 +2407,17 @@ def main() -> None:
         "-F", "--log-format",
         default="auto",
         help="Log format for parsing (default: auto). Use 'lq formats' to list available formats."
+    )
+    parser.add_argument(
+        "-g", "--global",
+        action="store_true",
+        dest="global_",
+        help="Query global store (~/.lq/projects/) instead of local .lq"
+    )
+    parser.add_argument(
+        "-d", "--database",
+        metavar="PATH",
+        help="Query custom database path (local or remote, e.g., s3://bucket/lq/)"
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command")
