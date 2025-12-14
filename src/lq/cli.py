@@ -821,75 +821,36 @@ def write_run_parquet(
 # ============================================================================
 
 def parse_log_content(content: str, format_hint: str = "auto") -> list[dict[str, Any]]:
-    """Parse log content, using duck_hunt if available."""
+    """Parse log content using duck_hunt extension.
+
+    All log parsing is delegated to duck_hunt. If duck_hunt is not available
+    or fails to parse, returns an empty list. Parsing improvements should be
+    made upstream in duck_hunt, not in lq.
+
+    Args:
+        content: Raw log content to parse
+        format_hint: Format hint for duck_hunt (default: "auto")
+
+    Returns:
+        List of parsed events, or empty list if parsing unavailable
+    """
     conn = duckdb.connect(":memory:")
 
-    # Try to load duck_hunt
     try:
         conn.execute("LOAD duck_hunt")
-        has_duck_hunt = True
+        result = conn.execute(
+            "SELECT * FROM parse_duck_hunt_log($1, $2)",
+            [content, format_hint]
+        ).fetchall()
+        columns = [desc[0] for desc in conn.description]
+        events = [dict(zip(columns, row)) for row in result]
+        return events
     except duckdb.Error:
-        has_duck_hunt = False
-
-    if has_duck_hunt:
-        # Use duck_hunt's parse_duck_hunt_log function
-        try:
-            # Register content as a parameter and call parse_duck_hunt_log
-            result = conn.execute(
-                "SELECT * FROM parse_duck_hunt_log($1, $2)",
-                [content, format_hint]
-            ).fetchall()
-            columns = [desc[0] for desc in conn.description]
-            events = [dict(zip(columns, row)) for row in result]
-            conn.close()
-            return events
-        except duckdb.Error as e:
-            # Fall back to basic parsing if duck_hunt parsing fails
-            pass
-
-    conn.close()
-
-    # Fallback: basic line-based parsing
-    events = []
-    for i, line in enumerate(content.splitlines(), 1):
-        line_stripped = line.strip()
-        if not line_stripped:
-            continue
-
-        # Simple error/warning detection
-        severity = None
-        file_path = None
-        line_number = None
-        column_number = None
-        message = line_stripped
-
-        # Try to parse gcc/clang style: file:line:col: severity: message
-        match = re.match(r'^([^:]+):(\d+):(?:(\d+):)?\s*(error|warning|note):\s*(.+)$', line_stripped, re.IGNORECASE)
-        if match:
-            file_path = match.group(1)
-            line_number = int(match.group(2))
-            column_number = int(match.group(3)) if match.group(3) else None
-            severity = match.group(4).lower()
-            message = match.group(5)
-        elif ": error:" in line_stripped.lower() or line_stripped.lower().startswith("error:"):
-            severity = "error"
-        elif ": warning:" in line_stripped.lower() or line_stripped.lower().startswith("warning:"):
-            severity = "warning"
-
-        if severity:
-            events.append({
-                "event_id": len(events) + 1,
-                "log_line_start": i,
-                "log_line_end": i,
-                "file_path": file_path,
-                "line_number": line_number,
-                "column_number": column_number,
-                "severity": severity,
-                "message": message,
-                "tool_name": "lq_basic",
-            })
-
-    return events
+        # duck_hunt not available or parsing failed - return empty list
+        # Parsing improvements should be made in duck_hunt, not here
+        return []
+    finally:
+        conn.close()
 
 
 # ============================================================================
