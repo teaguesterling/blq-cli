@@ -140,8 +140,9 @@ def _soft_sync(source: Path, target: Path, force: bool, verbose: bool) -> None:
                 print("Use --force to replace (will delete existing data!)", file=sys.stderr)
                 sys.exit(1)
         else:
-            print(f"Error: Target exists and is not a symlink or directory: {target}",
-                  file=sys.stderr)
+            print(
+                f"Error: Target exists and is not a symlink or directory: {target}", file=sys.stderr
+            )
             sys.exit(1)
 
     # Create symlink

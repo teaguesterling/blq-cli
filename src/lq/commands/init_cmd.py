@@ -43,81 +43,132 @@ MCP_CONFIG_TEMPLATE = """{
 # Build system detection rules
 # Each entry: (file_to_check, [(command_name, command, description), ...])
 BUILD_SYSTEM_DETECTORS: list[tuple[str, list[tuple[str, str, str]]]] = [
-    ("Makefile", [
-        ("build", "make", "Build the project"),
-        ("test", "make test", "Run tests"),
-        ("clean", "make clean", "Clean build artifacts"),
-    ]),
+    (
+        "Makefile",
+        [
+            ("build", "make", "Build the project"),
+            ("test", "make test", "Run tests"),
+            ("clean", "make clean", "Clean build artifacts"),
+        ],
+    ),
     # Yarn takes precedence over npm if yarn.lock exists
-    ("yarn.lock", [
-        ("build", "yarn build", "Build the project"),
-        ("test", "yarn test", "Run tests"),
-        ("lint", "yarn lint", "Run linter"),
-    ]),
-    ("package.json", [
-        ("build", "npm run build", "Build the project"),
-        ("test", "npm test", "Run tests"),
-        ("lint", "npm run lint", "Run linter"),
-    ]),
-    ("pyproject.toml", [
-        ("test", "pytest", "Run tests"),
-        ("lint", "ruff check .", "Run linter"),
-    ]),
-    ("Cargo.toml", [
-        ("build", "cargo build", "Build the project"),
-        ("test", "cargo test", "Run tests"),
-    ]),
-    ("go.mod", [
-        ("build", "go build ./...", "Build the project"),
-        ("test", "go test ./...", "Run tests"),
-    ]),
-    ("CMakeLists.txt", [
-        ("build", "cmake --build .", "Build the project"),
-        ("test", "ctest", "Run tests"),
-    ]),
+    (
+        "yarn.lock",
+        [
+            ("build", "yarn build", "Build the project"),
+            ("test", "yarn test", "Run tests"),
+            ("lint", "yarn lint", "Run linter"),
+        ],
+    ),
+    (
+        "package.json",
+        [
+            ("build", "npm run build", "Build the project"),
+            ("test", "npm test", "Run tests"),
+            ("lint", "npm run lint", "Run linter"),
+        ],
+    ),
+    (
+        "pyproject.toml",
+        [
+            ("test", "pytest", "Run tests"),
+            ("lint", "ruff check .", "Run linter"),
+        ],
+    ),
+    (
+        "Cargo.toml",
+        [
+            ("build", "cargo build", "Build the project"),
+            ("test", "cargo test", "Run tests"),
+        ],
+    ),
+    (
+        "go.mod",
+        [
+            ("build", "go build ./...", "Build the project"),
+            ("test", "go test ./...", "Run tests"),
+        ],
+    ),
+    (
+        "CMakeLists.txt",
+        [
+            ("build", "cmake --build .", "Build the project"),
+            ("test", "ctest", "Run tests"),
+        ],
+    ),
     # Autotools
-    ("configure", [
-        ("configure", "./configure", "Configure the build"),
-    ]),
-    ("configure.ac", [
-        ("autoreconf", "autoreconf -i", "Generate configure script"),
-    ]),
+    (
+        "configure",
+        [
+            ("configure", "./configure", "Configure the build"),
+        ],
+    ),
+    (
+        "configure.ac",
+        [
+            ("autoreconf", "autoreconf -i", "Generate configure script"),
+        ],
+    ),
     # Java build systems
-    ("build.gradle", [
-        ("build", "./gradlew build", "Build the project"),
-        ("test", "./gradlew test", "Run tests"),
-        ("clean", "./gradlew clean", "Clean build artifacts"),
-    ]),
-    ("build.gradle.kts", [
-        ("build", "./gradlew build", "Build the project"),
-        ("test", "./gradlew test", "Run tests"),
-        ("clean", "./gradlew clean", "Clean build artifacts"),
-    ]),
-    ("pom.xml", [
-        ("build", "mvn package", "Build the project"),
-        ("test", "mvn test", "Run tests"),
-        ("clean", "mvn clean", "Clean build artifacts"),
-    ]),
+    (
+        "build.gradle",
+        [
+            ("build", "./gradlew build", "Build the project"),
+            ("test", "./gradlew test", "Run tests"),
+            ("clean", "./gradlew clean", "Clean build artifacts"),
+        ],
+    ),
+    (
+        "build.gradle.kts",
+        [
+            ("build", "./gradlew build", "Build the project"),
+            ("test", "./gradlew test", "Run tests"),
+            ("clean", "./gradlew clean", "Clean build artifacts"),
+        ],
+    ),
+    (
+        "pom.xml",
+        [
+            ("build", "mvn package", "Build the project"),
+            ("test", "mvn test", "Run tests"),
+            ("clean", "mvn clean", "Clean build artifacts"),
+        ],
+    ),
     # Docker
-    ("Dockerfile", [
-        ("docker-build", "docker build -t app .", "Build Docker image"),
-    ]),
-    ("docker-compose.yml", [
-        ("docker-up", "docker-compose up", "Start Docker services"),
-        ("docker-build", "docker-compose build", "Build Docker services"),
-    ]),
-    ("docker-compose.yaml", [
-        ("docker-up", "docker-compose up", "Start Docker services"),
-        ("docker-build", "docker-compose build", "Build Docker services"),
-    ]),
-    ("compose.yml", [
-        ("docker-up", "docker compose up", "Start Docker services"),
-        ("docker-build", "docker compose build", "Build Docker services"),
-    ]),
-    ("compose.yaml", [
-        ("docker-up", "docker compose up", "Start Docker services"),
-        ("docker-build", "docker compose build", "Build Docker services"),
-    ]),
+    (
+        "Dockerfile",
+        [
+            ("docker-build", "docker build -t app .", "Build Docker image"),
+        ],
+    ),
+    (
+        "docker-compose.yml",
+        [
+            ("docker-up", "docker-compose up", "Start Docker services"),
+            ("docker-build", "docker-compose build", "Build Docker services"),
+        ],
+    ),
+    (
+        "docker-compose.yaml",
+        [
+            ("docker-up", "docker-compose up", "Start Docker services"),
+            ("docker-build", "docker-compose build", "Build Docker services"),
+        ],
+    ),
+    (
+        "compose.yml",
+        [
+            ("docker-up", "docker compose up", "Start Docker services"),
+            ("docker-build", "docker compose build", "Build Docker services"),
+        ],
+    ),
+    (
+        "compose.yaml",
+        [
+            ("docker-up", "docker compose up", "Start Docker services"),
+            ("docker-build", "docker compose build", "Build Docker services"),
+        ],
+    ),
 ]
 
 
@@ -130,7 +181,7 @@ def _write_mcp_config(path: Path) -> None:
 def _install_extensions() -> None:
     """Install required DuckDB extensions."""
     import duckdb
-    
+
     conn = duckdb.connect(":memory:")
 
     # Check if duck_hunt is already available

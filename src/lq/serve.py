@@ -27,6 +27,7 @@ def _to_json_safe(value: Any) -> Any:
         return None
     return value
 
+
 # Create the MCP server
 mcp = FastMCP(
     "lq",
@@ -509,6 +510,7 @@ def _register_command_impl(
     """Implementation of register_command."""
     try:
         from lq.cli import RegisteredCommand, load_commands, save_commands
+
         lq_dir = Path(".lq")
 
         if not lq_dir.exists():
@@ -550,6 +552,7 @@ def _unregister_command_impl(name: str) -> dict[str, Any]:
     """Implementation of unregister_command."""
     try:
         from lq.cli import load_commands, save_commands
+
         lq_dir = Path(".lq")
 
         if not lq_dir.exists():
@@ -572,6 +575,7 @@ def _list_commands_impl() -> dict[str, Any]:
     """Implementation of list_commands."""
     try:
         from lq.cli import load_commands
+
         lq_dir = Path(".lq")
 
         if not lq_dir.exists():

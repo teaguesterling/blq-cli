@@ -71,12 +71,7 @@ def cmd_warnings(args: argparse.Namespace) -> None:
     """Show recent warnings."""
     try:
         store = get_store_for_args(args)
-        result = (
-            store.warnings()
-            .order_by("run_id", desc=True)
-            .limit(args.limit)
-            .df()
-        )
+        result = store.warnings().order_by("run_id", desc=True).limit(args.limit).df()
         print(result.to_string(index=False))
     except duckdb.Error as e:
         print(f"Error: {e}", file=sys.stderr)

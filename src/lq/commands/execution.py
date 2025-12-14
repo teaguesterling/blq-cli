@@ -115,8 +115,9 @@ def cmd_run(args: argparse.Namespace) -> None:
     # No-capture mode: just run and exit with the command's exit code
     if not should_capture:
         if not quiet:
-            print(f"\n[lq] Completed in {duration_sec:.1f}s (exit code {exit_code})",
-                  file=sys.stderr)
+            print(
+                f"\n[lq] Completed in {duration_sec:.1f}s (exit code {exit_code})", file=sys.stderr
+            )
         sys.exit(exit_code)
 
     # Always save raw output when using structured output (needed for context)
