@@ -32,6 +32,46 @@ from lq.commands.core import (
 )
 
 
+def _find_similar_commands(name: str, registered: list[str], max_results: int = 3) -> list[str]:
+    """Find registered commands similar to the given name.
+
+    Uses simple heuristics: prefix match, suffix match, and substring match.
+    """
+    if not registered:
+        return []
+
+    name_lower = name.lower()
+    similar = []
+
+    # Exact prefix match (e.g., "tes" -> "test")
+    for cmd in registered:
+        if cmd.lower().startswith(name_lower) or name_lower.startswith(cmd.lower()):
+            similar.append(cmd)
+
+    # Suffix match (e.g., "tests" ends with "test" pattern)
+    if not similar:
+        for cmd in registered:
+            if cmd.lower().endswith(name_lower) or name_lower.endswith(cmd.lower()):
+                similar.append(cmd)
+
+    # Substring match
+    if not similar:
+        for cmd in registered:
+            if name_lower in cmd.lower() or cmd.lower() in name_lower:
+                similar.append(cmd)
+
+    # Simple edit distance for close matches (off by one character)
+    if not similar:
+        for cmd in registered:
+            if abs(len(cmd) - len(name)) <= 2:
+                # Check if only differs by 1-2 chars
+                matches = sum(a == b for a, b in zip(name_lower, cmd.lower()))
+                if matches >= min(len(name), len(cmd)) - 2:
+                    similar.append(cmd)
+
+    return similar[:max_results]
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     """Run a command and capture its output."""
     lq_dir = ensure_initialized()
@@ -61,6 +101,24 @@ def cmd_run(args: argparse.Namespace) -> None:
             if var not in capture_env_vars:
                 capture_env_vars.append(var)
     else:
+        # Check if this looks like a mistyped registered command
+        # (single word without path separators that's not an executable)
+        if (
+            len(args.command) == 1
+            and "/" not in first_arg
+            and "\\" not in first_arg
+            and registered_commands
+        ):
+            # Find similar command names
+            similar = _find_similar_commands(first_arg, list(registered_commands.keys()))
+            if similar:
+                print(
+                    f"Warning: '{first_arg}' is not a registered command.",
+                    file=sys.stderr,
+                )
+                print(f"Did you mean: {', '.join(similar)}?", file=sys.stderr)
+                print(f"Running '{first_arg}' as shell command...", file=sys.stderr)
+
         # Use literal command
         command = " ".join(args.command)
         source_name = args.name or first_arg
