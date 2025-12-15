@@ -100,7 +100,7 @@ class TestRunTool:
             result = get_data(raw)
 
             assert result["status"] == "FAIL"
-            assert "not a registered command" in result.get("error", "")
+            assert "not registered" in result.get("error", "")
 
 
 class TestQueryTool:

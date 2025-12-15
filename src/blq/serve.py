@@ -91,7 +91,7 @@ def _run_impl(command: str, args: list[str] | None = None, timeout: int = 300) -
                 "run_id": None,
                 "status": "FAIL",
                 "exit_code": result.returncode,
-                "error": f"'{command}' is not a registered command. Use exec() for ad-hoc commands.",
+                "error": f"'{command}' is not registered. Use exec() for ad-hoc commands.",
                 "error_count": 0,
                 "warning_count": 0,
                 "errors": [],

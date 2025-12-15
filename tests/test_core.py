@@ -15,7 +15,6 @@ from blq.cli import (
     cmd_formats,
     cmd_import,
     cmd_init,
-    cmd_run,
     cmd_status,
     ensure_initialized,
     get_connection,
@@ -124,7 +123,9 @@ class TestGetNextRunId:
         result = get_next_run_id(lq_dir)
         assert result == 1
 
-    def test_increments_after_runs(self, initialized_project, sample_build_script, run_adhoc_command):
+    def test_increments_after_runs(
+        self, initialized_project, sample_build_script, run_adhoc_command
+    ):
         """Return next ID after existing runs."""
         # Run an ad-hoc command to create run 1
         run_adhoc_command([str(sample_build_script)])
@@ -371,7 +372,9 @@ Done
 class TestCmdEvent:
     """Tests for blq event command."""
 
-    def test_shows_event_details(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_shows_event_details(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Show details for a specific event."""
         # Create a run first
         run_adhoc_command([str(sample_build_script)])
@@ -385,7 +388,9 @@ class TestCmdEvent:
         assert "Event: 1:1" in captured.out
         assert "Severity:" in captured.out
 
-    def test_event_not_found(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_event_not_found(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Error when event not found."""
         # First create some data so the view exists
         run_adhoc_command([str(sample_build_script)])
@@ -405,7 +410,9 @@ class TestCmdEvent:
 class TestCmdContext:
     """Tests for blq context command."""
 
-    def test_shows_context_lines(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_shows_context_lines(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Show context lines around an event."""
         # Create a run with raw log
         run_adhoc_command([str(sample_build_script)])
@@ -428,7 +435,9 @@ class TestCmdContext:
 class TestCmdErrors:
     """Tests for blq errors command."""
 
-    def test_shows_errors(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_shows_errors(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Show recent errors."""
         # Create a run with errors
         run_adhoc_command([str(sample_build_script)])
@@ -442,7 +451,9 @@ class TestCmdErrors:
         # Should show some error info
         assert len(captured.out) > 0
 
-    def test_errors_json_output(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_errors_json_output(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Show errors in JSON format."""
         run_adhoc_command([str(sample_build_script)])
         capsys.readouterr()
@@ -460,7 +471,9 @@ class TestCmdErrors:
 class TestCmdStatus:
     """Tests for blq status command."""
 
-    def test_shows_status(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_shows_status(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Show status of runs."""
         run_adhoc_command([str(sample_build_script)], name="build")
         capsys.readouterr()

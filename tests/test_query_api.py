@@ -279,7 +279,9 @@ class TestLogStore:
         finally:
             os.chdir(original)
 
-    def test_events_returns_query(self, initialized_project, sample_build_script, run_adhoc_command):
+    def test_events_returns_query(
+        self, initialized_project, sample_build_script, run_adhoc_command
+    ):
         """events() returns a LogQuery."""
         # Create some data
         run_adhoc_command([str(sample_build_script)])
@@ -297,7 +299,9 @@ class TestLogStore:
         errors = store.errors().df()
         assert all(errors["severity"] == "error")
 
-    def test_warnings_convenience(self, initialized_project, sample_build_script, run_adhoc_command):
+    def test_warnings_convenience(
+        self, initialized_project, sample_build_script, run_adhoc_command
+    ):
         """warnings() returns filtered query."""
         run_adhoc_command([str(sample_build_script)])
 

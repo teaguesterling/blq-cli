@@ -181,7 +181,9 @@ class TestFormatQueryOutput:
 class TestQuerySource:
     """Tests for query_source function."""
 
-    def test_query_stored_events(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_query_stored_events(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Query stored events without specifying a file."""
         # First create some data
         run_adhoc_command([str(sample_build_script)])
@@ -229,7 +231,9 @@ class TestQuerySource:
 class TestCmdQuery:
     """Tests for cmd_query command."""
 
-    def test_query_stored_data(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_query_stored_data(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Query stored data without file argument."""
         # Create some data first
         run_adhoc_command([str(sample_build_script)])
@@ -238,6 +242,7 @@ class TestCmdQuery:
 
         # Query stored data
         import argparse
+
         args = argparse.Namespace(
             files=[],
             select=None,
@@ -254,7 +259,9 @@ class TestCmdQuery:
         captured = capsys.readouterr()
         assert "severity" in captured.out
 
-    def test_query_with_json_output(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_query_with_json_output(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Query with JSON output format."""
         # Create some data
         run_adhoc_command([str(sample_build_script)])
@@ -263,6 +270,7 @@ class TestCmdQuery:
 
         # Query with JSON
         import argparse
+
         args = argparse.Namespace(
             files=[],
             select=None,
@@ -280,7 +288,9 @@ class TestCmdQuery:
         data = json.loads(captured.out)
         assert isinstance(data, list)
 
-    def test_query_with_csv_output(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_query_with_csv_output(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Query with CSV output format."""
         # Create some data
         run_adhoc_command([str(sample_build_script)])
@@ -289,6 +299,7 @@ class TestCmdQuery:
 
         # Query with CSV
         import argparse
+
         args = argparse.Namespace(
             files=[],
             select="severity,message",
@@ -336,7 +347,9 @@ class TestCmdQuery:
 class TestCmdFilter:
     """Tests for cmd_filter command."""
 
-    def test_filter_stored_data(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_filter_stored_data(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Filter stored data."""
         # Create some data
         run_adhoc_command([str(sample_build_script)])
@@ -360,7 +373,9 @@ class TestCmdFilter:
         captured = capsys.readouterr()
         assert "error" in captured.out.lower()
 
-    def test_filter_count_mode(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_filter_count_mode(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Filter with count mode returns only count."""
         # Create some data
         run_adhoc_command([str(sample_build_script)])
@@ -386,7 +401,9 @@ class TestCmdFilter:
         count = int(captured.out.strip())
         assert count > 0
 
-    def test_filter_invert(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_filter_invert(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Filter with invert flag."""
         # Create some data
         run_adhoc_command([str(sample_build_script)])
@@ -411,7 +428,9 @@ class TestCmdFilter:
         # Should not contain "error" as severity (may contain in message though)
         assert "warning" in captured.out.lower()
 
-    def test_filter_multiple_expressions(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_filter_multiple_expressions(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Filter with multiple expressions (AND)."""
         # Create some data
         run_adhoc_command([str(sample_build_script)])
@@ -437,7 +456,9 @@ class TestCmdFilter:
         # Just check it doesn't crash
         assert captured.out is not None
 
-    def test_filter_json_output(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_filter_json_output(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Filter with JSON output."""
         # Create some data
         run_adhoc_command([str(sample_build_script)])
@@ -483,7 +504,9 @@ class TestCmdFilter:
         captured = capsys.readouterr()
         assert "not found" in captured.err.lower()
 
-    def test_filter_or_values(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_filter_or_values(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Filter with OR values (comma-separated)."""
         # Create some data
         run_adhoc_command([str(sample_build_script)])
@@ -509,7 +532,9 @@ class TestCmdFilter:
         # Should have both errors and warnings
         assert count >= 2
 
-    def test_filter_contains_pattern(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
+    def test_filter_contains_pattern(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
         """Filter with contains pattern (~)."""
         # Create some data
         run_adhoc_command([str(sample_build_script)])

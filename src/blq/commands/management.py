@@ -241,7 +241,10 @@ _blq_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # Main commands
-    commands="init run r exec e import capture status errors warnings summary history sql shell prune formats event context commands register unregister sync query q filter f serve completions"
+    commands="init run r exec e import capture status errors warnings"
+    commands="$commands summary history sql shell prune formats event"
+    commands="$commands context commands register unregister sync"
+    commands="$commands query q filter f serve completions"
 
     # Complete commands
     if [[ ${COMP_CWORD} -eq 1 ]]; then
@@ -261,19 +264,25 @@ _blq_completions() {
         exec|e)
             # Complete files and common options
             if [[ "${cur}" == -* ]]; then
-                COMPREPLY=( $(compgen -W "--name --format --keep-raw --json --markdown --quiet --summary --verbose --include-warnings --error-limit --no-capture" -- "${cur}") )
+                local opts="--name --format --keep-raw --json --markdown"
+                opts="$opts --quiet --summary --verbose --include-warnings"
+                opts="$opts --error-limit --no-capture"
+                COMPREPLY=( $(compgen -W "$opts" -- "${cur}") )
             else
                 COMPREPLY=( $(compgen -f -- "${cur}") )
             fi
             ;;
         import)
             # Complete log files
-            COMPREPLY=( $(compgen -f -X "!*.log" -- "${cur}") $(compgen -f -X "!*.txt" -- "${cur}") $(compgen -d -- "${cur}") )
+            COMPREPLY=( $(compgen -f -X "!*.log" -- "${cur}") )
+            COMPREPLY+=( $(compgen -f -X "!*.txt" -- "${cur}") )
+            COMPREPLY+=( $(compgen -d -- "${cur}") )
             ;;
         query|q|filter|f)
             # Complete log files and options
             if [[ "${cur}" == -* ]]; then
-                COMPREPLY=( $(compgen -W "--select --filter --order --limit --json --csv --markdown" -- "${cur}") )
+                local opts="--select --filter --order --limit --json --csv --markdown"
+                COMPREPLY=( $(compgen -W "$opts" -- "${cur}") )
             else
                 COMPREPLY=( $(compgen -f -- "${cur}") )
             fi
@@ -288,7 +297,8 @@ _blq_completions() {
             ;;
         register)
             if [[ "${cur}" == -* ]]; then
-                COMPREPLY=( $(compgen -W "--description --timeout --format --no-capture --force" -- "${cur}") )
+                local opts="--description --timeout --format --no-capture --force"
+                COMPREPLY=( $(compgen -W "$opts" -- "${cur}") )
             fi
             ;;
         completions)
@@ -369,7 +379,8 @@ _blq() {
                     # Complete registered commands
                     if [[ -f .lq/commands.yaml ]]; then
                         local -a registered
-                        registered=(${(f)"$(grep -E '^[a-zA-Z]' .lq/commands.yaml 2>/dev/null | cut -d: -f1)"})
+                        local cmd="grep -E '^[a-zA-Z]' .lq/commands.yaml 2>/dev/null"
+                        registered=(${(f)"$($cmd | cut -d: -f1)"})
                         _describe -t registered 'registered command' registered
                     fi
                     ;;
@@ -506,7 +517,8 @@ complete -c blq -n "__fish_seen_subcommand_from exec e" -s v -l verbose -d "Verb
 complete -c blq -n "__fish_seen_subcommand_from exec e" -s N -l no-capture -d "Skip capture"
 
 # errors/warnings options
-complete -c blq -n "__fish_seen_subcommand_from errors warnings" -s s -l source -d "Filter by source"
+complete -c blq -n "__fish_seen_subcommand_from errors warnings" \\
+    -s s -l source -d "Filter by source"
 complete -c blq -n "__fish_seen_subcommand_from errors warnings" -s n -l limit -d "Max results"
 complete -c blq -n "__fish_seen_subcommand_from errors warnings" -s c -l compact -d "Compact format"
 complete -c blq -n "__fish_seen_subcommand_from errors warnings" -s j -l json -d "JSON output"
