@@ -528,9 +528,7 @@ def _package_json_has_script(path: Path, script_name: str) -> bool:
         return False
 
 
-def _detect_and_register_commands(
-    lq_dir: Path, auto_yes: bool, mode: str = DETECT_AUTO
-) -> None:
+def _detect_and_register_commands(lq_dir: Path, auto_yes: bool, mode: str = DETECT_AUTO) -> None:
     """Detect and optionally register build/test commands.
 
     Args:

@@ -222,9 +222,7 @@ def main() -> None:
     p_run.add_argument(
         "--summary", "-s", action="store_true", help="Show brief summary (errors/warnings count)"
     )
-    p_run.add_argument(
-        "--verbose", "-v", action="store_true", help="Show all lq status messages"
-    )
+    p_run.add_argument("--verbose", "-v", action="store_true", help="Show all lq status messages")
     p_run.add_argument(
         "--include-warnings",
         "-w",
