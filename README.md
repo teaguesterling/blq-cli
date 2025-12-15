@@ -1,4 +1,4 @@
-# lq - Log Query
+# blq - Build Log Query
 
 A CLI tool for capturing, querying, and analyzing build/test logs using DuckDB.
 
@@ -16,38 +16,38 @@ A CLI tool for capturing, querying, and analyzing build/test logs using DuckDB.
 ## Installation
 
 ```bash
-pip install lq
+pip install blq-cli
 ```
 
 Initialize in your project (installs duck_hunt extension):
 ```bash
-lq init                     # Basic init
-lq init --mcp               # Also create .mcp.json for AI agents
-lq init --detect --yes      # Auto-detect and register build/test commands
-lq init --project myapp --namespace myorg  # Override project identification
+blq init                     # Basic init
+blq init --mcp               # Also create .mcp.json for AI agents
+blq init --detect --yes      # Auto-detect and register build/test commands
+blq init --project myapp --namespace myorg  # Override project identification
 ```
 
 ## Quick Start
 
 ```bash
 # Query a log file directly
-lq q build.log
-lq q -s file_path,line_number,message build.log
+blq q build.log
+blq q -s file_path,line_number,message build.log
 
 # Filter with simple syntax
-lq f severity=error build.log
-lq f severity=error,warning file_path~main build.log
+blq f severity=error build.log
+blq f severity=error,warning file_path~main build.log
 
 # Run and capture a command
-lq run make -j8
-lq run --json make test
+blq run make -j8
+blq run --json make test
 
 # View recent errors
-lq errors
+blq errors
 
 # Drill into a specific error
-lq event 1:3
-lq context 1:3
+blq event 1:3
+blq context 1:3
 ```
 
 ## Commands
@@ -56,100 +56,100 @@ lq context 1:3
 
 | Command | Description |
 |---------|-------------|
-| `lq query` / `lq q` | Query log files or stored events |
-| `lq filter` / `lq f` | Filter with simple key=value syntax |
-| `lq sql <query>` | Run arbitrary SQL |
-| `lq shell` | Interactive SQL shell |
+| `blq query` / `blq q` | Query log files or stored events |
+| `blq filter` / `blq f` | Filter with simple key=value syntax |
+| `blq sql <query>` | Run arbitrary SQL |
+| `blq shell` | Interactive SQL shell |
 
 ### Capturing
 
 | Command | Description |
 |---------|-------------|
-| `lq run <cmd>` | Run command and capture output |
-| `lq import <file>` | Import existing log file |
-| `lq capture` | Capture from stdin |
+| `blq run <cmd>` | Run command and capture output |
+| `blq import <file>` | Import existing log file |
+| `blq capture` | Capture from stdin |
 
 ### Viewing
 
 | Command | Description |
 |---------|-------------|
-| `lq errors` | Show recent errors |
-| `lq warnings` | Show recent warnings |
-| `lq event <ref>` | Show event details (e.g., `lq event 1:3`) |
-| `lq context <ref>` | Show log context around event |
-| `lq status` | Show status of all sources |
-| `lq history` | Show run history |
+| `blq errors` | Show recent errors |
+| `blq warnings` | Show recent warnings |
+| `blq event <ref>` | Show event details (e.g., `blq event 1:3`) |
+| `blq context <ref>` | Show log context around event |
+| `blq status` | Show status of all sources |
+| `blq history` | Show run history |
 
 ### Management
 
 | Command | Description |
 |---------|-------------|
-| `lq init` | Initialize .lq directory |
-| `lq register` | Register a reusable command |
-| `lq unregister` | Remove a registered command |
-| `lq commands` | List registered commands |
-| `lq prune` | Remove old logs |
+| `blq init` | Initialize .lq directory |
+| `blq register` | Register a reusable command |
+| `blq unregister` | Remove a registered command |
+| `blq commands` | List registered commands |
+| `blq prune` | Remove old logs |
 
 ## Query Examples
 
 ```bash
 # Select specific columns
-lq q -s file_path,line_number,severity,message build.log
+blq q -s file_path,line_number,severity,message build.log
 
 # Filter with SQL WHERE clause
-lq q -f "severity='error' AND file_path LIKE '%main%'" build.log
+blq q -f "severity='error' AND file_path LIKE '%main%'" build.log
 
 # Order and limit results
-lq q -o "line_number" -n 10 build.log
+blq q -o "line_number" -n 10 build.log
 
 # Output as JSON (great for agents)
-lq q --json build.log
+blq q --json build.log
 
 # Output as CSV
-lq q --csv build.log
+blq q --csv build.log
 
 # Query stored events (no file argument)
-lq q -f "severity='error'"
+blq q -f "severity='error'"
 ```
 
 ## Filter Syntax
 
-The `lq filter` command provides grep-like simplicity:
+The `blq filter` command provides grep-like simplicity:
 
 ```bash
 # Exact match
-lq f severity=error build.log
+blq f severity=error build.log
 
 # Multiple values (OR)
-lq f severity=error,warning build.log
+blq f severity=error,warning build.log
 
 # Contains (LIKE)
-lq f file_path~main build.log
+blq f file_path~main build.log
 
 # Not equal
-lq f severity!=info build.log
+blq f severity!=info build.log
 
 # Invert match (like grep -v)
-lq f -v severity=error build.log
+blq f -v severity=error build.log
 
 # Count matches
-lq f -c severity=error build.log
+blq f -c severity=error build.log
 
 # Case insensitive
-lq f -i message~undefined build.log
+blq f -i message~undefined build.log
 ```
 
 ## Structured Output for Agents
 
 ```bash
 # JSON output with errors
-lq run --json make
+blq run --json make
 
 # Markdown summary
-lq run --markdown make
+blq run --markdown make
 
 # Quiet mode (no streaming, just results)
-lq run --quiet --json make
+blq run --quiet --json make
 ```
 
 Output includes event references for drill-down:
@@ -174,29 +174,29 @@ Register frequently-used commands:
 
 ```bash
 # Auto-detect commands from build files (Makefile, package.json, etc.)
-lq init --detect --yes
+blq init --detect --yes
 
 # Or register manually
-lq register build "make -j8" --description "Build project"
-lq register test "pytest -v" --timeout 600
-lq register format "black ." --no-capture  # Skip log capture for fast commands
+blq register build "make -j8" --description "Build project"
+blq register test "pytest -v" --timeout 600
+blq register format "black ." --no-capture  # Skip log capture for fast commands
 
 # Run by name
-lq run build
-lq run test
+blq run build
+blq run test
 
 # Run without log capture (fast mode for CI/pre-commit)
-lq run --no-capture format
+blq run --no-capture format
 
 # List registered commands
-lq commands
+blq commands
 ```
 
 **Auto-detected build systems:** Makefile, package.json (npm/yarn), pyproject.toml, Cargo.toml, go.mod, CMakeLists.txt, configure, build.gradle, pom.xml, Dockerfile, docker-compose.yml
 
 ## Run Metadata
 
-Each `lq run` automatically captures execution context:
+Each `blq run` automatically captures execution context:
 
 | Field | Description |
 |-------|-------------|
@@ -211,16 +211,16 @@ Each `lq run` automatically captures execution context:
 
 Query metadata with SQL:
 ```bash
-lq sql "SELECT hostname, git_branch, environment['VIRTUAL_ENV'] FROM lq_events"
+blq sql "SELECT hostname, git_branch, environment['VIRTUAL_ENV'] FROM lq_events"
 ```
 
 ## MCP Server
 
-lq includes an MCP server for AI agent integration:
+bblq includes an MCP server for AI agent integration:
 
 ```bash
-lq serve                    # stdio transport (Claude Desktop)
-lq serve --transport sse    # HTTP/SSE transport
+blq serve                    # stdio transport (Claude Desktop)
+blq serve --transport sse    # HTTP/SSE transport
 ```
 
 Tools available: `run`, `query`, `errors`, `warnings`, `event`, `context`, `status`, `history`, `diff`
@@ -235,10 +235,10 @@ See [MCP Guide](docs/mcp.md) for details.
 
 ## Python API
 
-lq provides a fluent Python API for programmatic access:
+bblq provides a fluent Python API for programmatic access:
 
 ```python
-from lq import LogStore, LogQuery
+from blq import LogStore, LogQuery
 
 # Open the repository
 store = LogStore.open()

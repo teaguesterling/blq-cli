@@ -54,24 +54,24 @@ These options apply to all commands:
 
 ```bash
 # Query a file
-lq q build.log
-lq q -s file_path,message build.log
-lq q -f "severity='error'" build.log
+blq q build.log
+blq q -s file_path,message build.log
+blq q -f "severity='error'" build.log
 
 # Filter (simple syntax)
-lq f severity=error build.log
-lq f -c severity=error build.log    # count only
+blq f severity=error build.log
+blq f -c severity=error build.log    # count only
 
 # Run commands
-lq run make
-lq run --json make test
+blq run make
+blq run --json make test
 
 # View events
-lq errors
-lq event 1:3
-lq context 1:3
+blq errors
+blq event 1:3
+blq context 1:3
 
 # Manage commands
-lq register build "make -j8"
-lq run build
+blq register build "make -j8"
+blq run build
 ```

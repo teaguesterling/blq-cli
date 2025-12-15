@@ -1,10 +1,10 @@
-site_name: lq Documentation
-site_description: Log Query - capture and query build/test logs with DuckDB
+site_name: blq Documentation
+site_description: Build Log Query - capture and query build/test logs with DuckDB
 site_author: Teague Sterling
-site_url: https://lq.readthedocs.io
+site_url: https://blq-cli.readthedocs.io
 
-repo_name: teaguesterling/lq
-repo_url: https://github.com/teaguesterling/lq
+repo_name: teaguesterling/blq-cli
+repo_url: https://github.com/teaguesterling/blq-cli
 
 theme:
   name: material

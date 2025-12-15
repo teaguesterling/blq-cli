@@ -1,5 +1,5 @@
 """
-blq CLI - Log Query command-line interface.
+blq CLI - Build Log Query command-line interface.
 
 Usage:
     blq init [--mcp]                  Initialize .lq directory

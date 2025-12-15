@@ -1,16 +1,16 @@
 # MCP Server Guide
 
-lq provides an MCP (Model Context Protocol) server for AI agent integration. This allows agents to run builds, query logs, and analyze errors through a standardized interface.
+bblq provides an MCP (Model Context Protocol) server for AI agent integration. This allows agents to run builds, query logs, and analyze errors through a standardized interface.
 
 ## Quick Start
 
 ```bash
 # Start the MCP server
-lq serve
+blq serve
 
 # Or with specific transport
-lq serve --transport stdio      # For Claude Desktop, etc.
-lq serve --transport sse --port 8080  # For HTTP clients
+blq serve --transport stdio      # For Claude Desktop, etc.
+blq serve --transport sse --port 8080  # For HTTP clients
 ```
 
 ## Overview
@@ -21,7 +21,7 @@ The lq MCP server exposes:
 - **Resources** - Data agents can read (events, runs, status)
 - **Prompts** - Templates for common workflows (fix errors, analyze regressions)
 
-All tools are namespaced under the `lq` server, so `run` becomes `lq.run` when accessed by agents.
+All tools are namespaced under the `blq` server, so `run` becomes `lq.run` when accessed by agents.
 
 ### Available Tools
 

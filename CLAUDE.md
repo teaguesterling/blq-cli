@@ -1,13 +1,13 @@
-# lq Development Notes
+# blq Development Notes
 
 ## Project Status
 
-This is the initial scaffolding for `lq` (Log Query) - a CLI tool for capturing, storing, and querying build/test logs using DuckDB.
+This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for capturing, storing, and querying build/test logs using DuckDB.
 
 ### Completed
 - Python package structure with pyproject.toml (hatchling build)
-- CLI module (`src/lq/cli.py`) with all core commands
-- SQL schema with views and macros (`src/lq/schema.sql`)
+- CLI module (`src/blq/cli.py`) with all core commands
+- SQL schema with views and macros (`src/blq/schema.sql`)
 - Hive-partitioned parquet storage design
 - Basic error/warning parsing fallback
 - Integration hooks for duck_hunt extension
@@ -15,11 +15,11 @@ This is the initial scaffolding for `lq` (Log Query) - a CLI tool for capturing,
 - Structured output (JSON, Markdown, CSV)
 - Command registry for reusable build/test commands
 - Query and filter commands for direct log file inspection
-- MCP server (`lq serve`) for AI agent integration
+- MCP server (`blq serve`) for AI agent integration
 - Run metadata capture (environment, git, system, CI context)
 - Project detection from git remote or filesystem path
-- Command auto-detection from build files (`lq init --detect`)
-- Capture/no-capture mode for fast execution (`lq run --no-capture`)
+- Command auto-detection from build files (`blq init --detect`)
+- Capture/no-capture mode for fast execution (`blq run --no-capture`)
 - 173 unit tests
 - Comprehensive documentation (README, docs/)
 
@@ -30,7 +30,7 @@ This is the initial scaffolding for `lq` (Log Query) - a CLI tool for capturing,
 ## Architecture
 
 ```
-lq (Python CLI)
+blq (Python CLI)
     │
     ├── Writes parquet files to .lq/logs/date=.../source=.../
     │
@@ -41,7 +41,7 @@ lq (Python CLI)
 
 ## Run Metadata
 
-Each `lq run` captures comprehensive execution context:
+Each `blq run` captures comprehensive execution context:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -87,12 +87,12 @@ SELECT ci['provider'], ci['run_id'] FROM lq_events WHERE ci IS NOT NULL
 
 ## Project Identification
 
-Detected at `lq init` and stored in `.lq/config.yaml`:
+Detected at `blq init` and stored in `.lq/config.yaml`:
 
 ```yaml
 project:
   namespace: teaguesterling  # from git remote owner
-  project: lq                # from git remote repo
+  project: blq               # from git remote repo
 ```
 
 Fallback for non-git projects uses filesystem path:
@@ -100,7 +100,7 @@ Fallback for non-git projects uses filesystem path:
 
 ## Command Auto-Detection
 
-`lq init --detect` scans for build system files and registers appropriate commands:
+`blq init --detect` scans for build system files and registers appropriate commands:
 
 | File | Commands |
 |------|----------|
@@ -126,7 +126,7 @@ commands:
     capture: false  # Skip log capture
 ```
 
-Runtime override: `lq run --no-capture <cmd>` or `lq run --capture <cmd>`
+Runtime override: `blq run --no-capture <cmd>` or `blq run --capture <cmd>`
 
 ## Key Design Decisions
 

@@ -14,7 +14,7 @@ project:
   project: lq
 ```
 
-### Detection at `lq init`
+### Detection at `blq init`
 
 1. **Git remote** (preferred): Parse `git remote get-url origin`
    - `git@github.com:owner/repo.git` → namespace=github__owner, project=repo
@@ -72,29 +72,29 @@ s3://bucket/lq/
 
 ```bash
 # Soft sync (symlink) - default
-lq sync                              # Symlink to ~/.lq/projects/
-lq sync ~/custom/path/               # Custom destination
+blq sync                              # Symlink to ~/.lq/projects/
+blq sync ~/custom/path/               # Custom destination
 
 # Options
-lq sync --dry-run                    # Show what would be done
-lq sync --status                     # Show current sync state
-lq sync --force                      # Replace existing sync target
-lq sync --hard                       # Copy files (not yet implemented)
+blq sync --dry-run                    # Show what would be done
+blq sync --status                     # Show current sync state
+blq sync --force                      # Replace existing sync target
+blq sync --hard                       # Copy files (not yet implemented)
 ```
 
 ### Cross-Project Querying
 
 ```bash
 # Query local project (default)
-lq errors                            # ./.lq/logs/
+blq errors                            # ./.lq/logs/
 
 # Query global store
-lq errors -g                         # ~/.lq/projects/
-lq errors --global
+blq errors -g                         # ~/.lq/projects/
+blq errors --global
 
 # Query custom root (S3, remote, etc.)
-lq errors -d s3://bucket/lq/
-lq errors --database ~/other/path/
+blq errors -d s3://bucket/lq/
+blq errors --database ~/other/path/
 ```
 
 Global flags work with: `errors`, `warnings`, `query`, `filter`, `status`, `history`, `sql`
@@ -122,7 +122,7 @@ sync:
 - [x] Store in config.yaml at init
 
 ### Phase 2: Local Sync ✅
-- [x] `lq sync` command
+- [x] `blq sync` command
 - [x] Symlink mode (soft sync) for local destinations
 - [x] `--dry-run`, `--status`, `--force` flags
 - [x] Hostname-first hierarchy
@@ -145,13 +145,13 @@ Cross-machine queries with global flag:
 
 ```bash
 # All errors across all synced projects
-lq errors -g
+blq errors -g
 
 # Filter by project
-lq query -g -f "namespace='github__teaguesterling' AND project='lq'"
+blq query -g -f "namespace='github__teaguesterling' AND project='lq'"
 
 # SQL across all projects
-lq sql -g "SELECT hostname, namespace, project, COUNT(*) as errors
+blq sql -g "SELECT hostname, namespace, project, COUNT(*) as errors
            FROM lq_events WHERE severity='error'
            GROUP BY ALL ORDER BY errors DESC"
 ```
@@ -192,34 +192,34 @@ Over time, logs accumulate many small parquet files. Compaction consolidates the
 1. **Merge files** - Combine many small parquet files into fewer larger ones
 2. **Compress** - Apply better compression to older data
 3. **Summarize** - Aggregate old data, keeping counts but dropping raw messages (lossy)
-4. **Prune** - Delete old data entirely (already implemented via `lq prune`)
+4. **Prune** - Delete old data entirely (already implemented via `blq prune`)
 
 ## CLI Interface
 
 ```bash
 # Compact all partitions (merge small files)
-lq compact
+blq compact
 
 # Only compact data older than 30 days
-lq compact --older-than 30d
+blq compact --older-than 30d
 
 # Use better compression
-lq compact --compression zstd
+blq compact --compression zstd
 
 # Summarize old data (lossy - keeps aggregates only)
-lq compact --summarize --older-than 90d
+blq compact --summarize --older-than 90d
 
 # Dry run
-lq compact --dry-run
+blq compact --dry-run
 ```
 
 ## Compaction vs Prune
 
 | Command | Action | Data Loss |
 |---------|--------|-----------|
-| `lq prune` | Delete old partitions | Yes |
-| `lq compact` | Merge files, recompress | No |
-| `lq compact --summarize` | Aggregate old data | Yes (detail) |
+| `blq prune` | Delete old partitions | Yes |
+| `blq compact` | Merge files, recompress | No |
+| `blq compact --summarize` | Aggregate old data | Yes (detail) |
 
 ## Implementation Notes
 

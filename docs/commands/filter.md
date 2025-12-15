@@ -2,13 +2,13 @@
 
 Filter log files with simple, grep-like syntax.
 
-**Alias:** `lq f`
+**Alias:** `blq f`
 
 ## Synopsis
 
 ```bash
-lq filter [OPTIONS] [EXPRESSION...] [FILE...]
-lq f [OPTIONS] [EXPRESSION...] [FILE...]
+blq filter [OPTIONS] [EXPRESSION...] [FILE...]
+blq f [OPTIONS] [EXPRESSION...] [FILE...]
 ```
 
 ## Description
@@ -32,8 +32,8 @@ The `filter` command provides a simple, grep-like interface for filtering log ev
 ### Exact Match (`=`)
 
 ```bash
-lq f severity=error build.log
-lq f file_path=src/main.c build.log
+blq f severity=error build.log
+blq f file_path=src/main.c build.log
 ```
 
 ### Multiple Values (`=v1,v2`)
@@ -41,7 +41,7 @@ lq f file_path=src/main.c build.log
 Matches if the field equals any of the values (OR):
 
 ```bash
-lq f severity=error,warning build.log
+blq f severity=error,warning build.log
 ```
 
 Equivalent SQL: `severity IN ('error', 'warning')`
@@ -51,8 +51,8 @@ Equivalent SQL: `severity IN ('error', 'warning')`
 Pattern matching with ILIKE (case insensitive):
 
 ```bash
-lq f file_path~main build.log
-lq f message~undefined build.log
+blq f file_path~main build.log
+blq f message~undefined build.log
 ```
 
 Equivalent SQL: `file_path ILIKE '%main%'`
@@ -60,7 +60,7 @@ Equivalent SQL: `file_path ILIKE '%main%'`
 ### Not Equal (`!=`)
 
 ```bash
-lq f severity!=info build.log
+blq f severity!=info build.log
 ```
 
 ### Multiple Expressions
@@ -68,7 +68,7 @@ lq f severity!=info build.log
 Multiple expressions are combined with AND:
 
 ```bash
-lq f severity=error file_path~main build.log
+blq f severity=error file_path~main build.log
 ```
 
 Equivalent SQL: `severity = 'error' AND file_path ILIKE '%main%'`
@@ -78,26 +78,26 @@ Equivalent SQL: `severity = 'error' AND file_path ILIKE '%main%'`
 ### Filter Errors
 
 ```bash
-lq f severity=error build.log
+blq f severity=error build.log
 ```
 
 ### Filter Errors and Warnings
 
 ```bash
-lq f severity=error,warning build.log
+blq f severity=error,warning build.log
 ```
 
 ### Filter by File
 
 ```bash
-lq f file_path~utils build.log
-lq f file_path~.c build.log     # All C files
+blq f file_path~utils build.log
+blq f file_path~.c build.log     # All C files
 ```
 
 ### Exclude Info Messages
 
 ```bash
-lq f severity!=info build.log
+blq f severity!=info build.log
 ```
 
 ### Invert Match
@@ -105,26 +105,26 @@ lq f severity!=info build.log
 Show everything except errors (like `grep -v`):
 
 ```bash
-lq f -v severity=error build.log
+blq f -v severity=error build.log
 ```
 
 ### Count Matches
 
 ```bash
-lq f -c severity=error build.log
+blq f -c severity=error build.log
 # Output: 5
 ```
 
 ### Case Insensitive
 
 ```bash
-lq f -i message~error build.log
+blq f -i message~error build.log
 ```
 
 ### Combine Options
 
 ```bash
-lq f -c severity=error,warning file_path~main build.log
+blq f -c severity=error,warning file_path~main build.log
 ```
 
 ### Query Stored Events
@@ -132,26 +132,26 @@ lq f -c severity=error,warning file_path~main build.log
 Without a file, queries stored events:
 
 ```bash
-lq f severity=error
-lq f -c severity=warning
+blq f severity=error
+blq f -c severity=warning
 ```
 
 ### Output Formats
 
 ```bash
-lq f severity=error --json build.log
-lq f severity=error --csv build.log
+blq f severity=error --json build.log
+blq f severity=error --csv build.log
 ```
 
 ## Comparison with query
 
 | Task | filter | query |
 |------|--------|-------|
-| Errors only | `lq f severity=error` | `lq q -f "severity='error'"` |
-| Contains | `lq f file_path~main` | `lq q -f "file_path LIKE '%main%'"` |
-| Multiple values | `lq f severity=error,warning` | `lq q -f "severity IN ('error','warning')"` |
-| Select columns | Not supported | `lq q -s file_path,message` |
-| Complex SQL | Not supported | `lq q -f "line_number > 100"` |
+| Errors only | `blq f severity=error` | `blq q -f "severity='error'"` |
+| Contains | `blq f file_path~main` | `blq q -f "file_path LIKE '%main%'"` |
+| Multiple values | `blq f severity=error,warning` | `blq q -f "severity IN ('error','warning')"` |
+| Select columns | Not supported | `blq q -s file_path,message` |
+| Complex SQL | Not supported | `blq q -f "line_number > 100"` |
 
 Use `filter` for quick, simple filtering. Use `query` when you need column selection, complex conditions, or ordering.
 

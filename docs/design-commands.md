@@ -26,10 +26,10 @@ Runtime flags with optional config default:
 
 ```bash
 # Runtime control (default: capture)
-lq run build              # captures logs
-lq run --no-capture build # just execute, exit code only
-lq run -n build           # short form
-lq run --capture build    # explicit capture (override config)
+blq run build              # captures logs
+blq run --no-capture build # just execute, exit code only
+blq run -n build           # short form
+blq run --capture build    # explicit capture (override config)
 ```
 
 Config default per-command:
@@ -53,7 +53,7 @@ commands:
 
 ### Implementation
 
-- Add `--capture` and `--no-capture` / `-n` flags to `lq run`
+- Add `--capture` and `--no-capture` / `-n` flags to `blq run`
 - Add `capture: bool` field to `RegisteredCommand`
 - In `cmd_run()`, check flags → config → default
 - When `capture=false`: run command, print output, return exit code (skip parsing/storage)
@@ -65,7 +65,7 @@ commands:
 ### 2a. Project/Namespace Override
 
 ```bash
-lq init --project myapp --namespace myteam
+blq init --project myapp --namespace myteam
 ```
 
 Overrides auto-detection from git remote or filesystem path.
@@ -81,8 +81,8 @@ project:
 ### 2b. Command Auto-Detection
 
 ```bash
-lq init --detect         # detect and prompt
-lq init --detect --yes   # detect and auto-register
+blq init --detect         # detect and prompt
+blq init --detect --yes   # detect and auto-register
 ```
 
 Detection rules:
@@ -104,7 +104,7 @@ Logic:
 ### Combined Example
 
 ```bash
-lq init --mcp --detect --project myapp --namespace myorg
+blq init --mcp --detect --project myapp --namespace myorg
 ```
 
 Creates:
@@ -176,7 +176,7 @@ commands:
         default: "."
 ```
 
-Usage: `lq run test file=tests/unit/`
+Usage: `blq run test file=tests/unit/`
 
 ---
 
@@ -184,12 +184,12 @@ Usage: `lq run test file=tests/unit/`
 
 ### Phase 1: Capture Flag ✅
 - [x] Add `capture` field to `RegisteredCommand`
-- [x] Add `--capture` / `--no-capture` flags to `lq run`
+- [x] Add `--capture` / `--no-capture` flags to `blq run`
 - [x] Implement no-capture path in `cmd_run()`
 - [x] Update tests
 
 ### Phase 2: Init Enhancements ✅
-- [x] Add `--project` and `--namespace` args to `lq init`
+- [x] Add `--project` and `--namespace` args to `blq init`
 - [x] Add `--detect` flag with detection logic
 - [x] Add `--yes` flag for non-interactive mode
 - [x] Detected: Makefile, yarn/npm, pyproject.toml, Cargo.toml, go.mod, CMakeLists.txt, configure, Gradle, Maven, Docker

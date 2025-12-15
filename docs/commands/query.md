@@ -2,13 +2,13 @@
 
 Query log files or stored events using SQL.
 
-**Alias:** `lq q`
+**Alias:** `blq q`
 
 ## Synopsis
 
 ```bash
-lq query [OPTIONS] [FILE...]
-lq q [OPTIONS] [FILE...]
+blq query [OPTIONS] [FILE...]
+blq q [OPTIONS] [FILE...]
 ```
 
 ## Description
@@ -34,13 +34,13 @@ The `query` command provides SQL-like querying of log files or stored events. Wh
 Query all events from a log file:
 
 ```bash
-lq q build.log
+blq q build.log
 ```
 
 ### Select Columns
 
 ```bash
-lq q -s file_path,line_number,severity,message build.log
+blq q -s file_path,line_number,severity,message build.log
 ```
 
 Output:
@@ -53,29 +53,29 @@ Output:
 ### Filter with WHERE Clause
 
 ```bash
-lq q -f "severity='error'" build.log
-lq q -f "severity='error' AND file_path LIKE '%main%'" build.log
-lq q -f "line_number > 100" build.log
+blq q -f "severity='error'" build.log
+blq q -f "severity='error' AND file_path LIKE '%main%'" build.log
+blq q -f "line_number > 100" build.log
 ```
 
 ### Order and Limit
 
 ```bash
-lq q -o "line_number DESC" -n 10 build.log
-lq q -o "file_path, line_number" build.log
+blq q -o "line_number DESC" -n 10 build.log
+blq q -o "file_path, line_number" build.log
 ```
 
 ### Output Formats
 
 ```bash
 # JSON (great for scripts and agents)
-lq q --json build.log
+blq q --json build.log
 
 # CSV (for spreadsheets)
-lq q --csv build.log > errors.csv
+blq q --csv build.log > errors.csv
 
 # Markdown (for documentation)
-lq q --markdown build.log
+blq q --markdown build.log
 ```
 
 ### Query Stored Events
@@ -84,13 +84,13 @@ Without a file argument, queries the `lq_events` view:
 
 ```bash
 # All stored errors
-lq q -f "severity='error'"
+blq q -f "severity='error'"
 
 # Errors from today
-lq q -f "severity='error' AND date = current_date"
+blq q -f "severity='error' AND date = current_date"
 
 # Errors from a specific run
-lq q -f "run_id = 5"
+blq q -f "run_id = 5"
 ```
 
 ### Specify Log Format
@@ -98,8 +98,8 @@ lq q -f "run_id = 5"
 Use the global `-F` flag to hint the log format:
 
 ```bash
-lq -F gcc q build.log
-lq -F pytest q test_output.log
+blq -F gcc q build.log
+blq -F pytest q test_output.log
 ```
 
 ## Available Columns

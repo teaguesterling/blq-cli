@@ -5,7 +5,7 @@ Run a command and capture its output.
 ## Synopsis
 
 ```bash
-lq run [OPTIONS] COMMAND [ARGS...]
+blq run [OPTIONS] COMMAND [ARGS...]
 ```
 
 ## Description
@@ -30,21 +30,21 @@ The `run` command executes a shell command, captures its output, parses it for e
 ### Basic Usage
 
 ```bash
-lq run make -j8
-lq run pytest -v
-lq run cargo build
+blq run make -j8
+blq run pytest -v
+blq run cargo build
 ```
 
 ### Named Run
 
 ```bash
-lq run --name "nightly build" make -j8
+blq run --name "nightly build" make -j8
 ```
 
 ### Keep Raw Log
 
 ```bash
-lq run --keep-raw make
+blq run --keep-raw make
 # Creates .lq/raw/001_make_103000.log
 ```
 
@@ -54,13 +54,13 @@ For CI/CD or agent integration:
 
 ```bash
 # JSON output
-lq run --json make
+blq run --json make
 
 # Markdown summary
-lq run --markdown make
+blq run --markdown make
 
 # Quiet mode (no streaming, just result)
-lq run --quiet --json make
+blq run --quiet --json make
 ```
 
 ### Include Warnings
@@ -68,27 +68,27 @@ lq run --quiet --json make
 By default, structured output only includes errors. To include warnings:
 
 ```bash
-lq run --json --include-warnings make
+blq run --json --include-warnings make
 ```
 
 ### Limit Output
 
 ```bash
-lq run --json --error-limit 5 make
+blq run --json --error-limit 5 make
 ```
 
 ## Running Registered Commands
 
-If you've registered commands with `lq register`, you can run them by name:
+If you've registered commands with `blq register`, you can run them by name:
 
 ```bash
 # Register
-lq register build "make -j8"
-lq register test "pytest -v"
+blq register build "make -j8"
+blq register test "pytest -v"
 
 # Run by name
-lq run build
-lq run test
+blq run build
+blq run test
 ```
 
 ## Structured Output Format
@@ -129,13 +129,13 @@ With `--include-warnings`, a `warnings` array is also included.
 Each error/warning has a `ref` field (e.g., `1:1`) that can be used to get more details:
 
 ```bash
-lq event 1:1
-lq context 1:1
+blq event 1:1
+blq context 1:1
 ```
 
 ## Exit Code
 
-`lq run` exits with the same exit code as the command it ran. This preserves the fail/pass semantics for CI/CD pipelines.
+`blq run` exits with the same exit code as the command it ran. This preserves the fail/pass semantics for CI/CD pipelines.
 
 ## See Also
 

@@ -4,14 +4,14 @@ This guide covers integrating lq with AI agents, CI/CD pipelines, and other tool
 
 ## AI Agent Integration
 
-lq is designed to work well with AI coding assistants like Claude, GPT, and others.
+bblq is designed to work well with AI coding assistants like Claude, GPT, and others.
 
 ### Structured Output
 
 Use `--json` for machine-readable output:
 
 ```bash
-lq run --json --quiet make
+blq run --json --quiet make
 ```
 
 Output:
@@ -37,13 +37,13 @@ The structured output includes event references that agents can use to get more 
 
 ```bash
 # Agent runs build, gets error summary
-lq run --json make
+blq run --json make
 
 # Agent sees ref "1:1", gets details
-lq event 1:1
+blq event 1:1
 
 # Agent needs more context
-lq context 1:1 --lines 5
+blq context 1:1 --lines 5
 ```
 
 ### Query for Analysis
@@ -52,10 +52,10 @@ Agents can query logs directly:
 
 ```bash
 # Get all errors as JSON
-lq q --json -f "severity='error'" build.log
+blq q --json -f "severity='error'" build.log
 
 # Count errors by file
-lq sql "SELECT file_path, COUNT(*) as count
+blq sql "SELECT file_path, COUNT(*) as count
         FROM read_duck_hunt_log('build.log', 'auto')
         WHERE severity='error'
         GROUP BY 1
@@ -67,8 +67,8 @@ lq sql "SELECT file_path, COUNT(*) as count
 For generating reports or PR comments:
 
 ```bash
-lq run --markdown make
-lq q --markdown -s file_path,line_number,message build.log
+blq run --markdown make
+blq q --markdown -s file_path,line_number,message build.log
 ```
 
 ## CI/CD Integration
@@ -78,8 +78,8 @@ lq q --markdown -s file_path,line_number,message build.log
 ```yaml
 - name: Build with log capture
   run: |
-    lq init
-    lq run --json make > build_result.json
+    blq init
+    blq run --json make > build_result.json
   continue-on-error: true
 
 - name: Upload build results
@@ -96,8 +96,8 @@ lq q --markdown -s file_path,line_number,message build.log
 ```yaml
 build:
   script:
-    - lq init
-    - lq run --json make | tee build_result.json
+    - blq init
+    - blq run --json make | tee build_result.json
   artifacts:
     paths:
       - build_result.json
@@ -112,8 +112,8 @@ pipeline {
     stages {
         stage('Build') {
             steps {
-                sh 'lq init'
-                sh 'lq run --json make > build_result.json || true'
+                sh 'blq init'
+                sh 'blq run --json make > build_result.json || true'
                 archiveArtifacts artifacts: 'build_result.json,.lq/logs/**'
             }
         }
@@ -127,21 +127,21 @@ Register standard commands for consistent CI builds:
 
 ```bash
 # Setup (in repo or CI init)
-lq register build "make -j8" --description "Build project"
-lq register test "pytest -v" --timeout 600
-lq register lint "ruff check ." --format eslint
+blq register build "make -j8" --description "Build project"
+blq register test "pytest -v" --timeout 600
+blq register lint "ruff check ." --format eslint
 
 # CI script
-lq run build
-lq run test
-lq run lint
+blq run build
+blq run test
+blq run lint
 ```
 
 Store `commands.yaml` in your repo for reproducibility.
 
 ## MCP Server Integration
 
-lq is designed to work with MCP (Model Context Protocol) servers for AI agent access.
+bblq is designed to work with MCP (Model Context Protocol) servers for AI agent access.
 
 ### With duckdb_mcp
 
@@ -165,10 +165,10 @@ SELECT mcp_publish_tool(
 
 ### Future: lq serve
 
-A dedicated MCP server for lq is planned:
+A dedicated MCP server for blq is planned:
 
 ```bash
-lq serve --port 8080
+blq serve --port 8080
 ```
 
 This will expose:
@@ -182,15 +182,15 @@ This will expose:
 
 ```bash
 # In ~/.bashrc
-alias make='lq run make'
-alias pytest='lq run pytest'
+alias make='blq run make'
+alias pytest='blq run pytest'
 ```
 
 ### Fish Function
 
 ```fish
 function make --wraps make
-    lq run make $argv
+    blq run make $argv
 end
 ```
 
@@ -200,7 +200,7 @@ end
 # Capture all failed commands
 preexec() {
     if [[ $? -ne 0 ]]; then
-        lq import /tmp/last_output.log --name "$1"
+        blq import /tmp/last_output.log --name "$1"
     fi
 }
 ```
@@ -218,23 +218,23 @@ cp -r .lq/logs/ /path/to/export/
 ### Export to CSV
 
 ```bash
-lq sql "COPY (SELECT * FROM lq_events) TO 'events.csv' (HEADER)"
+blq sql "COPY (SELECT * FROM lq_events) TO 'events.csv' (HEADER)"
 ```
 
 ### Export to JSON Lines
 
 ```bash
-lq sql "COPY (SELECT * FROM lq_events) TO 'events.jsonl'"
+blq sql "COPY (SELECT * FROM lq_events) TO 'events.jsonl'"
 ```
 
 ## Programmatic Access
 
 ### Python API
 
-lq provides a fluent Python API for programmatic access:
+bblq provides a fluent Python API for programmatic access:
 
 ```python
-from lq import LogStore, LogQuery
+from blq import LogStore, LogQuery
 
 # Open the repository
 store = LogStore.open()
@@ -264,7 +264,7 @@ See [Python API Guide](python-api.md) for full documentation.
 For complex queries, use the underlying DuckDB connection:
 
 ```python
-from lq import LogStore
+from blq import LogStore
 
 store = LogStore.open()
 conn = store.connection

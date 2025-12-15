@@ -5,7 +5,7 @@
 ### From PyPI
 
 ```bash
-pip install lq
+pip install blq-cli
 ```
 
 ### From Source
@@ -18,11 +18,11 @@ pip install -e .
 
 ## Initialize Your Project
 
-Run `lq init` in your project directory:
+Run `blq init` in your project directory:
 
 ```bash
 cd my-project
-lq init
+blq init
 ```
 
 This creates a `.lq/` directory and installs the `duck_hunt` extension for log parsing.
@@ -42,19 +42,19 @@ Initialized .lq at /path/to/my-project/.lq
 If you have an existing log file:
 
 ```bash
-lq q build.log
+blq q build.log
 ```
 
 Select specific columns:
 
 ```bash
-lq q -s file_path,line_number,severity,message build.log
+blq q -s file_path,line_number,severity,message build.log
 ```
 
 Filter for errors:
 
 ```bash
-lq f severity=error build.log
+blq f severity=error build.log
 ```
 
 ### Run and Capture
@@ -62,7 +62,7 @@ lq f severity=error build.log
 Run a command and capture its output:
 
 ```bash
-lq run make -j8
+blq run make -j8
 ```
 
 This:
@@ -75,13 +75,13 @@ This:
 
 ```bash
 # Recent errors
-lq errors
+blq errors
 
 # All warnings
-lq warnings
+blq warnings
 
 # Overall status
-lq status
+blq status
 ```
 
 ## Output Formats
@@ -89,7 +89,7 @@ lq status
 ### Default Table
 
 ```bash
-lq q -s file_path,severity,message build.log
+blq q -s file_path,severity,message build.log
 ```
 
 ```
@@ -101,7 +101,7 @@ src/utils.c    error        missing semicolon
 ### JSON
 
 ```bash
-lq q --json build.log
+blq q --json build.log
 ```
 
 ```json
@@ -114,13 +114,13 @@ lq q --json build.log
 ### CSV
 
 ```bash
-lq q --csv build.log
+blq q --csv build.log
 ```
 
 ### Markdown
 
 ```bash
-lq q --markdown build.log
+blq q --markdown build.log
 ```
 
 ## Next Steps

@@ -9,7 +9,7 @@ Build and test logs contain valuable information, but they're often:
 - Hard to search and correlate
 - Lost after a few days
 
-lq solves this by:
+blq solves this by:
 - **Storing logs locally** in efficient parquet format
 - **Parsing 60+ formats** via the duck_hunt extension
 - **Providing SQL access** for powerful queries
@@ -30,16 +30,16 @@ Every error, warning, or notable item in a log becomes an **event** with:
 Events are referenced by `run_id:event_id` (e.g., `1:3` means run 1, event 3). This allows drilling down from summaries:
 
 ```bash
-lq errors              # Shows refs like 1:3, 1:4
-lq event 1:3           # Get details for specific event
-lq context 1:3         # See surrounding log lines
+blq errors              # Shows refs like 1:3, 1:4
+blq event 1:3           # Get details for specific event
+blq context 1:3         # See surrounding log lines
 ```
 
 ### Sources
 
 A **source** is anything that produces logs:
-- A command run (`lq run make`)
-- An imported file (`lq import build.log`)
+- A command run (`blq run make`)
+- An imported file (`blq import build.log`)
 - Stdin capture (`make | lq capture`)
 
 ### Storage

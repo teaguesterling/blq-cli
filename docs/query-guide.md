@@ -9,8 +9,8 @@ This guide covers techniques for effectively querying logs with lq.
 Query log files without importing them:
 
 ```bash
-lq q build.log
-lq f severity=error build.log
+blq q build.log
+blq f severity=error build.log
 ```
 
 This uses the `duck_hunt` extension to parse the file on-the-fly.
@@ -20,8 +20,8 @@ This uses the `duck_hunt` extension to parse the file on-the-fly.
 Query previously captured events:
 
 ```bash
-lq q -f "severity='error'"
-lq f severity=error
+blq q -f "severity='error'"
+blq f severity=error
 ```
 
 This queries the `lq_events` view which combines all stored parquet files.
@@ -30,11 +30,11 @@ This queries the `lq_events` view which combines all stored parquet files.
 
 | Use Case | Tool | Example |
 |----------|------|---------|
-| Quick filter | `lq filter` | `lq f severity=error log.txt` |
-| Column selection | `lq query` | `lq q -s file,message log.txt` |
-| Complex conditions | `lq query` | `lq q -f "line > 100"` |
-| Full SQL | `lq sql` | `lq sql "SELECT ..."` |
-| Interactive | `lq shell` | `lq shell` |
+| Quick filter | `blq filter` | `blq f severity=error log.txt` |
+| Column selection | `blq query` | `blq q -s file,message log.txt` |
+| Complex conditions | `blq query` | `blq q -f "line > 100"` |
+| Full SQL | `blq sql` | `blq sql "SELECT ..."` |
+| Interactive | `blq shell` | `blq shell` |
 
 ## Common Patterns
 
@@ -42,16 +42,16 @@ This queries the `lq_events` view which combines all stored parquet files.
 
 ```bash
 # Simple
-lq f severity=error build.log
+blq f severity=error build.log
 
 # With location info
-lq q -s file_path,line_number,message -f "severity='error'" build.log
+blq q -s file_path,line_number,message -f "severity='error'" build.log
 ```
 
 ### Group by File
 
 ```bash
-lq sql "SELECT file_path, COUNT(*) as errors
+blq sql "SELECT file_path, COUNT(*) as errors
         FROM read_duck_hunt_log('build.log', 'auto')
         WHERE severity='error'
         GROUP BY file_path
@@ -63,7 +63,7 @@ lq sql "SELECT file_path, COUNT(*) as errors
 Using error fingerprints:
 
 ```bash
-lq sql "SELECT error_fingerprint, COUNT(*) as occurrences,
+blq sql "SELECT error_fingerprint, COUNT(*) as occurrences,
                ANY_VALUE(message) as example
         FROM lq_events
         GROUP BY error_fingerprint
@@ -75,7 +75,7 @@ lq sql "SELECT error_fingerprint, COUNT(*) as occurrences,
 
 ```bash
 # Errors in latest run but not previous
-lq sql "SELECT DISTINCT error_fingerprint, message
+blq sql "SELECT DISTINCT error_fingerprint, message
         FROM lq_events
         WHERE run_id = (SELECT MAX(run_id) FROM lq_events)
           AND error_fingerprint NOT IN (
@@ -87,7 +87,7 @@ lq sql "SELECT DISTINCT error_fingerprint, message
 ### Timeline of Errors
 
 ```bash
-lq sql "SELECT date, source_name, COUNT(*) as errors
+blq sql "SELECT date, source_name, COUNT(*) as errors
         FROM lq_events
         WHERE severity = 'error'
         GROUP BY date, source_name
@@ -126,7 +126,7 @@ Additional fields:
 ### Table (Default)
 
 ```bash
-lq q -s file_path,message build.log
+blq q -s file_path,message build.log
 ```
 
 ```
@@ -137,7 +137,7 @@ lq q -s file_path,message build.log
 ### JSON
 
 ```bash
-lq q --json build.log
+blq q --json build.log
 ```
 
 Best for:
@@ -148,7 +148,7 @@ Best for:
 ### CSV
 
 ```bash
-lq q --csv build.log > errors.csv
+blq q --csv build.log > errors.csv
 ```
 
 Best for:
@@ -158,7 +158,7 @@ Best for:
 ### Markdown
 
 ```bash
-lq q --markdown build.log
+blq q --markdown build.log
 ```
 
 Best for:
@@ -173,17 +173,17 @@ Best for:
 Always use `-n` when exploring:
 
 ```bash
-lq q -n 10 build.log
+blq q -n 10 build.log
 ```
 
 ### Select Only Needed Columns
 
 ```bash
 # Fast
-lq q -s file_path,message build.log
+blq q -s file_path,message build.log
 
 # Slow (returns all columns)
-lq q build.log
+blq q build.log
 ```
 
 ### Use Date Partitions
@@ -191,19 +191,19 @@ lq q build.log
 Stored data is partitioned by date. Filter by date for faster queries:
 
 ```bash
-lq sql "SELECT * FROM lq_events WHERE date = '2024-01-15'"
+blq sql "SELECT * FROM lq_events WHERE date = '2024-01-15'"
 ```
 
 ## Advanced: Raw SQL
 
-For complex analysis, use `lq sql` or `lq shell`:
+For complex analysis, use `blq sql` or `blq shell`:
 
 ```bash
 # Ad-hoc query
-lq sql "SELECT file_path, COUNT(*) FROM lq_events GROUP BY 1"
+blq sql "SELECT file_path, COUNT(*) FROM lq_events GROUP BY 1"
 
 # Interactive session
-lq shell
+blq shell
 ```
 
 In the shell, you have full DuckDB SQL available plus:

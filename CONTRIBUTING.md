@@ -1,13 +1,13 @@
-# Contributing to lq
+# Contributing to blq
 
-Thank you for considering contributing to lq! This document provides guidelines and instructions for contributing.
+Thank you for considering contributing to blq! This document provides guidelines and instructions for contributing.
 
 ## Development Setup
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/teaguesterling/lq.git
-   cd lq
+   git clone https://github.com/teaguesterling/blq-cli.git
+   cd blq-cli
    ```
 
 2. **Create a virtual environment:**
@@ -21,9 +21,9 @@ Thank you for considering contributing to lq! This document provides guidelines 
    pip install -e ".[dev]"
    ```
 
-4. **Initialize lq:**
+4. **Initialize blq:**
    ```bash
-   lq init
+   blq init
    ```
 
 ## Development Workflow
@@ -71,7 +71,7 @@ ruff format .
 We use `mypy` for type checking (optional but recommended):
 
 ```bash
-mypy src/lq
+mypy src/blq
 ```
 
 ### Testing
@@ -83,7 +83,7 @@ Run tests with pytest:
 pytest
 
 # Run with coverage
-pytest --cov=lq --cov-report=term
+pytest --cov=blq --cov-report=term
 
 # Run specific test file
 pytest tests/test_core.py
@@ -137,7 +137,7 @@ Good commit message format:
    ```
 
 4. **Create a Pull Request:**
-   - Go to https://github.com/teaguesterling/lq/pulls
+   - Go to https://github.com/teaguesterling/blq-cli/pulls
    - Click "New Pull Request"
    - Select your branch
    - Fill in the PR template
@@ -151,8 +151,8 @@ Good commit message format:
 ## Project Structure
 
 ```
-lq/
-├── src/lq/          # Source code
+blq-cli/
+├── src/blq/          # Source code
 │   ├── cli.py       # Command-line interface
 │   ├── query.py     # Query API
 │   ├── serve.py     # MCP server
@@ -220,19 +220,19 @@ Make sure all checks pass before requesting review.
    ```
 
 5. **Create GitHub release:**
-   - Go to https://github.com/teaguesterling/lq/releases/new
+   - Go to https://github.com/teaguesterling/blq-cli/releases/new
    - Select the tag
    - Write release notes
    - Publish release
 
 6. **Automatic PyPI publishing:**
    - GitHub Actions will automatically publish to PyPI
-   - Verify at https://pypi.org/project/lq/
+   - Verify at https://pypi.org/project/blq-cli/
 
 ## Getting Help
 
-- **Issues:** https://github.com/teaguesterling/lq/issues
-- **Discussions:** https://github.com/teaguesterling/lq/discussions
+- **Issues:** https://github.com/teaguesterling/blq-cli/issues
+- **Discussions:** https://github.com/teaguesterling/blq-cli/discussions
 - **Email:** teaguesterling@gmail.com
 
 ## Code of Conduct

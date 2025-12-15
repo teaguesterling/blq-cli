@@ -1,21 +1,21 @@
 # Sync Command
 
-The `lq sync` command synchronizes project logs to a central location for cross-project querying.
+The `blq sync` command synchronizes project logs to a central location for cross-project querying.
 
 ## Basic Usage
 
 ```bash
 # Sync to default location (~/.lq/projects/)
-lq sync
+blq sync
 
 # Sync to custom location
-lq sync ~/my-logs/
+blq sync ~/my-logs/
 
 # Show what would be synced (dry run)
-lq sync --dry-run
+blq sync --dry-run
 
 # Check current sync status
-lq sync --status
+blq sync --status
 ```
 
 ## Sync Modes
@@ -25,8 +25,8 @@ lq sync --status
 Creates a symlink to your project's `.lq/logs` directory:
 
 ```bash
-lq sync              # Creates symlink
-lq sync --soft       # Explicit soft sync
+blq sync              # Creates symlink
+blq sync --soft       # Explicit soft sync
 ```
 
 This is fast and always up-to-date since it just links to the original files.
@@ -36,7 +36,7 @@ This is fast and always up-to-date since it just links to the original files.
 Copies files instead of symlinking (not yet implemented):
 
 ```bash
-lq sync --hard       # Copy files
+blq sync --hard       # Copy files
 ```
 
 Use hard sync when you need actual copies (e.g., for S3 upload).
@@ -65,15 +65,15 @@ Use the `-g`/`--global` flag to query across all synced projects:
 
 ```bash
 # Errors across all projects
-lq -g errors
+blq -g errors
 
 # SQL with partition columns
-lq -g sql "SELECT hostname, namespace, project, COUNT(*)
+blq -g sql "SELECT hostname, namespace, project, COUNT(*)
            FROM lq_events WHERE severity='error'
            GROUP BY ALL"
 
 # History across all machines
-lq -g history
+blq -g history
 ```
 
 ## Options
@@ -109,20 +109,20 @@ project:
 
 ```bash
 # Initial sync
-lq sync
+blq sync
 # Output: Synced (soft): ~/.lq/projects/hostname=snape/... -> /path/to/.lq/logs
 
 # Check status
-lq sync --status
+blq sync --status
 # Output:
 #   snape: github__teaguesterling/lq
 #     Mode: symlink (ok)
 #     Target: /path/to/project/.lq/logs
 
 # Re-sync (detects already synced)
-lq sync
+blq sync
 # Output: Already synced: ...
 
 # Force re-sync
-lq sync --force
+blq sync --force
 ```

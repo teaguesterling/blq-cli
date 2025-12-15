@@ -20,7 +20,7 @@ Use lq when the user:
 
 ## Preferred Way to Run Commands
 
-**Always use `lq run` instead of running commands directly.** This provides:
+**Always use `blq run` instead of running commands directly.** This provides:
 - Structured error/warning parsing
 - Persistent log storage for later analysis
 - Cross-run comparison and regression detection
@@ -28,8 +28,8 @@ Use lq when the user:
 
 ```bash
 # PREFERRED: Use lq run
-lq run pytest
-lq run make -j8
+blq run pytest
+blq run make -j8
 
 # AVOID: Direct command execution
 pytest          # No parsing, no storage
@@ -41,24 +41,24 @@ make -j8        # Errors not captured
 Projects can register commonly-used commands. Check what's available:
 
 ```bash
-lq commands                    # List registered commands
-lq run test                    # Run by name (uses registered config)
-lq run build                   # Registered commands have timeouts, descriptions
+blq commands                    # List registered commands
+blq run test                    # Run by name (uses registered config)
+blq run build                   # Registered commands have timeouts, descriptions
 ```
 
-If a command isn't registered, `lq run` will execute it as a shell command.
+If a command isn't registered, `blq run` will execute it as a shell command.
 
 ## How lq Builds a Repository
 
-lq maintains a **local repository** of all captured logs in `.lq/logs/`. Each action adds to this repository:
+blq maintains a **local repository** of all captured logs in `.lq/logs/`. Each action adds to this repository:
 
 ```
 Action                      → Result
 ─────────────────────────────────────────────────────
-lq run make                 → Creates run_id=1 with parsed events
-lq run make (again)         → Creates run_id=2 with new events
-lq import build.log         → Creates run_id=3 from file
-lq run pytest               → Creates run_id=4 with test results
+blq run make                 → Creates run_id=1 with parsed events
+blq run make (again)         → Creates run_id=2 with new events
+blq import build.log         → Creates run_id=3 from file
+blq run pytest               → Creates run_id=4 with test results
 ```
 
 ### Storage Structure
@@ -77,7 +77,7 @@ lq run pytest               → Creates run_id=4 with test results
 
 ### Run Metadata
 
-Each `lq run` automatically captures execution context:
+Each `blq run` automatically captures execution context:
 
 | Field | Description |
 |-------|-------------|
@@ -96,15 +96,15 @@ This metadata helps correlate errors across different machines, branches, or CI 
 
 **Query a single file (not stored):**
 ```bash
-lq q build.log                    # Parses file directly, not stored
+blq q build.log                    # Parses file directly, not stored
 ```
 
 **Query stored runs:**
 ```bash
-lq errors                         # Recent errors from ALL runs
-lq q -f "severity='error'"        # All stored errors (no file = query repository)
-lq history                        # List all runs
-lq status                         # Summary of repository
+blq errors                         # Recent errors from ALL runs
+blq q -f "severity='error'"        # All stored errors (no file = query repository)
+blq history                        # List all runs
+blq status                         # Summary of repository
 ```
 
 ### Cross-Run Analysis
@@ -113,21 +113,21 @@ The repository enables powerful cross-run queries:
 
 ```bash
 # Errors from the latest run
-lq q -f "run_id = (SELECT MAX(run_id) FROM lq_events)"
+blq q -f "run_id = (SELECT MAX(run_id) FROM lq_events)"
 
 # Compare latest run to previous
-lq sql "SELECT 'new' as status, message FROM lq_events
+blq sql "SELECT 'new' as status, message FROM lq_events
         WHERE run_id = (SELECT MAX(run_id) FROM lq_events)
           AND error_fingerprint NOT IN (
               SELECT error_fingerprint FROM lq_events
               WHERE run_id < (SELECT MAX(run_id) FROM lq_events))"
 
 # Error frequency over time
-lq sql "SELECT date, COUNT(*) as errors FROM lq_events
+blq sql "SELECT date, COUNT(*) as errors FROM lq_events
         WHERE severity='error' GROUP BY date ORDER BY date"
 
 # Most common errors across all runs
-lq sql "SELECT error_fingerprint, COUNT(*) as occurrences,
+blq sql "SELECT error_fingerprint, COUNT(*) as occurrences,
                ANY_VALUE(message) as example
         FROM lq_events WHERE severity='error'
         GROUP BY error_fingerprint ORDER BY occurrences DESC LIMIT 10"
@@ -137,40 +137,40 @@ lq sql "SELECT error_fingerprint, COUNT(*) as occurrences,
 
 | Command | Description |
 |---------|-------------|
-| `lq status` | Overview of repository (runs, errors, date range) |
-| `lq history` | List all runs with timestamps and status |
-| `lq errors` | Recent errors across all runs |
-| `lq prune --older-than 30` | Remove runs older than 30 days |
+| `blq status` | Overview of repository (runs, errors, date range) |
+| `blq history` | List all runs with timestamps and status |
+| `blq errors` | Recent errors across all runs |
+| `blq prune --older-than 30` | Remove runs older than 30 days |
 
 ### Key Insight for Agents
 
-- **File queries** (`lq q file.log`) are one-shot, not stored
-- **Run captures** (`lq run cmd`) are stored with a `run_id`
-- **Repository queries** (`lq errors`, `lq q` without file) search all stored runs
+- **File queries** (`blq q file.log`) are one-shot, not stored
+- **Run captures** (`blq run cmd`) are stored with a `run_id`
+- **Repository queries** (`blq errors`, `blq q` without file) search all stored runs
 - Use `run_id` to correlate events to specific builds/tests
 
 ## Quick Reference
 
 ```bash
 # Query a log file directly
-lq q build.log                              # all events
-lq q -s file_path,line_number,message build.log  # select columns
-lq q --json build.log                       # JSON output
+blq q build.log                              # all events
+blq q -s file_path,line_number,message build.log  # select columns
+blq q --json build.log                       # JSON output
 
 # Filter with simple syntax
-lq f severity=error build.log               # errors only
-lq f severity=error,warning build.log       # errors OR warnings
-lq f file_path~main build.log               # file contains "main"
-lq f -c severity=error build.log            # count errors
+blq f severity=error build.log               # errors only
+blq f severity=error,warning build.log       # errors OR warnings
+blq f file_path~main build.log               # file contains "main"
+blq f -c severity=error build.log            # count errors
 
 # Run and capture commands
-lq run make                                 # run and capture
-lq run --json --quiet make                  # structured output, no streaming
+blq run make                                 # run and capture
+blq run --json --quiet make                  # structured output, no streaming
 
 # View stored events
-lq errors                                   # recent errors
-lq event 1:3                                # specific event details
-lq context 1:3                              # surrounding log lines
+blq errors                                   # recent errors
+blq event 1:3                                # specific event details
+blq context 1:3                              # surrounding log lines
 ```
 
 ## Workflows
@@ -181,16 +181,16 @@ When a user reports a build failure:
 
 ```bash
 # Step 1: Run the build with structured output
-lq run --json --quiet make
+blq run --json --quiet make
 
 # Step 2: If the JSON shows errors, get the summary
-lq errors
+blq errors
 
 # Step 3: For each error ref (e.g., "1:3"), get details
-lq event 1:3
+blq event 1:3
 
 # Step 4: If you need more context (surrounding lines)
-lq context 1:3 --lines 5
+blq context 1:3 --lines 5
 ```
 
 **Agent response pattern:**
@@ -203,13 +203,13 @@ lq context 1:3 --lines 5
 
 ```bash
 # Run tests with JSON output
-lq run --json pytest -v
+blq run --json pytest -v
 
 # Filter for failed tests
-lq f severity=error test_output.log
+blq f severity=error test_output.log
 
 # Get details on a specific failure
-lq event 1:5
+blq event 1:5
 ```
 
 ### Log File Exploration
@@ -218,28 +218,28 @@ When the user has an existing log file:
 
 ```bash
 # Quick overview - count by severity
-lq f -c severity=error build.log
-lq f -c severity=warning build.log
+blq f -c severity=error build.log
+blq f -c severity=warning build.log
 
 # List errors with locations
-lq q -s file_path,line_number,message -f "severity='error'" build.log
+blq q -s file_path,line_number,message -f "severity='error'" build.log
 
 # Find errors in specific files
-lq f severity=error file_path~main.c build.log
+blq f severity=error file_path~main.c build.log
 ```
 
 ### Finding Patterns Across Runs
 
 ```bash
 # Errors that appear in multiple runs
-lq sql "SELECT error_fingerprint, COUNT(*) as runs, ANY_VALUE(message)
+blq sql "SELECT error_fingerprint, COUNT(*) as runs, ANY_VALUE(message)
         FROM lq_events
         WHERE severity='error'
         GROUP BY error_fingerprint
         HAVING COUNT(DISTINCT run_id) > 1"
 
 # New errors (in latest run but not previous)
-lq sql "SELECT message, file_path, line_number
+blq sql "SELECT message, file_path, line_number
         FROM lq_events
         WHERE run_id = (SELECT MAX(run_id) FROM lq_events)
           AND severity = 'error'
@@ -263,7 +263,7 @@ lq sql "SELECT message, file_path, line_number
 ### JSON Output Structure
 
 ```bash
-lq run --json make
+blq run --json make
 ```
 
 ```json
@@ -296,7 +296,7 @@ lq run --json make
 When parsing lq JSON output:
 1. Check `status` field: "OK" means success, "FAIL" means errors
 2. Use `errors` array for error details
-3. Use `ref` field (e.g., "1:1") for drill-down with `lq event` and `lq context`
+3. Use `ref` field (e.g., "1:1") for drill-down with `blq event` and `blq context`
 
 ## Event References
 
@@ -304,11 +304,11 @@ Event references follow the format `run_id:event_id` (e.g., `1:3` means run 1, e
 
 ```bash
 # Get full event details
-lq event 1:3
+blq event 1:3
 
 # Get surrounding log context
-lq context 1:3
-lq context 1:3 --lines 10  # more context
+blq context 1:3
+blq context 1:3 --lines 10  # more context
 ```
 
 **Best practice:** When presenting errors to users, include the ref so they can ask for more details:
@@ -317,28 +317,28 @@ lq context 1:3 --lines 10  # more context
 
 ## Query vs Filter
 
-| Task | Use `lq filter` | Use `lq query` |
+| Task | Use `blq filter` | Use `blq query` |
 |------|-----------------|----------------|
-| Simple exact match | `lq f severity=error` | |
-| Multiple values (OR) | `lq f severity=error,warning` | |
-| Contains/LIKE | `lq f file_path~main` | |
-| Select specific columns | | `lq q -s file,message` |
-| Complex WHERE | | `lq q -f "line > 100"` |
-| ORDER BY | | `lq q -o line_number` |
-| Aggregations | | `lq sql "SELECT ..."` |
+| Simple exact match | `blq f severity=error` | |
+| Multiple values (OR) | `blq f severity=error,warning` | |
+| Contains/LIKE | `blq f file_path~main` | |
+| Select specific columns | | `blq q -s file,message` |
+| Complex WHERE | | `blq q -f "line > 100"` |
+| ORDER BY | | `blq q -o line_number` |
+| Aggregations | | `blq sql "SELECT ..."` |
 
 ## MCP Server Integration
 
-lq provides a full MCP (Model Context Protocol) server for AI agent integration. Start it with:
+bblq provides a full MCP (Model Context Protocol) server for AI agent integration. Start it with:
 
 ```bash
-lq serve                    # stdio transport (for Claude Desktop, etc.)
-lq serve --transport sse    # SSE transport for HTTP clients
+blq serve                    # stdio transport (for Claude Desktop, etc.)
+blq serve --transport sse    # SSE transport for HTTP clients
 ```
 
 ### MCP Tools
 
-All tools are namespaced by the server name `lq`, so they appear as `run`, `query`, etc. in MCP clients.
+All tools are namespaced by the server name `blq`, so they appear as `run`, `query`, etc. in MCP clients.
 
 | Tool | Parameters | Description |
 |------|------------|-------------|
@@ -361,11 +361,11 @@ Resources provide data that can be embedded in prompts or read directly:
 
 | Resource URI | Description |
 |--------------|-------------|
-| `lq://status` | Current status of all sources (JSON) |
-| `lq://runs` | List of all runs (JSON) |
-| `lq://events` | All stored events (JSON) |
-| `lq://event/{ref}` | Single event details by ref (JSON) |
-| `lq://commands` | Registered commands (JSON) |
+| `blq://status` | Current status of all sources (JSON) |
+| `blq://runs` | List of all runs (JSON) |
+| `blq://events` | All stored events (JSON) |
+| `blq://event/{ref}` | Single event details by ref (JSON) |
+| `blq://commands` | Registered commands (JSON) |
 
 ### MCP Prompts
 
@@ -575,7 +575,7 @@ Pre-built prompts that guide agents through common workflows:
 Initialize a project with MCP support:
 
 ```bash
-lq init --mcp
+blq init --mcp
 ```
 
 This creates:
@@ -657,8 +657,8 @@ async with Client(mcp) as client:
 ### Error Handling
 
 If lq commands fail:
-- Check if `.lq/` is initialized: `lq init`
-- Check if duck_hunt is installed: `lq init` will install it
+- Check if `.lq/` is initialized: `blq init`
+- Check if duck_hunt is installed: `blq init` will install it
 - For file queries, verify the file exists
 
 ## Common Fields
@@ -681,7 +681,7 @@ If lq commands fail:
 **Agent actions:**
 ```bash
 # Run the build
-lq run --json --quiet make 2>&1
+blq run --json --quiet make 2>&1
 ```
 
 **Agent response:**
@@ -696,7 +696,7 @@ lq run --json --quiet make 2>&1
 
 **Agent actions:**
 ```bash
-lq context 1:1 --lines 5
+blq context 1:1 --lines 5
 ```
 
 **Agent response:**

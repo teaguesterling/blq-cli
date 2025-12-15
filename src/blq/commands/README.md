@@ -7,14 +7,14 @@ This directory contains the modular command implementations for the lq CLI.
 The commands are organized into logical groups:
 
 - **core.py** - Shared data classes, configuration, connection management, and utilities
-- **init_cmd.py** - Project initialization (`lq init`)
-- **execution.py** - Command execution and log capture (`lq run`, `lq import`, `lq capture`)
-- **query_cmd.py** - Log querying and filtering (`lq query`, `lq filter`, `lq sql`, `lq shell`)
-- **management.py** - Status and history management (`lq status`, `lq errors`, `lq warnings`, `lq summary`, `lq history`, `lq prune`)
-- **events.py** - Event inspection (`lq event`, `lq context`)
-- **registry.py** - Command registry (`lq commands`, `lq register`, `lq unregister`)
-- **sync_cmd.py** - Log synchronization (`lq sync`)
-- **serve_cmd.py** - MCP server (`lq serve`)
+- **init_cmd.py** - Project initialization (`blq init`)
+- **execution.py** - Command execution and log capture (`blq run`, `blq import`, `blq capture`)
+- **query_cmd.py** - Log querying and filtering (`blq query`, `blq filter`, `blq sql`, `blq shell`)
+- **management.py** - Status and history management (`blq status`, `blq errors`, `blq warnings`, `blq summary`, `blq history`, `blq prune`)
+- **events.py** - Event inspection (`blq event`, `blq context`)
+- **registry.py** - Command registry (`blq commands`, `blq register`, `blq unregister`)
+- **sync_cmd.py** - Log synchronization (`blq sync`)
+- **serve_cmd.py** - MCP server (`blq serve`)
 - **__init__.py** - Module exports
 
 ## Adding New Commands

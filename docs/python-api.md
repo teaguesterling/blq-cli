@@ -1,11 +1,11 @@
 # Python API Guide
 
-lq provides a fluent Python API for programmatic access to log data. This guide covers the `LogQuery` and `LogStore` classes.
+bblq provides a fluent Python API for programmatic access to log data. This guide covers the `LogQuery` and `LogStore` classes.
 
 ## Quick Start
 
 ```python
-from lq import LogStore, LogQuery
+from blq import LogStore, LogQuery
 
 # Open the repository
 store = LogStore.open()
@@ -39,7 +39,7 @@ events = (
 ### Opening a Store
 
 ```python
-from lq import LogStore
+from blq import LogStore
 
 # Auto-find .lq in current or parent directories
 store = LogStore.open()
@@ -429,7 +429,7 @@ stats = query.group_by("file_path").agg(
 ### Find Most Error-Prone Files
 
 ```python
-from lq import LogStore
+from blq import LogStore
 
 store = LogStore.open()
 error_counts = (
@@ -443,7 +443,7 @@ print(error_counts.head(10))
 ### Analyze Build Trends
 
 ```python
-from lq import LogStore
+from blq import LogStore
 
 store = LogStore.open()
 runs = store.runs()
@@ -457,7 +457,7 @@ for _, run in runs.iterrows():
 ### Filter and Export
 
 ```python
-from lq import LogStore
+from blq import LogStore
 
 store = LogStore.open()
 
@@ -477,7 +477,7 @@ errors.to_csv("errors_report.csv", index=False)
 ### Query Log Files Without Storing
 
 ```python
-from lq import LogQuery
+from blq import LogQuery
 
 # Parse and query a log file directly
 errors = (
@@ -495,7 +495,7 @@ if LogQuery.from_file("test.log").filter(message="%FAILED%").exists():
 ### Direct SQL Access
 
 ```python
-from lq import LogStore
+from blq import LogStore
 
 store = LogStore.open()
 conn = store.connection
@@ -519,7 +519,7 @@ result = conn.sql("""
 `LogQuery` returns pandas DataFrames, enabling further analysis:
 
 ```python
-from lq import LogStore
+from blq import LogStore
 import matplotlib.pyplot as plt
 
 store = LogStore.open()
