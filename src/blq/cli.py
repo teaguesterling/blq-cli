@@ -46,6 +46,7 @@ from importlib.metadata import version as get_version
 from blq.commands import (
     cmd_capture,
     cmd_commands,
+    cmd_completions,
     cmd_context,
     cmd_errors,
     cmd_event,
@@ -359,6 +360,15 @@ def main() -> None:
     # formats
     p_formats = subparsers.add_parser("formats", help="List available log formats")
     p_formats.set_defaults(func=cmd_formats)
+
+    # completions
+    p_completions = subparsers.add_parser("completions", help="Generate shell completion scripts")
+    p_completions.add_argument(
+        "shell",
+        choices=["bash", "zsh", "fish"],
+        help="Shell type (bash, zsh, or fish)",
+    )
+    p_completions.set_defaults(func=cmd_completions)
 
     # event
     p_event = subparsers.add_parser("event", help="Show event details by reference")
