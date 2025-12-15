@@ -9,6 +9,7 @@ from blq.commands.execution import cmd_capture, cmd_exec, cmd_import, cmd_run
 from blq.commands.init_cmd import cmd_init
 from blq.commands.management import (
     cmd_errors,
+    cmd_formats,
     cmd_history,
     cmd_prune,
     cmd_status,
@@ -40,6 +41,7 @@ __all__ = [
     "cmd_summary",
     "cmd_history",
     "cmd_prune",
+    "cmd_formats",
     # Events
     "cmd_event",
     "cmd_context",

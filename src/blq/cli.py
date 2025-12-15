@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from importlib.metadata import version as get_version
 
 from blq.commands import (
     cmd_capture,
@@ -50,6 +51,7 @@ from blq.commands import (
     cmd_event,
     cmd_exec,
     cmd_filter,
+    cmd_formats,
     cmd_history,
     cmd_import,
     cmd_init,
@@ -158,13 +160,19 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
+    parser.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"%(prog)s {get_version('blq-cli')}",
+    )
 
     # Global flags
     parser.add_argument(
         "-F",
         "--log-format",
         default="auto",
-        help="Log format for parsing (default: auto). Use 'lq formats' to list available formats.",
+        help="Log format for parsing (default: auto). Use 'blq formats' to list available formats.",
     )
     parser.add_argument(
         "-g",
@@ -347,6 +355,10 @@ def main() -> None:
     p_prune.add_argument("--older-than", "-d", type=int, default=30, help="Days to keep")
     p_prune.add_argument("--dry-run", action="store_true", help="Show what would be removed")
     p_prune.set_defaults(func=cmd_prune)
+
+    # formats
+    p_formats = subparsers.add_parser("formats", help="List available log formats")
+    p_formats.set_defaults(func=cmd_formats)
 
     # event
     p_event = subparsers.add_parser("event", help="Show event details by reference")

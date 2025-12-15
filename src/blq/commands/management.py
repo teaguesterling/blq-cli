@@ -124,3 +124,87 @@ def cmd_prune(args: argparse.Namespace) -> None:
         print(f"No logs older than {args.older_than} days")
     elif args.dry_run:
         print(f"\nDry run: would remove {removed} date partitions")
+
+
+def cmd_formats(args: argparse.Namespace) -> None:
+    """List available log formats."""
+    conn = duckdb.connect(":memory:")
+
+    # Try to load duck_hunt
+    try:
+        conn.execute("LOAD duck_hunt")
+    except duckdb.Error:
+        print("duck_hunt extension not available.", file=sys.stderr)
+        print("\nBuilt-in formats (fallback parser):", file=sys.stderr)
+        print("  auto    - Automatic detection of common formats")
+        print("  generic - Generic file:line:col: message pattern")
+        sys.exit(1)
+
+    # Get formats from duck_hunt
+    try:
+        result = conn.execute("SELECT * FROM duck_hunt_formats()").fetchall()
+    except duckdb.Error as e:
+        print(f"Error querying formats: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Group by category
+    categories: dict[str, list[tuple]] = {}
+    for row in result:
+        name, desc, category, *_ = row
+        if category not in categories:
+            categories[category] = []
+        categories[category].append((name, desc))
+
+    # Display order
+    category_order = [
+        "meta",
+        "build_system",
+        "test_framework",
+        "linting_tool",
+        "python_tool",
+        "security_tool",
+        "ci_system",
+        "infrastructure_tool",
+        "debugging_tool",
+        "structured_log",
+        "system_log",
+        "web_access",
+        "cloud_audit",
+    ]
+
+    # Nice category names
+    category_names = {
+        "meta": "Meta",
+        "build_system": "Build Systems",
+        "test_framework": "Test Frameworks",
+        "linting_tool": "Linting Tools",
+        "python_tool": "Python Tools",
+        "security_tool": "Security Tools",
+        "ci_system": "CI/CD Systems",
+        "infrastructure_tool": "Infrastructure",
+        "debugging_tool": "Debugging",
+        "structured_log": "Structured Logs",
+        "system_log": "System Logs",
+        "web_access": "Web Access Logs",
+        "cloud_audit": "Cloud Audit Logs",
+    }
+
+    print(f"Available log formats ({len(result)} total):\n")
+
+    for cat in category_order:
+        if cat not in categories:
+            continue
+        formats = categories[cat]
+        cat_name = category_names.get(cat, cat)
+        print(f"  {cat_name}:")
+        for name, desc in sorted(formats):
+            print(f"    {name:24} {desc}")
+        print()
+
+    # Any remaining categories
+    for cat, formats in categories.items():
+        if cat not in category_order:
+            print(f"  {cat}:")
+            for name, desc in sorted(formats):
+                print(f"    {name:24} {desc}")
+            print()
