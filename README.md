@@ -1,6 +1,8 @@
 # blq - Build Log Query
 
-A CLI tool for capturing, querying, and analyzing build/test logs using DuckDB.
+A CLI tool for capturing, querying, and analyzing build/test logs using [DuckDB](https://duckdb.org) and 
+the [duck_hunt](https://duckdb.org/community_extensions/extensions/duck_hunt) extension. We pronouce 
+`blq` like "bleak", as in we have bleak outlook on the outcome of our hunt through the logs.
 
 ## Features
 
