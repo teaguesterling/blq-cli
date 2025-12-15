@@ -228,7 +228,7 @@ def cmd_completions(args: argparse.Namespace) -> None:
 
 def _bash_completion() -> str:
     """Generate bash completion script."""
-    return '''# blq bash completion
+    return """# blq bash completion
 # Add to ~/.bashrc or ~/.bash_completion:
 #   eval "$(blq completions bash)"
 # Or save to a file:
@@ -312,12 +312,12 @@ _blq_completions() {
 }
 
 complete -F _blq_completions blq
-'''
+"""
 
 
 def _zsh_completion() -> str:
     """Generate zsh completion script."""
-    return '''#compdef blq
+    return """#compdef blq
 # blq zsh completion
 # Add to ~/.zshrc:
 #   eval "$(blq completions zsh)"
@@ -455,12 +455,12 @@ _blq() {
 }
 
 _blq "$@"
-'''
+"""
 
 
 def _fish_completion() -> str:
     """Generate fish completion script."""
-    return '''# blq fish completion
+    return """# blq fish completion
 # Save to ~/.config/fish/completions/blq.fish:
 #   blq completions fish > ~/.config/fish/completions/blq.fish
 
@@ -528,4 +528,4 @@ complete -c blq -n "__fish_seen_subcommand_from import" -F -d "Log file"
 
 # query/filter - complete files
 complete -c blq -n "__fish_seen_subcommand_from query q filter f" -F -d "Log file"
-'''
+"""
