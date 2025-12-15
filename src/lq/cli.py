@@ -211,7 +211,7 @@ def main() -> None:
     p_init.set_defaults(func=cmd_init)
 
     # run
-    p_run = subparsers.add_parser("run", help="Run command and capture output")
+    p_run = subparsers.add_parser("run", aliases=["r"], help="Run command and capture output")
     p_run.add_argument("command", nargs="+", help="Command to run")
     p_run.add_argument("--name", "-n", help="Source name (default: command name)")
     p_run.add_argument("--format", "-f", default="auto", help="Parse format hint")
