@@ -8,9 +8,11 @@ from pathlib import Path
 import pytest
 
 from blq.cli import (
+    cmd_completions,
     cmd_context,
     cmd_errors,
     cmd_event,
+    cmd_formats,
     cmd_import,
     cmd_init,
     cmd_run,
@@ -469,3 +471,86 @@ class TestCmdStatus:
         captured = capsys.readouterr()
         # Should show some status output
         assert len(captured.out) > 0
+
+
+class TestCmdFormats:
+    """Tests for blq formats command."""
+
+    def test_lists_formats_or_shows_fallback(self, capsys):
+        """List available formats or show fallback message."""
+        args = argparse.Namespace()
+        cmd_formats(args)
+
+        captured = capsys.readouterr()
+        # Either shows formats from duck_hunt or a fallback message
+        assert "format" in captured.out.lower() or "duck_hunt" in captured.out.lower()
+
+    def test_output_not_empty(self, capsys):
+        """Command produces some output."""
+        args = argparse.Namespace()
+        cmd_formats(args)
+
+        captured = capsys.readouterr()
+        assert len(captured.out) > 0
+
+
+class TestCmdCompletions:
+    """Tests for blq completions command."""
+
+    def test_bash_completion(self, capsys):
+        """Generate bash completion script."""
+        args = argparse.Namespace(shell="bash")
+        cmd_completions(args)
+
+        captured = capsys.readouterr()
+        assert "_blq_completions" in captured.out
+        assert "complete -F" in captured.out
+        assert "COMPREPLY" in captured.out
+
+    def test_zsh_completion(self, capsys):
+        """Generate zsh completion script."""
+        args = argparse.Namespace(shell="zsh")
+        cmd_completions(args)
+
+        captured = capsys.readouterr()
+        assert "#compdef blq" in captured.out
+        assert "_blq()" in captured.out
+        assert "_arguments" in captured.out
+
+    def test_fish_completion(self, capsys):
+        """Generate fish completion script."""
+        args = argparse.Namespace(shell="fish")
+        cmd_completions(args)
+
+        captured = capsys.readouterr()
+        assert "complete -c blq" in captured.out
+        assert "__fish_use_subcommand" in captured.out
+
+    def test_bash_includes_all_commands(self, capsys):
+        """Bash completion includes all main commands."""
+        args = argparse.Namespace(shell="bash")
+        cmd_completions(args)
+
+        captured = capsys.readouterr()
+        # Check for key commands
+        for cmd in ["init", "run", "exec", "query", "filter", "errors", "status", "completions"]:
+            assert cmd in captured.out
+
+    def test_zsh_includes_command_descriptions(self, capsys):
+        """Zsh completion includes command descriptions."""
+        args = argparse.Namespace(shell="zsh")
+        cmd_completions(args)
+
+        captured = capsys.readouterr()
+        # Zsh format includes descriptions like 'init:Initialize .lq directory'
+        assert "init:Initialize" in captured.out
+        assert "errors:Show recent errors" in captured.out
+
+    def test_completions_include_registered_command_lookup(self, capsys):
+        """Completions include logic to complete registered commands."""
+        args = argparse.Namespace(shell="bash")
+        cmd_completions(args)
+
+        captured = capsys.readouterr()
+        # Should reference commands.yaml for registered command completion
+        assert "commands.yaml" in captured.out

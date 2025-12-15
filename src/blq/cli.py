@@ -99,10 +99,13 @@ __all__ = [
     # Commands
     "cmd_capture",
     "cmd_commands",
+    "cmd_completions",
     "cmd_context",
     "cmd_errors",
     "cmd_event",
+    "cmd_exec",
     "cmd_filter",
+    "cmd_formats",
     "cmd_history",
     "cmd_import",
     "cmd_init",
