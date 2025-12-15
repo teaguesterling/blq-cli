@@ -65,7 +65,8 @@ blq context 1:3
 
 | Command | Description |
 |---------|-------------|
-| `blq run <cmd>` | Run command and capture output |
+| `blq run <cmd>` | Run registered command and capture output |
+| `blq exec <cmd>` | Execute ad-hoc command and capture output |
 | `blq import <file>` | Import existing log file |
 | `blq capture` | Capture from stdin |
 
@@ -89,6 +90,8 @@ blq context 1:3
 | `blq unregister` | Remove a registered command |
 | `blq commands` | List registered commands |
 | `blq prune` | Remove old logs |
+| `blq formats` | List available log formats |
+| `blq completions` | Generate shell completions (bash/zsh/fish) |
 
 ## Query Examples
 
@@ -216,7 +219,7 @@ blq sql "SELECT hostname, git_branch, environment['VIRTUAL_ENV'] FROM lq_events"
 
 ## MCP Server
 
-bblq includes an MCP server for AI agent integration:
+blq includes an MCP server for AI agent integration:
 
 ```bash
 blq serve                    # stdio transport (Claude Desktop)
@@ -231,11 +234,12 @@ See [MCP Guide](docs/mcp.md) for details.
 
 | Flag | Description |
 |------|-------------|
+| `-V, --version` | Show version number |
 | `-F, --log-format` | Log format hint (default: auto) |
 
 ## Python API
 
-bblq provides a fluent Python API for programmatic access:
+blq provides a fluent Python API for programmatic access:
 
 ```python
 from blq import LogStore, LogQuery

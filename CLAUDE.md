@@ -20,7 +20,11 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - Project detection from git remote or filesystem path
 - Command auto-detection from build files (`blq init --detect`)
 - Capture/no-capture mode for fast execution (`blq run --no-capture`)
-- 173 unit tests
+- Ad-hoc command execution (`blq exec`) - run without registry
+- Shell completions for bash, zsh, fish (`blq completions`)
+- List available log formats (`blq formats`)
+- Version flag (`blq --version`)
+- 182 unit tests
 - Comprehensive documentation (README, docs/)
 
 ### TODO

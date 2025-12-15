@@ -1,18 +1,18 @@
-# AGENTS.md - Guide for AI Agents Using lq
+# AGENTS.md - Guide for AI Agents Using blq
 
-This document provides guidance for AI agents (Claude, GPT, etc.) on effectively using lq to help users with build failures, test errors, and log analysis.
+This document provides guidance for AI agents (Claude, GPT, etc.) on effectively using blq to help users with build failures, test errors, and log analysis.
 
 ## Overview
 
-**lq** (Log Query) captures, stores, and queries build/test logs using DuckDB. It's designed for agent integration with:
+**blq** (Build Log Query) captures, stores, and queries build/test logs using DuckDB. It's designed for agent integration with:
 - Structured JSON output for easy parsing
 - Event references for drill-down workflows
 - Simple filter syntax for quick queries
 - SQL access for complex analysis
 
-## When to Use lq
+## When to Use blq
 
-Use lq when the user:
+Use blq when the user:
 - Has a build or test failure to investigate
 - Wants to analyze log files
 - Needs to find patterns across multiple runs
@@ -27,7 +27,7 @@ Use lq when the user:
 - Consistent JSON output for agents
 
 ```bash
-# PREFERRED: Use lq run
+# PREFERRED: Use blq run
 blq run pytest
 blq run make -j8
 
@@ -48,7 +48,7 @@ blq run build                   # Registered commands have timeouts, description
 
 If a command isn't registered, `blq run` will execute it as a shell command.
 
-## How lq Builds a Repository
+## How blq Builds a Repository
 
 blq maintains a **local repository** of all captured logs in `.lq/logs/`. Each action adds to this repository:
 
@@ -293,7 +293,7 @@ blq run --json make
 
 ### Parsing JSON Output
 
-When parsing lq JSON output:
+When parsing blq JSON output:
 1. Check `status` field: "OK" means success, "FAIL" means errors
 2. Use `errors` array for error details
 3. Use `ref` field (e.g., "1:1") for drill-down with `blq event` and `blq context`
@@ -591,8 +591,8 @@ For Claude Desktop, add to your MCP settings (`~/.config/claude/claude_desktop_c
 ```json
 {
   "mcpServers": {
-    "lq": {
-      "command": "lq",
+    "blq": {
+      "command": "blq",
       "args": ["serve"],
       "cwd": "/path/to/your/project"
     }
@@ -606,7 +606,7 @@ Or use the project's `.mcp.json` directly if your client supports project-local 
 
 ```python
 from fastmcp import Client
-from lq.serve import mcp
+from blq.serve import mcp
 
 async with Client(mcp) as client:
     # Run a build
@@ -627,10 +627,10 @@ async with Client(mcp) as client:
 
 1. **Always use `--json --quiet`** for programmatic parsing:
    ```bash
-   lq run --json --quiet make
+   blq run --json --quiet make
    ```
 
-2. **Check exit code** - lq preserves the command's exit code
+2. **Check exit code** - blq preserves the command's exit code
 
 3. **Use event refs for drill-down** - don't try to re-parse output
 
@@ -638,12 +638,12 @@ async with Client(mcp) as client:
 
 1. **Start with counts** to understand the scope:
    ```bash
-   lq f -c severity=error build.log
+   blq f -c severity=error build.log
    ```
 
 2. **Select only needed columns** for cleaner output:
    ```bash
-   lq q -s file_path,line_number,message build.log
+   blq q -s file_path,line_number,message build.log
    ```
 
 3. **Use `--json` when you'll parse the output**
@@ -656,7 +656,7 @@ async with Client(mcp) as client:
 
 ### Error Handling
 
-If lq commands fail:
+If blq commands fail:
 - Check if `.lq/` is initialized: `blq init`
 - Check if duck_hunt is installed: `blq init` will install it
 - For file queries, verify the file exists
