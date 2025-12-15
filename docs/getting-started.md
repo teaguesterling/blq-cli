@@ -123,6 +123,21 @@ blq q --csv build.log
 blq q --markdown build.log
 ```
 
+## Shell Completions
+
+Enable tab completion for your shell:
+
+```bash
+# Bash (add to ~/.bashrc)
+eval "$(blq completions bash)"
+
+# Zsh (add to ~/.zshrc)
+eval "$(blq completions zsh)"
+
+# Fish
+blq completions fish > ~/.config/fish/completions/blq.fish
+```
+
 ## Next Steps
 
 - [Commands Reference](commands/) - Learn all available commands

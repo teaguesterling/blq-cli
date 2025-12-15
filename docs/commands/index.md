@@ -6,6 +6,7 @@ These options apply to all commands:
 
 | Option | Description |
 |--------|-------------|
+| `-V, --version` | Show version number |
 | `-F, --log-format FORMAT` | Log format hint for parsing (default: `auto`) |
 | `-h, --help` | Show help message |
 
@@ -71,6 +72,13 @@ These options apply to all commands:
 | Command | Description | Documentation |
 |---------|-------------|---------------|
 | `serve` | Start MCP server for AI agents | [MCP Server](../mcp.md) |
+
+### Shell & Utilities
+
+| Command | Description | Documentation |
+|---------|-------------|---------------|
+| `completions` | Generate shell completion scripts | [completions](completions.md) |
+| `formats` | List available log formats | [completions](completions.md) |
 
 ## Quick Reference
 
