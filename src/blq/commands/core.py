@@ -481,8 +481,7 @@ class BlqConfig:
             Dict mapping command names to RegisteredCommand instances.
         """
         if self._commands is None:
-            # Use the existing load_commands function
-            self._commands = load_commands(self.lq_dir)
+            self._commands = _load_commands_impl(self.lq_dir)
         return self._commands
 
     def reload_commands(self) -> None:
@@ -589,7 +588,7 @@ class BlqConfig:
     def save_commands(self) -> None:
         """Save commands to commands.yaml."""
         if self._commands is not None:
-            save_commands(self.lq_dir, self._commands)
+            _save_commands_impl(self.lq_dir, self._commands)
 
     def to_lq_config(self) -> LqConfig:
         """Convert to legacy LqConfig for backward compatibility."""
@@ -631,8 +630,8 @@ class RegisteredCommand:
         return d
 
 
-def load_commands(lq_dir: Path) -> dict[str, RegisteredCommand]:
-    """Load registered commands from commands.yaml."""
+def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
+    """Internal implementation of load_commands."""
     commands_path = lq_dir / COMMANDS_FILE
     if not commands_path.exists():
         return {}
@@ -662,12 +661,44 @@ def load_commands(lq_dir: Path) -> dict[str, RegisteredCommand]:
     return commands
 
 
-def save_commands(lq_dir: Path, commands: dict[str, RegisteredCommand]) -> None:
-    """Save registered commands to commands.yaml."""
+def load_commands(lq_dir: Path) -> dict[str, RegisteredCommand]:
+    """Load registered commands from commands.yaml.
+
+    .. deprecated::
+        Use ``BlqConfig.commands`` property instead.
+    """
+    import warnings
+
+    warnings.warn(
+        "load_commands is deprecated. Use BlqConfig.commands instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _load_commands_impl(lq_dir)
+
+
+def _save_commands_impl(lq_dir: Path, commands: dict[str, RegisteredCommand]) -> None:
+    """Internal implementation of save_commands."""
     commands_path = lq_dir / COMMANDS_FILE
     data = {"commands": {name: cmd.to_dict() for name, cmd in commands.items()}}
     with open(commands_path, "w") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
+def save_commands(lq_dir: Path, commands: dict[str, RegisteredCommand]) -> None:
+    """Save registered commands to commands.yaml.
+
+    .. deprecated::
+        Use ``BlqConfig.save_commands()`` method instead.
+    """
+    import warnings
+
+    warnings.warn(
+        "save_commands is deprecated. Use BlqConfig.save_commands() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    _save_commands_impl(lq_dir, commands)
 
 
 # ============================================================================

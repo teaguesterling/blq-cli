@@ -32,12 +32,22 @@ When adding a new command:
 
 The `core.py` module contains shared utilities used across multiple commands:
 
-- Data classes: `EventRef`, `EventSummary`, `RunResult`, `LqConfig`, `RegisteredCommand`
-- Configuration management: `save_config()`, `load_commands()`, `save_commands()`
-- Database connections: `ConnectionFactory`, `get_connection()`, `ensure_initialized()`
+- Data classes: `EventRef`, `EventSummary`, `RunResult`, `RegisteredCommand`
+- Configuration: `BlqConfig` - unified configuration class with path management and command registry
+- Database connections: `ConnectionFactory`, `get_connection()`
 - Parquet writing: `write_run_parquet()`
 - Log parsing: `parse_log_content()`
 - Execution context capture: `capture_environment()`, `capture_git_info()`, `capture_ci_info()`
+
+### Deprecated APIs
+
+The following are deprecated and will be removed in a future version:
+
+- `LqConfig` - use `BlqConfig` instead
+- `save_config()` - use `BlqConfig.save()` instead
+- `load_commands()` - use `BlqConfig.commands` property instead
+- `save_commands()` - use `BlqConfig.save_commands()` instead
+- `ensure_initialized()` - use `BlqConfig.ensure()` instead
 
 ## Backward Compatibility
 

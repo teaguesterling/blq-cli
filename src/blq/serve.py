@@ -17,7 +17,6 @@ from typing import Any
 import pandas as pd
 from fastmcp import FastMCP
 
-from blq.commands.core import get_lq_dir
 from blq.query import LogStore
 
 
@@ -577,14 +576,14 @@ def _register_command_impl(
 ) -> dict[str, Any]:
     """Implementation of register_command."""
     try:
-        from blq.cli import RegisteredCommand, load_commands, save_commands
+        from blq.cli import BlqConfig, RegisteredCommand
 
-        lq_dir = get_lq_dir()
+        config = BlqConfig.find()
 
-        if lq_dir is None or not lq_dir.exists():
+        if config is None:
             return {"success": False, "error": "No lq repository found. Run 'blq init' first."}
 
-        commands = load_commands(lq_dir)
+        commands = config.commands
 
         if name in commands and not force:
             return {
@@ -599,7 +598,7 @@ def _register_command_impl(
             timeout=timeout,
             capture=capture,
         )
-        save_commands(lq_dir, commands)
+        config.save_commands()
 
         return {
             "success": True,
@@ -619,20 +618,20 @@ def _register_command_impl(
 def _unregister_command_impl(name: str) -> dict[str, Any]:
     """Implementation of unregister_command."""
     try:
-        from blq.cli import load_commands, save_commands
+        from blq.cli import BlqConfig
 
-        lq_dir = get_lq_dir()
+        config = BlqConfig.find()
 
-        if lq_dir is None or not lq_dir.exists():
+        if config is None:
             return {"success": False, "error": "No lq repository found."}
 
-        commands = load_commands(lq_dir)
+        commands = config.commands
 
         if name not in commands:
             return {"success": False, "error": f"Command '{name}' not found."}
 
         del commands[name]
-        save_commands(lq_dir, commands)
+        config.save_commands()
 
         return {"success": True, "message": f"Unregistered command '{name}'"}
     except Exception as e:
@@ -642,14 +641,14 @@ def _unregister_command_impl(name: str) -> dict[str, Any]:
 def _list_commands_impl() -> dict[str, Any]:
     """Implementation of list_commands."""
     try:
-        from blq.cli import load_commands
+        from blq.cli import BlqConfig
 
-        lq_dir = get_lq_dir()
+        config = BlqConfig.find()
 
-        if lq_dir is None or not lq_dir.exists():
+        if config is None:
             return {"commands": []}
 
-        commands = load_commands(lq_dir)
+        commands = config.commands
 
         return {
             "commands": [
@@ -906,11 +905,11 @@ def resource_event(ref: str) -> str:
 def resource_commands() -> str:
     """Registered commands."""
     try:
-        from blq.cli import load_commands
+        from blq.cli import BlqConfig
 
-        lq_dir = get_lq_dir()
-        if lq_dir is not None and lq_dir.exists():
-            commands = load_commands(lq_dir)
+        config = BlqConfig.find()
+        if config is not None:
+            commands = config.commands
             return json.dumps({"commands": commands}, indent=2, default=str)
     except Exception:
         pass
