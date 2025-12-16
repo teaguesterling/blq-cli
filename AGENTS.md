@@ -85,6 +85,76 @@ Options:
 - You don't want to pollute the registry
 - Running commands with dynamic arguments
 
+### Command Parameterization
+
+Registered commands can have **placeholders** that accept arguments at runtime:
+
+#### Placeholder Syntax
+
+| Syntax | Mode | Positional? | Keyword? |
+|--------|------|-------------|----------|
+| `{name}` | Required | No | Yes |
+| `{name=default}` | Optional with default | No | Yes |
+| `{name:}` | Required | Yes | Yes |
+| `{name:=default}` | Optional with default | Yes | Yes |
+
+- **Keyword-only** (`{name}`, `{name=default}`): Must use `name=value` syntax
+- **Positional-able** (`{name:}`, `{name:=default}`): Can use position OR `name=value`
+
+#### Example Commands
+
+```yaml
+# commands.yaml
+test:
+  cmd: "pytest {path:=tests/} -v --timeout={timeout=30}"
+
+deploy:
+  cmd: "kubectl apply -f {file:} -n {namespace:=default}"
+
+build:
+  cmd: "make -j{jobs=4} {target=all}"
+```
+
+#### Passing Arguments
+
+```bash
+# Positional args fill positional-able placeholders left-to-right
+blq run test unit/                     # pytest unit/ -v --timeout=30
+blq run deploy manifest.yaml prod      # kubectl apply -f manifest.yaml -n prod
+
+# Named args (key=value) fill any placeholder
+blq run test path=unit/ timeout=60     # pytest unit/ -v --timeout=60
+blq run build jobs=8                   # make -j8 all
+
+# Mix positional and named
+blq run deploy manifest.yaml namespace=staging
+
+# Extra args pass through to the command
+blq run test unit/ -k "test_foo"       # pytest unit/ -v --timeout=30 -k "test_foo"
+
+# Use :: to explicitly mark passthrough (skip remaining placeholders)
+blq run deploy :: --dry-run            # kubectl apply -f ??? -n default --dry-run
+                                       # (would error - file is required)
+
+# Use -a N to limit positional args
+blq run -a0 test --collect-only        # pytest tests/ -v --timeout=30 --collect-only
+```
+
+#### MCP Usage
+
+When using the MCP `run` tool, pass arguments as a dict:
+
+```json
+{
+  "command": "deploy",
+  "args": {
+    "file": "manifest.yaml",
+    "namespace": "prod"
+  },
+  "extra": ["--dry-run"]
+}
+```
+
 ## How blq Builds a Repository
 
 blq maintains a **local repository** of all captured logs in `.lq/logs/`. Each action adds to this repository:
