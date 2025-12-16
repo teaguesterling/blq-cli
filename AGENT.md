@@ -8,6 +8,25 @@ This document describes how AI agents should interact with `blq` for efficient l
 
 **Solution**: Use `blq` commands for structured, minimal-token queries.
 
+## Running Commands
+
+| Command | Purpose |
+|---------|---------|
+| `blq run <name>` | Run a registered command (fails if not found) |
+| `blq run -R <cmd>` | Register and run in one step |
+| `blq exec <cmd>` | Run any shell command (ad-hoc) |
+
+```bash
+# Check what's registered
+blq commands
+
+# Run registered command
+blq run --json --quiet build
+
+# Run ad-hoc command
+blq exec --json --quiet make -j8
+```
+
 ### Quick Status Check (~10 tokens output)
 ```bash
 blq status

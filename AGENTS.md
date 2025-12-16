@@ -20,16 +20,31 @@ Use blq when the user:
 
 ## Preferred Way to Run Commands
 
-**Always use `blq run` instead of running commands directly.** This provides:
+**Always use `blq run` or `blq exec` instead of running commands directly.** This provides:
 - Structured error/warning parsing
 - Persistent log storage for later analysis
 - Cross-run comparison and regression detection
 - Consistent JSON output for agents
 
+### `blq run` vs `blq exec`
+
+| Command | Purpose | Registry |
+|---------|---------|----------|
+| `blq run <name>` | Run a registered command | Required (fails if not found) |
+| `blq run -R <cmd>` | Register and run in one step | Creates entry |
+| `blq exec <cmd>` | Run any shell command | Not used |
+
 ```bash
-# PREFERRED: Use blq run
-blq run pytest
-blq run make -j8
+# Run registered commands
+blq run test                    # Run registered "test" command
+blq run build                   # Run registered "build" command
+
+# Run ad-hoc commands (not registered)
+blq exec make -j8               # Run shell command directly
+blq exec pytest tests/          # Run without registering
+
+# Register and run in one step
+blq run -R "pytest -v"          # Registers as "pytest", then runs
 
 # AVOID: Direct command execution
 pytest          # No parsing, no storage
@@ -46,7 +61,29 @@ blq run test                    # Run by name (uses registered config)
 blq run build                   # Registered commands have timeouts, descriptions
 ```
 
-If a command isn't registered, `blq run` will execute it as a shell command.
+If a command isn't registered, `blq run` will fail with suggestions:
+```
+Error: 'mytest' is not a registered command.
+Did you mean: test?
+
+Options:
+  blq run -R mytest    # Register and run
+  blq exec mytest      # Run without registering
+  blq commands         # List registered commands
+```
+
+### When to Use Each
+
+**Use `blq run`** when:
+- Running project-standard commands (build, test, lint)
+- You want consistent configuration (timeouts, formats)
+- Commands should be tracked in the registry
+
+**Use `blq exec`** when:
+- Running one-off or ad-hoc commands
+- Exploring/debugging with arbitrary commands
+- You don't want to pollute the registry
+- Running commands with dynamic arguments
 
 ## How blq Builds a Repository
 
@@ -163,9 +200,15 @@ blq f severity=error,warning build.log       # errors OR warnings
 blq f file_path~main build.log               # file contains "main"
 blq f -c severity=error build.log            # count errors
 
-# Run and capture commands
-blq run make                                 # run and capture
-blq run --json --quiet make                  # structured output, no streaming
+# Run registered commands
+blq run build                                # run registered command
+blq run --json --quiet test                  # structured output, no streaming
+blq run -R "make -j8"                        # register and run
+
+# Run ad-hoc commands
+blq exec make -j8                            # run any shell command
+blq exec --json --quiet pytest               # structured output
+blq e "cargo test"                           # short alias
 
 # View stored events
 blq errors                                   # recent errors
@@ -180,8 +223,10 @@ blq context 1:3                              # surrounding log lines
 When a user reports a build failure:
 
 ```bash
-# Step 1: Run the build with structured output
-blq run --json --quiet make
+# Step 1: Check for registered build command, or run ad-hoc
+blq run --json --quiet build        # If 'build' is registered
+# OR
+blq exec --json --quiet make -j8    # Ad-hoc command
 
 # Step 2: If the JSON shows errors, get the summary
 blq errors
@@ -194,16 +239,19 @@ blq context 1:3 --lines 5
 ```
 
 **Agent response pattern:**
-1. Run the build, capture JSON output
-2. Parse the errors array from JSON
-3. Present errors to user with file:line locations
-4. Offer to investigate specific errors in detail
+1. Check `blq commands` to see if a build command is registered
+2. Use `blq run build` if registered, otherwise `blq exec <build command>`
+3. Parse the errors array from JSON output
+4. Present errors to user with file:line locations
+5. Offer to investigate specific errors in detail
 
 ### Test Failure Analysis
 
 ```bash
-# Run tests with JSON output
-blq run --json pytest -v
+# Run tests - use registered command or exec
+blq run --json test                 # If 'test' is registered
+# OR
+blq exec --json pytest -v           # Ad-hoc
 
 # Filter for failed tests
 blq f severity=error test_output.log
@@ -625,14 +673,18 @@ async with Client(mcp) as client:
 
 ### For Build/Test Runs
 
-1. **Always use `--json --quiet`** for programmatic parsing:
+1. **Check for registered commands first**, then fall back to exec:
    ```bash
-   blq run --json --quiet make
+   blq commands                        # See what's available
+   blq run --json --quiet build        # Use registered command
+   blq exec --json --quiet make -j8    # Or run ad-hoc
    ```
 
-2. **Check exit code** - blq preserves the command's exit code
+2. **Always use `--json --quiet`** for programmatic parsing
 
-3. **Use event refs for drill-down** - don't try to re-parse output
+3. **Check exit code** - blq preserves the command's exit code
+
+4. **Use event refs for drill-down** - don't try to re-parse output
 
 ### For Log Analysis
 
@@ -680,8 +732,13 @@ If blq commands fail:
 
 **Agent actions:**
 ```bash
-# Run the build
-blq run --json --quiet make 2>&1
+# First check if there's a registered build command
+blq commands
+
+# If 'build' exists, use it; otherwise use exec
+blq run --json --quiet build 2>&1
+# OR
+blq exec --json --quiet make 2>&1
 ```
 
 **Agent response:**
