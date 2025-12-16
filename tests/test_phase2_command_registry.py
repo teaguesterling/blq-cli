@@ -5,11 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from blq.cli import (
-    RegisteredCommand,
-    load_commands,
-    save_commands,
-)
+from blq.commands.core import BlqConfig, RegisteredCommand
 
 
 class TestRegisteredCommand:
@@ -62,16 +58,17 @@ class TestRegisteredCommand:
 
 
 class TestLoadSaveCommands:
-    """Tests for loading and saving commands."""
+    """Tests for loading and saving commands via BlqConfig."""
 
     def test_load_empty_directory(self, lq_dir):
         """Load returns empty dict when no commands.yaml exists."""
-        commands = load_commands(lq_dir)
-        assert commands == {}
+        config = BlqConfig.load(lq_dir)
+        assert config.commands == {}
 
     def test_save_and_load_roundtrip(self, lq_dir):
         """Save commands and load them back."""
-        original = {
+        config = BlqConfig.load(lq_dir)
+        config._commands = {
             "build": RegisteredCommand(
                 name="build",
                 cmd="make -j8",
@@ -84,9 +81,11 @@ class TestLoadSaveCommands:
                 timeout=600,
             ),
         }
+        config.save_commands()
 
-        save_commands(lq_dir, original)
-        loaded = load_commands(lq_dir)
+        # Reload to verify persistence
+        config2 = BlqConfig.load(lq_dir)
+        loaded = config2.commands
 
         assert len(loaded) == 2
         assert loaded["build"].cmd == "make -j8"
@@ -96,11 +95,11 @@ class TestLoadSaveCommands:
 
     def test_save_creates_yaml_file(self, lq_dir):
         """Save creates commands.yaml file."""
-        commands = {
+        config = BlqConfig.load(lq_dir)
+        config._commands = {
             "build": RegisteredCommand(name="build", cmd="make"),
         }
-
-        save_commands(lq_dir, commands)
+        config.save_commands()
 
         yaml_path = lq_dir / "commands.yaml"
         assert yaml_path.exists()
@@ -110,28 +109,30 @@ class TestLoadSaveCommands:
 
     def test_load_preserves_format(self, lq_dir):
         """Load preserves custom format hints."""
-        commands = {
+        config = BlqConfig.load(lq_dir)
+        config._commands = {
             "lint": RegisteredCommand(
                 name="lint",
                 cmd="eslint .",
                 format="eslint_json",
             ),
         }
+        config.save_commands()
 
-        save_commands(lq_dir, commands)
-        loaded = load_commands(lq_dir)
-
-        assert loaded["lint"].format == "eslint_json"
+        config2 = BlqConfig.load(lq_dir)
+        assert config2.commands["lint"].format == "eslint_json"
 
     def test_save_empty_commands(self, lq_dir):
         """Save empty commands dict creates valid yaml."""
-        save_commands(lq_dir, {})
+        config = BlqConfig.load(lq_dir)
+        config._commands = {}
+        config.save_commands()
 
         yaml_path = lq_dir / "commands.yaml"
         assert yaml_path.exists()
 
-        loaded = load_commands(lq_dir)
-        assert loaded == {}
+        config2 = BlqConfig.load(lq_dir)
+        assert config2.commands == {}
 
 
 class TestCommandRegistryCLI:
@@ -159,9 +160,9 @@ class TestCommandRegistryCLI:
         assert "Registered command 'build'" in captured.out
 
         # Verify it was saved
-        commands = load_commands(Path(".lq"))
-        assert "build" in commands
-        assert commands["build"].cmd == "make -j8"
+        config = BlqConfig.load(Path(".lq"))
+        assert "build" in config.commands
+        assert config.commands["build"].cmd == "make -j8"
 
     def test_register_command_force_overwrite(self, initialized_project, capsys):
         """Force overwrite existing command."""
@@ -193,9 +194,9 @@ class TestCommandRegistryCLI:
         )
         cmd_register(args)
 
-        commands = load_commands(Path(".lq"))
-        assert commands["build"].cmd == "make -j8"
-        assert commands["build"].description == "v2"
+        config = BlqConfig.load(Path(".lq"))
+        assert config.commands["build"].cmd == "make -j8"
+        assert config.commands["build"].description == "v2"
 
     def test_register_command_no_force_fails(self, initialized_project, capsys):
         """Refuse to overwrite without force flag."""
@@ -258,8 +259,8 @@ class TestCommandRegistryCLI:
         captured = capsys.readouterr()
         assert "Unregistered command 'build'" in captured.out
 
-        commands = load_commands(Path(".lq"))
-        assert "build" not in commands
+        config = BlqConfig.load(Path(".lq"))
+        assert "build" not in config.commands
 
     def test_unregister_nonexistent_fails(self, initialized_project, capsys):
         """Unregister nonexistent command fails."""
@@ -434,7 +435,7 @@ class TestRunRegisteredCommand:
         """Running registered command uses its stored format hint."""
         import argparse
 
-        from blq.cli import cmd_register, load_commands
+        from blq.cli import cmd_register
 
         # Register with specific format
         args = argparse.Namespace(
@@ -448,8 +449,8 @@ class TestRunRegisteredCommand:
         )
         cmd_register(args)
 
-        commands = load_commands(Path(".lq"))
-        assert commands["lint"].format == "eslint_json"
+        config = BlqConfig.load(Path(".lq"))
+        assert config.commands["lint"].format == "eslint_json"
 
     def test_run_with_extra_args_passes_them_through(self, initialized_project, capsys):
         """Extra args after registered command name are passed through."""

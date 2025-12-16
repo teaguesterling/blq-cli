@@ -16,7 +16,6 @@ from blq.cli import (
     cmd_import,
     cmd_init,
     cmd_status,
-    ensure_initialized,
     get_connection,
     get_lq_dir,
     get_next_run_id,
@@ -68,19 +67,19 @@ class TestGetLqDir:
             os.chdir(original)
 
 
-class TestEnsureInitialized:
-    """Tests for ensure_initialized function."""
+class TestBlqConfigEnsureInitialized:
+    """Tests for BlqConfig.ensure() method."""
 
-    def test_returns_path_when_initialized(self, initialized_project):
-        """Return path when .lq exists."""
-        result = ensure_initialized()
-        assert result.exists()
-        assert result.name == ".lq"
+    def test_returns_config_when_initialized(self, initialized_project):
+        """Return config when .lq exists."""
+        config = BlqConfig.ensure()
+        assert config.lq_dir.exists()
+        assert config.lq_dir.name == ".lq"
 
     def test_exits_when_not_initialized(self, chdir_temp):
         """Exit with error when .lq not found."""
         with pytest.raises(SystemExit) as exc_info:
-            ensure_initialized()
+            BlqConfig.ensure()
         assert exc_info.value.code == 1
 
 
