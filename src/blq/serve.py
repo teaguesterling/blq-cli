@@ -61,13 +61,37 @@ def _parse_ref(ref: str) -> tuple[int, int]:
 # ============================================================================
 
 
-def _run_impl(command: str, args: list[str] | None = None, timeout: int = 300) -> dict[str, Any]:
-    """Implementation of run command (for registered commands)."""
+def _run_impl(
+    command: str,
+    args: dict[str, str] | list[str] | None = None,
+    extra: list[str] | None = None,
+    timeout: int = 300,
+) -> dict[str, Any]:
+    """Implementation of run command (for registered commands).
+
+    Args:
+        command: Registered command name
+        args: Either a dict of named arguments (recommended) or a list of CLI args
+        extra: Passthrough arguments appended to command (when args is a dict)
+        timeout: Command timeout in seconds
+    """
     # Build command for blq run (registered commands only)
     cmd_parts = ["blq", "run", "--json", "--quiet"]
     cmd_parts.append(command)
+
     if args:
-        cmd_parts.extend(args)
+        if isinstance(args, dict):
+            # Named arguments: convert to key=value format
+            for key, value in args.items():
+                cmd_parts.append(f"{key}={value}")
+        else:
+            # List of CLI args (backward compatible)
+            cmd_parts.extend(args)
+
+    # Add passthrough args after :: to ensure they're not parsed as placeholder values
+    if extra:
+        cmd_parts.append("::")
+        cmd_parts.extend(extra)
 
     try:
         result = subprocess.run(
@@ -672,18 +696,25 @@ def _list_commands_impl() -> dict[str, Any]:
 
 
 @mcp.tool()
-def run(command: str, args: list[str] | None = None, timeout: int = 300) -> dict[str, Any]:
+def run(
+    command: str,
+    args: dict[str, str] | list[str] | None = None,
+    extra: list[str] | None = None,
+    timeout: int = 300,
+) -> dict[str, Any]:
     """Run a registered command and capture its output.
 
     Args:
         command: Registered command name (use exec() for ad-hoc commands)
-        args: Additional arguments
+        args: Command arguments - either a dict of named args (recommended)
+              or a list of CLI args for backward compatibility
+        extra: Passthrough arguments appended to command
         timeout: Timeout in seconds (default: 300)
 
     Returns:
         Run result with status, errors, and warnings
     """
-    return _run_impl(command, args, timeout)
+    return _run_impl(command, args, extra, timeout)
 
 
 @mcp.tool()

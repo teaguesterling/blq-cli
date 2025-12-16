@@ -24,9 +24,12 @@ from blq.commands.core import (
     capture_ci_info,
     capture_environment,
     capture_git_info,
+    expand_command,
     find_executable,
+    format_command_help,
     get_next_run_id,
     parse_log_content,
+    parse_placeholders,
     write_run_parquet,
 )
 
@@ -74,11 +77,63 @@ def _find_similar_commands(name: str, registered: list[str], max_results: int = 
     return similar[:max_results]
 
 
+def _parse_command_args(
+    cli_args: list[str],
+    positional_limit: int | None = None,
+) -> tuple[dict[str, str], list[str], list[str]]:
+    """Parse CLI arguments into named args, positional args, and extra args.
+
+    Args:
+        cli_args: List of CLI arguments after the command name
+        positional_limit: If set, only use this many positional args for placeholders
+
+    Returns:
+        Tuple of (named_args, positional_args, extra_args)
+        - named_args: Dict of key=value arguments
+        - positional_args: List of positional arguments for placeholders
+        - extra_args: List of passthrough arguments
+    """
+    named_args: dict[str, str] = {}
+    positional_args: list[str] = []
+    extra_args: list[str] = []
+
+    # Check for :: separator
+    if "::" in cli_args:
+        separator_idx = cli_args.index("::")
+        main_args = cli_args[:separator_idx]
+        extra_args = cli_args[separator_idx + 1 :]
+    else:
+        main_args = cli_args
+
+    # Parse main args into named and positional
+    for arg in main_args:
+        if "=" in arg and not arg.startswith("-"):
+            # Named argument: key=value
+            key, value = arg.split("=", 1)
+            named_args[key] = value
+        else:
+            # Positional argument
+            positional_args.append(arg)
+
+    # Apply positional limit if specified
+    if positional_limit is not None and positional_limit < len(positional_args):
+        extra_args = positional_args[positional_limit:] + extra_args
+        positional_args = positional_args[:positional_limit]
+
+    return named_args, positional_args, extra_args
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     """Run a registered command and capture its output.
 
     Unlike exec, this command only runs registered commands from the registry.
     Use --register to register a new command while running it.
+
+    Command templates can have placeholders:
+    - {name} - keyword-only, required
+    - {name=default} - keyword-only, optional
+    - {name:} - positional-able, required
+    - {name:=default} - positional-able, optional
     """
     from blq.commands.core import RegisteredCommand
 
@@ -88,7 +143,8 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     # Check if first argument is a registered command name
     registered_commands = config.commands
-    first_arg = args.command[0]
+    cmd_name = args.command[0]
+    cmd_args = args.command[1:]  # Arguments after the command name
 
     # Build list of env vars to capture (config defaults + command-specific)
     capture_env_vars = config.capture_env.copy()
@@ -96,21 +152,33 @@ def cmd_run(args: argparse.Namespace) -> None:
     # Default capture setting (can be overridden by command config)
     should_capture = True
 
-    if first_arg in registered_commands and len(args.command) == 1:
+    if cmd_name in registered_commands:
         # Use registered command
-        reg_cmd = registered_commands[first_arg]
-        command = reg_cmd.cmd
-        source_name = args.name or first_arg
+        reg_cmd = registered_commands[cmd_name]
+        source_name = args.name or cmd_name
         format_hint = args.format if args.format != "auto" else reg_cmd.format
         should_capture = reg_cmd.capture
         # Add command-specific env vars
         for var in reg_cmd.capture_env:
             if var not in capture_env_vars:
                 capture_env_vars.append(var)
+
+        # Parse command arguments
+        positional_limit = getattr(args, "positional_args", None)
+        named_args, positional_args, extra_args = _parse_command_args(cmd_args, positional_limit)
+
+        # Expand command template with arguments
+        try:
+            command = expand_command(reg_cmd.cmd, named_args, positional_args, extra_args)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            print("", file=sys.stderr)
+            print(format_command_help(reg_cmd), file=sys.stderr)
+            sys.exit(1)
+
     elif getattr(args, "register", False):
         # --register flag: register this command and run it
         cmd_str = " ".join(args.command)
-        cmd_name = args.name or first_arg
         registered_commands[cmd_name] = RegisteredCommand(
             name=cmd_name,
             cmd=cmd_str,
@@ -127,8 +195,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         format_hint = args.format
     else:
         # Command not found - error out with suggestions
-        similar = _find_similar_commands(first_arg, list(registered_commands.keys()))
-        print(f"Error: '{first_arg}' is not a registered command.", file=sys.stderr)
+        similar = _find_similar_commands(cmd_name, list(registered_commands.keys()))
+        print(f"Error: '{cmd_name}' is not a registered command.", file=sys.stderr)
         if similar:
             print(f"Did you mean: {', '.join(similar)}?", file=sys.stderr)
         print("", file=sys.stderr)

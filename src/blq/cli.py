@@ -252,6 +252,14 @@ def main() -> None:
         action="store_true",
         help="Register command if not already registered",
     )
+    p_run.add_argument(
+        "--positional-args",
+        "-a",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Use exactly N positional args for placeholders (rest are passthrough)",
+    )
     p_run.set_defaults(func=cmd_run)
     # Capture control: runtime flags override command config
     capture_group = p_run.add_mutually_exclusive_group()

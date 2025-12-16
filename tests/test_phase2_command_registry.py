@@ -451,8 +451,8 @@ class TestRunRegisteredCommand:
         commands = load_commands(Path(".lq"))
         assert commands["lint"].format == "eslint_json"
 
-    def test_run_with_multiple_args_fails_if_not_registered(self, initialized_project, capsys):
-        """Multi-arg command fails if not registered (use exec for ad-hoc)."""
+    def test_run_with_extra_args_passes_them_through(self, initialized_project, capsys):
+        """Extra args after registered command name are passed through."""
         import argparse
 
         from blq.cli import cmd_register, cmd_run
@@ -460,7 +460,7 @@ class TestRunRegisteredCommand:
         # Register 'build' command
         args = argparse.Namespace(
             name="build",
-            cmd=["make"],
+            cmd=["echo build"],
             description="",
             timeout=300,
             format="auto",
@@ -470,8 +470,7 @@ class TestRunRegisteredCommand:
         cmd_register(args)
         capsys.readouterr()
 
-        # Run 'build extra args' - this should fail because the full command
-        # is not registered (we no longer fall back to shell execution)
+        # Run 'build extra args' - extra args are now passed through to the command
         args = argparse.Namespace(
             command=["build", "extra", "args"],
             name=None,
@@ -480,13 +479,51 @@ class TestRunRegisteredCommand:
             json=True,
             markdown=False,
             quiet=False,
+            summary=False,
+            verbose=False,
             include_warnings=False,
             error_limit=20,
             capture=None,
             register=False,
+            positional_args=None,
         )
 
-        # cmd_run should fail because 'build extra args' is not registered
+        # cmd_run should succeed - extra args become passthrough
+        # The expanded command will be "echo build extra args"
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_run(args)
+
+        # Should exit with 0 (success)
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        # Check that the command ran (JSON output contains run info)
+        assert "run_id" in captured.out
+        assert '"command": "echo build extra args"' in captured.out
+
+    def test_run_unregistered_command_fails(self, initialized_project, capsys):
+        """Unregistered command name fails with helpful error."""
+        import argparse
+
+        from blq.cli import cmd_run
+
+        # Try to run 'notregistered' - should fail
+        args = argparse.Namespace(
+            command=["notregistered"],
+            name=None,
+            format="auto",
+            keep_raw=False,
+            json=True,
+            markdown=False,
+            quiet=False,
+            summary=False,
+            verbose=False,
+            include_warnings=False,
+            error_limit=20,
+            capture=None,
+            register=False,
+            positional_args=None,
+        )
+
         with pytest.raises(SystemExit) as exc_info:
             cmd_run(args)
 

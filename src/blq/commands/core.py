@@ -630,6 +630,158 @@ class RegisteredCommand:
         return d
 
 
+@dataclass
+class CommandPlaceholder:
+    """A placeholder in a command template.
+
+    Placeholders can be:
+    - {name} - keyword-only, required
+    - {name=default} - keyword-only, optional
+    - {name:} - positional-able, required
+    - {name:=default} - positional-able, optional
+    """
+
+    name: str
+    default: str | None  # None = required
+    positional: bool  # Can be filled positionally
+
+
+# Regex to parse placeholders from command template
+# Matches: {name}, {name=default}, {name:}, {name:=default}
+_PLACEHOLDER_PATTERN = re.compile(
+    r"\{([a-zA-Z_][a-zA-Z0-9_]*)(:=?([^}]*)?|=([^}]*))?\}"
+)
+
+
+def parse_placeholders(template: str) -> list[CommandPlaceholder]:
+    """Parse placeholders from a command template.
+
+    Args:
+        template: Command template string with placeholders
+
+    Returns:
+        List of CommandPlaceholder in template order
+    """
+    placeholders = []
+    for match in _PLACEHOLDER_PATTERN.finditer(template):
+        name = match.group(1)
+        modifier = match.group(2)  # :, :=default, =default, or None
+
+        if modifier is None:
+            # {name} - keyword-only, required
+            placeholders.append(CommandPlaceholder(name=name, default=None, positional=False))
+        elif modifier == ":":
+            # {name:} - positional-able, required
+            placeholders.append(CommandPlaceholder(name=name, default=None, positional=True))
+        elif modifier.startswith(":="):
+            # {name:=default} - positional-able, optional
+            default = match.group(3) if match.group(3) is not None else ""
+            placeholders.append(CommandPlaceholder(name=name, default=default, positional=True))
+        elif modifier.startswith("="):
+            # {name=default} - keyword-only, optional
+            default = match.group(4) if match.group(4) is not None else ""
+            placeholders.append(CommandPlaceholder(name=name, default=default, positional=False))
+
+    return placeholders
+
+
+def expand_command(
+    template: str,
+    named_args: dict[str, str],
+    positional_args: list[str],
+    extra_args: list[str] | None = None,
+) -> str:
+    """Expand a command template with provided arguments.
+
+    Args:
+        template: Command template with placeholders
+        named_args: Arguments provided as key=value
+        positional_args: Arguments provided positionally
+        extra_args: Extra arguments to append (passthrough)
+
+    Returns:
+        Expanded command string
+
+    Raises:
+        ValueError: If required argument is missing
+    """
+    placeholders = parse_placeholders(template)
+
+    # Build map of placeholder values
+    values: dict[str, str] = {}
+
+    # First, fill from named args
+    for name, value in named_args.items():
+        # Check if this is a valid placeholder name
+        placeholder_names = {p.name for p in placeholders}
+        if name not in placeholder_names:
+            raise ValueError(f"Unknown argument '{name}'. Valid arguments: {', '.join(sorted(placeholder_names))}")
+        values[name] = value
+
+    # Second, fill positional-able placeholders from positional args
+    positional_placeholders = [p for p in placeholders if p.positional]
+    positional_idx = 0
+    for placeholder in positional_placeholders:
+        if placeholder.name in values:
+            # Already filled by named arg
+            continue
+        if positional_idx < len(positional_args):
+            values[placeholder.name] = positional_args[positional_idx]
+            positional_idx += 1
+
+    # Remaining positional args become extra args
+    remaining_positional = positional_args[positional_idx:]
+
+    # Third, apply defaults and check required
+    for placeholder in placeholders:
+        if placeholder.name not in values:
+            if placeholder.default is not None:
+                values[placeholder.name] = placeholder.default
+            else:
+                raise ValueError(f"Missing required argument '{placeholder.name}'")
+
+    # Substitute placeholders in template
+    result = template
+    for match in _PLACEHOLDER_PATTERN.finditer(template):
+        name = match.group(1)
+        result = result.replace(match.group(0), values[name], 1)
+
+    # Append extra args
+    all_extra = remaining_positional + (extra_args or [])
+    if all_extra:
+        result = result + " " + " ".join(all_extra)
+
+    return result
+
+
+def format_command_help(cmd: RegisteredCommand) -> str:
+    """Format help text for a registered command.
+
+    Args:
+        cmd: The registered command
+
+    Returns:
+        Formatted help string
+    """
+    placeholders = parse_placeholders(cmd.cmd)
+    lines = [f"{cmd.name}: {cmd.cmd}"]
+
+    if cmd.description:
+        lines.append(f"  {cmd.description}")
+
+    if placeholders:
+        lines.append("")
+        lines.append("Arguments:")
+        for p in placeholders:
+            mode = "positional or keyword" if p.positional else "keyword-only"
+            if p.default is not None:
+                lines.append(f"  {p.name:<16} {mode}, default: {p.default}")
+            else:
+                lines.append(f"  {p.name:<16} {mode}, required")
+
+    return "\n".join(lines)
+
+
 def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
     """Internal implementation of load_commands."""
     commands_path = lq_dir / COMMANDS_FILE
