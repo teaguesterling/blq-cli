@@ -45,9 +45,6 @@ The following are deprecated and will be removed in a future version:
 
 - `LqConfig` - use `BlqConfig` instead
 - `save_config()` - use `BlqConfig.save()` instead
-- `load_commands()` - use `BlqConfig.commands` property instead
-- `save_commands()` - use `BlqConfig.save_commands()` instead
-- `ensure_initialized()` - use `BlqConfig.ensure()` instead
 
 ## Backward Compatibility
 

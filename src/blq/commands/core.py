@@ -813,44 +813,12 @@ def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
     return commands
 
 
-def load_commands(lq_dir: Path) -> dict[str, RegisteredCommand]:
-    """Load registered commands from commands.yaml.
-
-    .. deprecated::
-        Use ``BlqConfig.commands`` property instead.
-    """
-    import warnings
-
-    warnings.warn(
-        "load_commands is deprecated. Use BlqConfig.commands instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return _load_commands_impl(lq_dir)
-
-
 def _save_commands_impl(lq_dir: Path, commands: dict[str, RegisteredCommand]) -> None:
     """Internal implementation of save_commands."""
     commands_path = lq_dir / COMMANDS_FILE
     data = {"commands": {name: cmd.to_dict() for name, cmd in commands.items()}}
     with open(commands_path, "w") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-
-
-def save_commands(lq_dir: Path, commands: dict[str, RegisteredCommand]) -> None:
-    """Save registered commands to commands.yaml.
-
-    .. deprecated::
-        Use ``BlqConfig.save_commands()`` method instead.
-    """
-    import warnings
-
-    warnings.warn(
-        "save_commands is deprecated. Use BlqConfig.save_commands() instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    _save_commands_impl(lq_dir, commands)
 
 
 # ============================================================================
@@ -869,26 +837,6 @@ def get_lq_dir() -> Path | None:
         if lq_path.exists():
             return lq_path
     return None
-
-
-def ensure_initialized() -> Path:
-    """Ensure .lq directory exists.
-
-    .. deprecated::
-        Use ``BlqConfig.ensure()`` instead, which returns a full config object.
-    """
-    import warnings
-
-    warnings.warn(
-        "ensure_initialized is deprecated. Use BlqConfig.ensure() instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    lq_dir = get_lq_dir()
-    if lq_dir is None or not lq_dir.exists():
-        print("Error: .lq not initialized. Run 'blq init' first.", file=sys.stderr)
-        sys.exit(1)
-    return lq_dir
 
 
 class ConnectionFactory:

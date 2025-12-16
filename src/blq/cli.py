@@ -81,14 +81,11 @@ from blq.commands.core import (
     capture_ci_info,
     capture_environment,
     capture_git_info,
-    ensure_initialized,
     find_executable,
     get_connection,
     get_lq_dir,
     get_next_run_id,
-    load_commands,
     parse_log_content,
-    save_commands,
     write_run_parquet,
 )
 from blq.commands.query_cmd import format_query_output, parse_filter_expression, query_source
@@ -131,17 +128,14 @@ __all__ = [
     "capture_ci_info",
     "capture_environment",
     "capture_git_info",
-    "ensure_initialized",
     "find_executable",
     "format_query_output",
     "get_connection",
     "get_lq_dir",
     "get_next_run_id",
-    "load_commands",
     "parse_filter_expression",
     "parse_log_content",
     "query_source",
-    "save_commands",
     "write_run_parquet",
 ]
 
