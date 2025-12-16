@@ -331,7 +331,12 @@ def detect_project_info() -> ProjectInfo:
 
 @dataclass
 class LqConfig:
-    """Project configuration from config.yaml."""
+    """Project configuration from config.yaml.
+
+    .. deprecated::
+        Use :class:`BlqConfig` instead, which provides unified configuration
+        management including path handling and command registry.
+    """
 
     capture_env: list[str] = field(default_factory=lambda: DEFAULT_CAPTURE_ENV.copy())
     namespace: str | None = None
@@ -339,7 +344,18 @@ class LqConfig:
 
     @classmethod
     def load(cls, lq_dir: Path) -> LqConfig:
-        """Load config from config.yaml, falling back to defaults."""
+        """Load config from config.yaml, falling back to defaults.
+
+        .. deprecated::
+            Use ``BlqConfig.load(lq_dir)`` instead.
+        """
+        import warnings
+
+        warnings.warn(
+            "LqConfig is deprecated. Use BlqConfig instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         config_path = lq_dir / CONFIG_FILE
         if not config_path.exists():
             return cls()
@@ -363,7 +379,18 @@ class LqConfig:
 
 
 def save_config(lq_dir: Path, config: LqConfig) -> None:
-    """Save config to config.yaml."""
+    """Save config to config.yaml.
+
+    .. deprecated::
+        Use ``BlqConfig.save()`` instead.
+    """
+    import warnings
+
+    warnings.warn(
+        "save_config is deprecated. Use BlqConfig.save() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     config_path = lq_dir / CONFIG_FILE
     data = {"capture_env": config.capture_env}
 
@@ -662,7 +689,18 @@ def get_lq_dir() -> Path | None:
 
 
 def ensure_initialized() -> Path:
-    """Ensure .lq directory exists."""
+    """Ensure .lq directory exists.
+
+    .. deprecated::
+        Use ``BlqConfig.ensure()`` instead, which returns a full config object.
+    """
+    import warnings
+
+    warnings.warn(
+        "ensure_initialized is deprecated. Use BlqConfig.ensure() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     lq_dir = get_lq_dir()
     if lq_dir is None or not lq_dir.exists():
         print("Error: .lq not initialized. Run 'blq init' first.", file=sys.stderr)
@@ -798,7 +836,7 @@ def get_connection(lq_dir: Path | None = None) -> duckdb.DuckDBPyConnection:
     backward compatibility.
     """
     if lq_dir is None:
-        lq_dir = ensure_initialized()
+        lq_dir = BlqConfig.ensure().lq_dir
     return ConnectionFactory.create(lq_dir=lq_dir, load_schema=True)
 
 
@@ -847,8 +885,8 @@ def get_store_for_args(args) -> LogStore:
         return LogStore.from_parquet_root(data_root)
     else:
         # Standard .lq directory
-        lq_dir = ensure_initialized()
-        return LogStore(lq_dir)
+        config = BlqConfig.ensure()
+        return LogStore(config.lq_dir)
 
 
 def get_next_run_id(lq_dir: Path) -> int:

@@ -11,17 +11,15 @@ import json
 import sys
 
 from blq.commands.core import (
+    BlqConfig,
     RegisteredCommand,
-    ensure_initialized,
-    load_commands,
-    save_commands,
 )
 
 
 def cmd_commands(args: argparse.Namespace) -> None:
     """List registered commands."""
-    lq_dir = ensure_initialized()
-    commands = load_commands(lq_dir)
+    config = BlqConfig.ensure()
+    commands = config.commands
 
     if not commands:
         print("No commands registered.")
@@ -42,8 +40,8 @@ def cmd_commands(args: argparse.Namespace) -> None:
 
 def cmd_register(args: argparse.Namespace) -> None:
     """Register a new command."""
-    lq_dir = ensure_initialized()
-    commands = load_commands(lq_dir)
+    config = BlqConfig.ensure()
+    commands = config.commands
 
     name = args.name
     cmd_str = " ".join(args.cmd)
@@ -62,20 +60,20 @@ def cmd_register(args: argparse.Namespace) -> None:
         capture=capture,
     )
 
-    save_commands(lq_dir, commands)
+    config.save_commands()
     capture_note = " (no capture)" if not capture else ""
     print(f"Registered command '{name}': {cmd_str}{capture_note}")
 
 
 def cmd_unregister(args: argparse.Namespace) -> None:
     """Remove a registered command."""
-    lq_dir = ensure_initialized()
-    commands = load_commands(lq_dir)
+    config = BlqConfig.ensure()
+    commands = config.commands
 
     if args.name not in commands:
         print(f"Command '{args.name}' not found.", file=sys.stderr)
         sys.exit(1)
 
     del commands[args.name]
-    save_commands(lq_dir, commands)
+    config.save_commands()
     print(f"Unregistered command '{args.name}'")

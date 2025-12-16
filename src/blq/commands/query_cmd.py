@@ -16,8 +16,7 @@ import duckdb
 import pandas as pd
 
 from blq.commands.core import (
-    SCHEMA_FILE,
-    ensure_initialized,
+    BlqConfig,
     get_store_for_args,
 )
 from blq.query import LogQuery, LogStore
@@ -92,7 +91,7 @@ def query_source(
     else:
         # Query stored data
         if lq_dir is None:
-            lq_dir = ensure_initialized()
+            lq_dir = BlqConfig.ensure().lq_dir
         store = LogStore(lq_dir)
         query = store.events()
 
@@ -171,7 +170,7 @@ def cmd_query(args: argparse.Namespace) -> None:
     # Get lq_dir for stored queries
     lq_dir = None
     if not source:
-        lq_dir = ensure_initialized()
+        lq_dir = BlqConfig.ensure().lq_dir
 
     try:
         df = query_source(
@@ -242,7 +241,7 @@ def cmd_filter(args: argparse.Namespace) -> None:
     # Get lq_dir for stored queries
     lq_dir = None
     if not source:
-        lq_dir = ensure_initialized()
+        lq_dir = BlqConfig.ensure().lq_dir
 
     try:
         df = query_source(
@@ -294,14 +293,14 @@ def cmd_sql(args: argparse.Namespace) -> None:
 
 def cmd_shell(args: argparse.Namespace) -> None:
     """Start interactive DuckDB shell."""
-    lq_dir = ensure_initialized()
+    config = BlqConfig.ensure()
 
     # Create init file
     init_sql = """
 .prompt 'blq> '
 LOAD duck_hunt;
 """
-    schema_path = lq_dir / SCHEMA_FILE
+    schema_path = config.schema_path
     if schema_path.exists():
         init_sql += f".read '{schema_path}'\n"
 

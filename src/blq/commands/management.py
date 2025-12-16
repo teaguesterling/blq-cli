@@ -14,8 +14,7 @@ from datetime import datetime, timedelta
 import duckdb
 
 from blq.commands.core import (
-    LOGS_DIR,
-    ensure_initialized,
+    BlqConfig,
     get_store_for_args,
 )
 
@@ -103,8 +102,8 @@ def cmd_history(args: argparse.Namespace) -> None:
 
 def cmd_prune(args: argparse.Namespace) -> None:
     """Remove old log files."""
-    lq_dir = ensure_initialized()
-    logs_dir = lq_dir / LOGS_DIR
+    config = BlqConfig.ensure()
+    logs_dir = config.logs_dir
 
     cutoff = datetime.now() - timedelta(days=args.older_than)
     cutoff_str = cutoff.strftime("%Y-%m-%d")

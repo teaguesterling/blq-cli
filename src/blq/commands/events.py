@@ -13,16 +13,15 @@ import sys
 import duckdb
 
 from blq.commands.core import (
-    RAW_DIR,
+    BlqConfig,
     EventRef,
-    ensure_initialized,
 )
 from blq.query import LogStore
 
 
 def cmd_event(args: argparse.Namespace) -> None:
     """Show event details by reference."""
-    lq_dir = ensure_initialized()
+    config = BlqConfig.ensure()
 
     try:
         ref = EventRef.parse(args.ref)
@@ -31,7 +30,7 @@ def cmd_event(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     try:
-        store = LogStore(lq_dir)
+        store = LogStore(config.lq_dir)
         event = store.event(ref.run_id, ref.event_id)
 
         if event is None:
@@ -59,7 +58,7 @@ def cmd_event(args: argparse.Namespace) -> None:
 
 def cmd_context(args: argparse.Namespace) -> None:
     """Show context lines around an event."""
-    lq_dir = ensure_initialized()
+    config = BlqConfig.ensure()
 
     try:
         ref = EventRef.parse(args.ref)
@@ -68,7 +67,7 @@ def cmd_context(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     try:
-        store = LogStore(lq_dir)
+        store = LogStore(config.lq_dir)
         event = store.event(ref.run_id, ref.event_id)
 
         if event is None:
@@ -88,7 +87,7 @@ def cmd_context(args: argparse.Namespace) -> None:
             return
 
         # Read raw log file
-        raw_file = lq_dir / RAW_DIR / f"{ref.run_id:03d}.log"
+        raw_file = config.raw_dir / f"{ref.run_id:03d}.log"
         if not raw_file.exists():
             print(f"Raw log not found: {raw_file}", file=sys.stderr)
             print("Hint: Use --keep-raw or --json/--markdown to save raw logs", file=sys.stderr)
