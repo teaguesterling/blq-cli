@@ -563,9 +563,7 @@ class CommandPlaceholder:
 
 # Regex to parse placeholders from command template
 # Matches: {name}, {name=default}, {name:}, {name:=default}
-_PLACEHOLDER_PATTERN = re.compile(
-    r"\{([a-zA-Z_][a-zA-Z0-9_]*)(:=?([^}]*)?|=([^}]*))?\}"
-)
+_PLACEHOLDER_PATTERN = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)(:=?([^}]*)?|=([^}]*))?\}")
 
 
 def parse_placeholders(template: str) -> list[CommandPlaceholder]:
@@ -630,7 +628,7 @@ def expand_command(
         # Check if this is a valid placeholder name
         placeholder_names = {p.name for p in placeholders}
         if name not in placeholder_names:
-            valid_args = ', '.join(sorted(placeholder_names))
+            valid_args = ", ".join(sorted(placeholder_names))
             raise ValueError(f"Unknown argument '{name}'. Valid arguments: {valid_args}")
         values[name] = value
 
