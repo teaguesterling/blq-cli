@@ -630,7 +630,8 @@ def expand_command(
         # Check if this is a valid placeholder name
         placeholder_names = {p.name for p in placeholders}
         if name not in placeholder_names:
-            raise ValueError(f"Unknown argument '{name}'. Valid arguments: {', '.join(sorted(placeholder_names))}")
+            valid_args = ', '.join(sorted(placeholder_names))
+            raise ValueError(f"Unknown argument '{name}'. Valid arguments: {valid_args}")
         values[name] = value
 
     # Second, fill positional-able placeholders from positional args
@@ -1072,7 +1073,7 @@ def write_run_parquet(
 
     # Apply projection and write to parquet with zstd compression
     # zstd level 3 provides ~15% better compression than snappy with minimal overhead
-    typed_rel = rel.project(", ".join(projections))
+    rel.project(", ".join(projections))
     conn.execute("CREATE TEMP TABLE _write_temp AS SELECT * FROM typed_rel")
     conn.execute(f"""
         COPY _write_temp TO '{filepath}'
