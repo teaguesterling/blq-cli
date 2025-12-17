@@ -135,33 +135,19 @@ After updating the code, run:
 python -m pytest -v
 ```
 
-## Backward Compatibility
+## Existing Data
 
-### Parquet Files
+Existing `.lq/` directories are incompatible with the new schema. Rename to `.lq~` before using the new version:
 
-Existing parquet files in `.lq/logs/` will still have `error_fingerprint`. Options:
-
-1. **Rename on read**: Update `lq_events` view to alias both field names
-2. **Migration script**: One-time migration of existing parquet files
-3. **Gradual migration**: Old files keep old name, new files use new name
-
-Recommended: Option 1 (alias on read) for zero-downtime migration:
-
-```sql
-CREATE OR REPLACE VIEW lq_events AS
-SELECT
-    *,
-    -- Backward compat: alias old field name to new
-    COALESCE(fingerprint, error_fingerprint) AS fingerprint,
-    ...
-FROM read_parquet(...);
+```bash
+mv .lq .lq~
+blq init
 ```
 
 ## Timeline
 
 1. ✅ Create SQL tests for new schema
-2. ⏳ Update PARQUET_SCHEMA in core.py
-3. ⏳ Update schema.sql
-4. ⏳ Update Python code
-5. ⏳ Run all tests
-6. ⏳ Add backward compat alias in lq_events view
+2. ✅ Update PARQUET_SCHEMA in core.py
+3. ✅ Update schema.sql
+4. ✅ Update Python code
+5. ✅ Run all tests

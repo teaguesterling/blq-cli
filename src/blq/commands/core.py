@@ -994,7 +994,7 @@ PARQUET_SCHEMA = [
     ("tool_name", "VARCHAR"),
     ("category", "VARCHAR"),
     ("error_code", "VARCHAR"),
-    ("error_fingerprint", "VARCHAR"),
+    ("fingerprint", "VARCHAR"),
     # Log position
     ("log_line_start", "BIGINT"),
     ("log_line_end", "BIGINT"),
