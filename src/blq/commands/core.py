@@ -16,13 +16,29 @@ import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import duckdb
 import pandas as pd
 import yaml
 
-from blq.query import LogStore
+if TYPE_CHECKING:
+    from blq.query import LogStore
+
+# ============================================================================
+# Configuration
+# ============================================================================
+
+LQ_DIR = ".lq"
+LOGS_DIR = "logs"
+RAW_DIR = "raw"
+SCHEMA_FILE = "schema.sql"
+DB_FILE = "blq.duckdb"
+COMMANDS_FILE = "commands.yaml"
+CONFIG_FILE = "config.yaml"
+GLOBAL_LQ_DIR = Path.home() / ".lq"
+PROJECTS_DIR = "projects"
+GLOBAL_PROJECTS_PATH = GLOBAL_LQ_DIR / PROJECTS_DIR
 
 # ============================================================================
 # Result Types
@@ -149,21 +165,6 @@ class RunResult:
 
         return "\n".join(lines)
 
-
-# ============================================================================
-# Configuration
-# ============================================================================
-
-LQ_DIR = ".lq"
-LOGS_DIR = "logs"
-RAW_DIR = "raw"
-SCHEMA_FILE = "schema.sql"
-DB_FILE = "blq.duckdb"
-COMMANDS_FILE = "commands.yaml"
-CONFIG_FILE = "config.yaml"
-GLOBAL_LQ_DIR = Path.home() / ".lq"
-PROJECTS_DIR = "projects"
-GLOBAL_PROJECTS_PATH = GLOBAL_LQ_DIR / PROJECTS_DIR
 
 # Default environment variables to capture for all runs
 DEFAULT_CAPTURE_ENV = [
@@ -952,6 +953,9 @@ def get_store_for_args(args) -> LogStore:
     Returns:
         LogStore instance configured for the appropriate data source
     """
+    # Lazy import to avoid circular imports
+    from blq.query import LogStore
+
     data_root, is_raw = get_data_root(args)
 
     if is_raw and data_root is not None:

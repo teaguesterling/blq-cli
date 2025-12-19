@@ -36,8 +36,8 @@ from typing import Any
 import duckdb
 import pandas as pd
 
-# Default .lq directory name (keep in sync with blq.commands.core.LQ_DIR)
-_LQ_DIR = ".lq"
+# Directory name constant - must match blq.commands.core.LQ_DIR
+LQ_DIR = ".lq"
 
 
 class LogQuery:
@@ -618,10 +618,10 @@ class LogStore:
         """Find .lq directory in current or parent directories."""
         cwd = Path.cwd()
         for p in [cwd, *list(cwd.parents)]:
-            lq_path = p / _LQ_DIR
+            lq_path = p / LQ_DIR
             if lq_path.exists():
                 return lq_path
-        raise FileNotFoundError(f"{_LQ_DIR} directory not found. Run 'blq init' to initialize.")
+        raise FileNotFoundError(f"{LQ_DIR} directory not found. Run 'blq init' to initialize.")
 
     def _ensure_schema(self) -> None:
         """Load schema if not already loaded."""
