@@ -26,9 +26,9 @@ def cmd_status(args: argparse.Namespace) -> None:
         conn = store.connection
 
         if args.verbose:
-            result = conn.execute("FROM lq_status_verbose()").fetchdf()
+            result = conn.execute("FROM blq_status_verbose()").fetchdf()
         else:
-            result = conn.execute("FROM lq_status()").fetchdf()
+            result = conn.execute("FROM blq_status()").fetchdf()
         print(result.to_string(index=False))
     except duckdb.Error:
         # Fallback if macros aren't working

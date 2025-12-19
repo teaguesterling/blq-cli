@@ -32,9 +32,9 @@ class TestConnectionFactory:
         assert result[0] == 1
 
     def test_create_with_schema(self, lq_dir):
-        """Create with schema loads lq_base_path macro."""
+        """Create with schema loads blq_base_path macro."""
         conn = ConnectionFactory.create(lq_dir=lq_dir, load_schema=True)
-        result = conn.execute("SELECT lq_base_path()").fetchone()
+        result = conn.execute("SELECT blq_base_path()").fetchone()
         assert result[0] is not None
         assert "logs" in result[0]
 

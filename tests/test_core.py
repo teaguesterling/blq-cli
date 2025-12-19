@@ -103,8 +103,8 @@ class TestCmdInit:
         cmd_init(args)
 
         schema = (chdir_temp / ".lq" / "schema.sql").read_text()
-        assert "lq_events" in schema
-        assert "lq_base_path" in schema
+        assert "blq_load_events" in schema
+        assert "blq_base_path" in schema
 
     def test_prints_confirmation(self, chdir_temp, capsys):
         """Print confirmation message."""
@@ -149,17 +149,17 @@ class TestGetConnection:
         """Load schema macros into connection."""
         conn = get_connection(lq_dir)
 
-        # lq_base_path should be defined
-        result = conn.execute("SELECT lq_base_path()").fetchone()
+        # blq_base_path should be defined
+        result = conn.execute("SELECT blq_base_path()").fetchone()
         assert result[0] is not None
 
     def test_creates_views(self, initialized_project, sample_build_script, run_adhoc_command):
-        """Create views that work with parquet files."""
+        """Create macros that work with parquet files."""
         # Create some data first using ad-hoc execution
         run_adhoc_command([str(sample_build_script)])
 
         conn = get_connection(Path(".lq"))
-        result = conn.execute("SELECT COUNT(*) FROM lq_events").fetchone()
+        result = conn.execute("SELECT COUNT(*) FROM blq_load_events()").fetchone()
         assert result[0] > 0
 
 

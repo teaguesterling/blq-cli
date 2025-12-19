@@ -17,8 +17,10 @@ import yaml
 
 from blq.commands.core import (
     COMMANDS_FILE,
+    DB_FILE,
     LOGS_DIR,
     LQ_DIR,
+    PARQUET_SCHEMA,
     RAW_DIR,
     SCHEMA_FILE,
     BlqConfig,
@@ -198,11 +200,11 @@ def _to_slug(name: str, prefix: str = "") -> str:
     return slug
 
 
-def _contains_lq_reference(text: str) -> bool:
-    """Check if text contains a reference to lq as a command (not just mentioned).
+def _contains_blq_reference(text: str) -> bool:
+    """Check if text contains a reference to blq as a command (not just mentioned).
 
     We want to detect:
-    - "blq run ..." - lq used as a command
+    - "blq run ..." - blq used as a command
     - "| blq" - blq in a pipeline
     - "./blq" - blq as executable
 
@@ -217,9 +219,9 @@ def _contains_lq_reference(text: str) -> bool:
         # Skip install commands and comments
         if line.startswith("#") or "pip install" in line or "npm install" in line:
             continue
-        # Check if lq is used as a command on this line
-        # Patterns: starts with "lq ", "| lq", "./lq"
-        if re.search(r"(^|\|)\s*lq\s", line) or re.search(r"\./lq\b", line):
+        # Check if blq is used as a command on this line
+        # Patterns: starts with "blq ", "| blq", "./blq"
+        if re.search(r"(^|\|)\s*blq\s", line) or re.search(r"\./blq\b", line):
             return True
     return False
 
@@ -278,7 +280,7 @@ def _parse_github_workflows(cwd: Path) -> list[tuple[str, str, str, str]]:
             content = workflow_file.read_text()
 
             # Check if workflow references lq as a command
-            if _contains_lq_reference(content):
+            if _contains_blq_reference(content):
                 print(f"  Note: Skipping {workflow_file.name} (uses lq)")
                 continue
 
@@ -307,7 +309,7 @@ def _parse_github_workflows(cwd: Path) -> list[tuple[str, str, str, str]]:
                     run_cmd = step.get("run")
                     if run_cmd:
                         # Skip if this step references lq
-                        if _contains_lq_reference(run_cmd):
+                        if _contains_blq_reference(run_cmd):
                             continue
                         run_cmd = run_cmd.strip()
                         if run_cmd:
@@ -344,7 +346,7 @@ def _parse_makefile_targets(cwd: Path) -> list[tuple[str, str, str, str]]:
         content = makefile.read_text()
 
         # Check if Makefile references lq
-        if _contains_lq_reference(content):
+        if _contains_blq_reference(content):
             print("  Note: Makefile references lq, checking individual targets")
 
         # Find targets: lines starting with word followed by colon (not indented)
@@ -385,7 +387,7 @@ def _parse_makefile_targets(cwd: Path) -> list[tuple[str, str, str, str]]:
             if recipe_lines:
                 # Check if recipe references lq
                 recipe_text = "\n".join(recipe_lines)
-                if _contains_lq_reference(recipe_text):
+                if _contains_blq_reference(recipe_text):
                     continue
 
             # Generate command as "make <target>"
@@ -593,15 +595,146 @@ def _ensure_commands_file(lq_dir: Path, verbose: bool = False) -> None:
             print(f"  Created {COMMANDS_FILE}")
 
 
+def _split_sql_statements(sql: str) -> list[str]:
+    """Split SQL into individual statements, handling comments and semicolons.
+
+    Simple parser that handles:
+    - Line comments (--)
+    - Block comments (/* */)
+    - Semicolons inside comments
+
+    Returns list of non-empty statements.
+    """
+    statements = []
+    current = []
+    in_line_comment = False
+    in_block_comment = False
+    i = 0
+
+    while i < len(sql):
+        c = sql[i]
+
+        # Check for comment start
+        if not in_line_comment and not in_block_comment:
+            if c == "-" and i + 1 < len(sql) and sql[i + 1] == "-":
+                in_line_comment = True
+                current.append(c)
+                i += 1
+                current.append(sql[i])
+            elif c == "/" and i + 1 < len(sql) and sql[i + 1] == "*":
+                in_block_comment = True
+                current.append(c)
+                i += 1
+                current.append(sql[i])
+            elif c == ";":
+                # End of statement
+                stmt = "".join(current).strip()
+                if stmt:
+                    statements.append(stmt)
+                current = []
+            else:
+                current.append(c)
+        elif in_line_comment:
+            current.append(c)
+            if c == "\n":
+                in_line_comment = False
+        elif in_block_comment:
+            current.append(c)
+            if c == "*" and i + 1 < len(sql) and sql[i + 1] == "/":
+                i += 1
+                current.append(sql[i])
+                in_block_comment = False
+
+        i += 1
+
+    # Add final statement if any
+    stmt = "".join(current).strip()
+    if stmt:
+        statements.append(stmt)
+
+    return statements
+
+
+def _create_placeholder_parquet(lq_dir: Path) -> None:
+    """Create an empty placeholder parquet file with the correct schema.
+
+    This ensures the logs directory has at least one parquet file, which allows
+    DuckDB's read_parquet() glob to succeed during schema loading.
+    """
+    import duckdb
+
+    # Create placeholder directory with hive partitioning
+    placeholder_dir = lq_dir / LOGS_DIR / "date=1970-01-01" / "source=_placeholder"
+    placeholder_dir.mkdir(parents=True, exist_ok=True)
+    placeholder_file = placeholder_dir / "000_placeholder.parquet"
+
+    if placeholder_file.exists():
+        return  # Already exists
+
+    # Build SELECT with NULL columns matching our schema
+    null_cols = ", ".join(f"NULL::{dtype} AS {col}" for col, dtype in PARQUET_SCHEMA)
+
+    conn = duckdb.connect(":memory:")
+    conn.execute(f"""
+        COPY (SELECT {null_cols} WHERE false)
+        TO '{placeholder_file}'
+        (FORMAT PARQUET, COMPRESSION 'zstd', COMPRESSION_LEVEL 3)
+    """)
+    conn.close()
+
+
+def _create_database(lq_dir: Path) -> bool:
+    """Create blq.duckdb with schema macros.
+
+    The schema uses table-returning macros (e.g., blq_load_events()) which
+    are defined at creation time but only evaluated at query time. This means
+    all macros can be created even when no data exists yet.
+
+    Args:
+        lq_dir: Path to .lq directory
+
+    Returns:
+        True if database was created/updated successfully
+    """
+    import duckdb
+
+    db_path = lq_dir / DB_FILE
+
+    try:
+        # Load schema SQL
+        schema_content = resources.files("blq").joinpath("schema.sql").read_text()
+
+        # Split into individual statements
+        statements = _split_sql_statements(schema_content)
+
+        # Create/update database with schema
+        conn = duckdb.connect(str(db_path))
+        for stmt in statements:
+            conn.execute(stmt)
+        conn.close()
+
+        return True
+    except Exception as e:
+        print(f"  Warning: Could not create database: {e}", file=sys.stderr)
+        return False
+
+
 def _reinit_config_files(lq_dir: Path, args: argparse.Namespace) -> None:
-    """Reinitialize configuration files (schema, config, commands)."""
-    # Update schema file
+    """Reinitialize configuration files (schema, config, commands, database)."""
+    # Update schema file (human-readable reference)
     try:
         schema_content = resources.files("blq").joinpath("schema.sql").read_text()
         (lq_dir / SCHEMA_FILE).write_text(schema_content)
         print(f"  Updated {SCHEMA_FILE}")
     except Exception as e:
         print(f"  Warning: Could not update schema.sql: {e}", file=sys.stderr)
+
+    # Ensure placeholder parquet exists (required for schema macros)
+    _create_placeholder_parquet(lq_dir)
+
+    # Update database with schema
+    if _create_database(lq_dir):
+        print(f"  Updated {DB_FILE}")
 
     # Update config with project info
     project_info = detect_project_info()
@@ -653,12 +786,18 @@ def cmd_init(args: argparse.Namespace) -> None:
     (lq_dir / LOGS_DIR).mkdir(parents=True)
     (lq_dir / RAW_DIR).mkdir(parents=True)
 
-    # Copy schema file from package
+    # Copy schema file from package (human-readable reference)
     try:
         schema_content = resources.files("blq").joinpath("schema.sql").read_text()
         (lq_dir / SCHEMA_FILE).write_text(schema_content)
     except Exception as e:
         print(f"Warning: Could not copy schema.sql: {e}", file=sys.stderr)
+
+    # Create placeholder parquet file (required for schema macros to validate)
+    _create_placeholder_parquet(lq_dir)
+
+    # Create database with schema (views and macros pre-loaded)
+    _create_database(lq_dir)
 
     # Detect project info from git remote (can be overridden)
     project_info = detect_project_info()
@@ -680,7 +819,8 @@ def cmd_init(args: argparse.Namespace) -> None:
     print(f"Initialized .lq at {lq_dir}")
     print("  logs/         - Hive-partitioned parquet files")
     print("  raw/          - Raw log files (optional)")
-    print("  schema.sql    - SQL schema and macros")
+    print("  blq.duckdb    - Database with views and macros")
+    print("  schema.sql    - SQL schema (reference)")
     print("  commands.yaml - Registered commands")
     if namespace and project:
         print(f"  project       - {namespace}/{project}")

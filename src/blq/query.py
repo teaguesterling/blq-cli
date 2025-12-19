@@ -98,15 +98,18 @@ class LogQuery:
 
     @classmethod
     def from_table(cls, conn: duckdb.DuckDBPyConnection, table_name: str) -> LogQuery:
-        """Create a LogQuery from a table or view.
+        """Create a LogQuery from a table, view, or table-returning macro.
 
         Args:
             conn: DuckDB connection
-            table_name: Name of table or view
+            table_name: Name of table/view or macro call like "blq_load_events()"
 
         Returns:
             LogQuery wrapping the table
         """
+        # Handle table-returning macros (contain parentheses)
+        if "(" in table_name:
+            return cls(conn.sql(f"SELECT * FROM {table_name}"), conn)
         return cls(conn.table(table_name), conn)
 
     @classmethod
@@ -504,12 +507,34 @@ class LogStore:
 
         Args:
             lq_dir: Path to .lq directory
-            conn: Optional existing connection
+            conn: Optional existing connection (overrides blq.duckdb)
         """
         self._lq_dir = Path(lq_dir)
         self._logs_dir = self._lq_dir / "logs"
-        self._conn = conn or duckdb.connect(":memory:")
-        self._schema_loaded = False
+
+        if conn is not None:
+            # Use provided connection
+            self._conn = conn
+            self._schema_loaded = False
+            self._using_db_file = False
+        else:
+            # Check for blq.duckdb
+            db_path = self._lq_dir / "blq.duckdb"
+            if db_path.exists():
+                # Open the database (views and macros are pre-loaded)
+                # Note: We use read-write to allow updating blq_base_path macro
+                # DuckDB handles concurrent reads safely
+                self._conn = duckdb.connect(str(db_path))
+                # Override blq_base_path to use actual absolute path
+                logs_path = self._logs_dir.resolve()
+                self._conn.execute(f"CREATE OR REPLACE MACRO blq_base_path() AS '{logs_path}'")
+                self._schema_loaded = True  # Schema already in database
+                self._using_db_file = True
+            else:
+                # Fall back to in-memory + load schema (backward compatibility)
+                self._conn = duckdb.connect(":memory:")
+                self._schema_loaded = False
+                self._using_db_file = False
 
     @classmethod
     def open(cls, path: Path | str | None = None) -> LogStore:
@@ -557,7 +582,7 @@ class LogStore:
         # Create a connection with a view over the parquet files
         conn = duckdb.connect(":memory:")
 
-        # Create lq_events view from parquet files with hive partitioning
+        # Create blq_events view from parquet files with hive partitioning
         # This makes hostname, namespace, project, date, source available as columns
         # Use explicit hive partition pattern - DuckDB's ** glob doesn't follow symlinks,
         # but explicit patterns like hostname=*/... do work through symlinks
@@ -570,7 +595,7 @@ class LogStore:
             / "*.parquet"  # Specific project repo structure
         )
         conn.execute(f"""
-            CREATE OR REPLACE VIEW lq_events AS
+            CREATE OR REPLACE VIEW blq_events AS
             SELECT *
             FROM read_parquet('{parquet_glob}',
                 hive_partitioning=true,
@@ -603,9 +628,9 @@ class LogStore:
         if self._schema_loaded:
             return
 
-        # Set up lq_base_path macro
+        # Set up blq_base_path macro
         logs_path = self._logs_dir.resolve()
-        self._conn.execute(f"CREATE OR REPLACE MACRO lq_base_path() AS '{logs_path}'")
+        self._conn.execute(f"CREATE OR REPLACE MACRO blq_base_path() AS '{logs_path}'")
 
         # Load schema file
         schema_path = self._lq_dir / "schema.sql"
@@ -615,9 +640,9 @@ class LogStore:
                 stmt = stmt.strip()
                 if not stmt:
                     continue
-                # Skip lq_base_path definition (we set it above)
+                # Skip blq_base_path definition (we set it above)
                 if (
-                    "lq_base_path()" in stmt
+                    "blq_base_path()" in stmt
                     and "CREATE" in stmt.upper()
                     and "MACRO" in stmt.upper()
                 ):
@@ -660,7 +685,7 @@ class LogStore:
             LogQuery for filtering/selecting events
         """
         self._ensure_schema()
-        return LogQuery.from_table(self._conn, "lq_events")
+        return LogQuery.from_table(self._conn, "blq_load_events()")
 
     def errors(self) -> LogQuery:
         """Query stored errors (convenience method).
@@ -703,7 +728,7 @@ class LogStore:
                 git_branch,
                 git_dirty,
                 ci
-            FROM lq_events
+            FROM blq_load_events()
             ORDER BY run_id DESC
         """).df()
 
@@ -725,7 +750,7 @@ class LogStore:
             Latest run_id or None if no runs
         """
         self._ensure_schema()
-        result = self._conn.sql("SELECT MAX(run_id) FROM lq_events").fetchone()
+        result = self._conn.sql("SELECT MAX(run_id) FROM blq_load_events()").fetchone()
         return result[0] if result and result[0] is not None else None
 
     def event(self, run_id: int, event_id: int) -> dict[str, Any] | None:
@@ -746,7 +771,11 @@ class LogStore:
         return dict(zip(columns, result))
 
     def has_data(self) -> bool:
-        """Check if the store has any data."""
+        """Check if the store has any data (excluding placeholder files)."""
         if not self._logs_dir.exists():
             return False
-        return any(self._logs_dir.rglob("*.parquet"))
+        # Exclude placeholder files (source=_placeholder)
+        for p in self._logs_dir.rglob("*.parquet"):
+            if "_placeholder" not in str(p):
+                return True
+        return False

@@ -737,7 +737,7 @@ def query(sql: str, limit: int = 100) -> dict[str, Any]:
     """Query stored log events with SQL.
 
     Args:
-        sql: SQL query against lq_events view
+        sql: SQL query against blq_load_events() or other blq macros
         limit: Max rows to return (default: 100)
 
     Returns:

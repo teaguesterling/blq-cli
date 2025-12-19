@@ -58,7 +58,7 @@ def query_source(
     lq_dir: Path | None = None,
     log_format: str = "auto",
 ) -> pd.DataFrame:
-    """Query a log file directly or the stored lq_events.
+    """Query a log file directly or stored events via blq_load_events().
 
     Uses the LogQuery API for cleaner query building.
 

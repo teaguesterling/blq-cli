@@ -111,7 +111,7 @@ class TestQueryTool:
         """Run a simple SQL query."""
         async with Client(mcp_server) as client:
             raw = await client.call_tool(
-                "query", {"sql": "SELECT COUNT(*) as count FROM lq_events"}
+                "query", {"sql": "SELECT COUNT(*) as count FROM blq_load_events()"}
             )
             result = get_data(raw)
 
@@ -123,7 +123,8 @@ class TestQueryTool:
     async def test_query_with_limit(self, mcp_server):
         """Query with limit parameter."""
         async with Client(mcp_server) as client:
-            raw = await client.call_tool("query", {"sql": "SELECT * FROM lq_events", "limit": 5})
+            sql = "SELECT * FROM blq_load_events()"
+            raw = await client.call_tool("query", {"sql": sql, "limit": 5})
             result = get_data(raw)
 
             assert len(result["rows"]) <= 5
@@ -133,7 +134,7 @@ class TestQueryTool:
         """Query filtering to errors only."""
         async with Client(mcp_server) as client:
             raw = await client.call_tool(
-                "query", {"sql": "SELECT * FROM lq_events WHERE severity = 'error'"}
+                "query", {"sql": "SELECT * FROM blq_load_events() WHERE severity = 'error'"}
             )
             result = get_data(raw)
 

@@ -158,6 +158,7 @@ LQ_DIR = ".lq"
 LOGS_DIR = "logs"
 RAW_DIR = "raw"
 SCHEMA_FILE = "schema.sql"
+DB_FILE = "blq.duckdb"
 COMMANDS_FILE = "commands.yaml"
 CONFIG_FILE = "config.yaml"
 GLOBAL_LQ_DIR = Path.home() / ".lq"
@@ -385,6 +386,11 @@ class BlqConfig:
     def schema_path(self) -> Path:
         """Path to schema file (.lq/schema.sql)."""
         return self.lq_dir / SCHEMA_FILE
+
+    @property
+    def db_path(self) -> Path:
+        """Path to database file (.lq/blq.duckdb)."""
+        return self.lq_dir / DB_FILE
 
     @property
     def config_path(self) -> Path:
@@ -812,6 +818,29 @@ class ConnectionFactory:
         Raises:
             duckdb.Error: If require_duck_hunt=True and duck_hunt unavailable
         """
+        # Use blq.duckdb if it exists (has schema pre-loaded)
+        if lq_dir is not None and load_schema:
+            db_path = lq_dir / DB_FILE
+            if db_path.exists():
+                conn = duckdb.connect(str(db_path))
+                # Override blq_base_path with actual absolute path
+                logs_path = (lq_dir / LOGS_DIR).resolve()
+                conn.execute(f"CREATE OR REPLACE MACRO blq_base_path() AS '{logs_path}'")
+                # Handle duck_hunt loading
+                try:
+                    conn.execute("LOAD duck_hunt")
+                    cls._duck_hunt_available = True
+                except duckdb.Error:
+                    if install_duck_hunt:
+                        cls.install_duck_hunt(conn)
+                    elif require_duck_hunt:
+                        raise duckdb.Error(
+                            "duck_hunt extension required but not available. "
+                            "Run 'blq init' to install required extensions."
+                        )
+                return conn
+
+        # Fall back to in-memory connection
         conn = duckdb.connect(":memory:")
 
         # Handle duck_hunt loading
@@ -827,7 +856,7 @@ class ConnectionFactory:
             if require_duck_hunt and not duck_hunt_loaded:
                 raise duckdb.Error(
                     "duck_hunt extension required but not available. "
-                    "Run 'lq init' to install required extensions."
+                    "Run 'blq init' to install required extensions."
                 )
 
         # Load schema if requested and lq_dir provided
@@ -839,11 +868,11 @@ class ConnectionFactory:
     @classmethod
     def _load_schema(cls, conn: duckdb.DuckDBPyConnection, lq_dir: Path) -> None:
         """Load schema into connection."""
-        # Set up absolute path for lq_base_path before loading schema
+        # Set up absolute path for blq_base_path before loading schema
         logs_path = (lq_dir / LOGS_DIR).resolve()
-        conn.execute(f"CREATE OR REPLACE MACRO lq_base_path() AS '{logs_path}'")
+        conn.execute(f"CREATE OR REPLACE MACRO blq_base_path() AS '{logs_path}'")
 
-        # Load schema (which will use our lq_base_path)
+        # Load schema (which will use our blq_base_path)
         schema_path = lq_dir / SCHEMA_FILE
         if schema_path.exists():
             schema_sql = schema_path.read_text()
@@ -852,9 +881,9 @@ class ConnectionFactory:
                 stmt = stmt.strip()
                 if not stmt:
                     continue
-                # Skip the lq_base_path definition since we already set it with absolute path
+                # Skip the blq_base_path definition since we already set it with absolute path
                 if (
-                    "lq_base_path()" in stmt
+                    "blq_base_path()" in stmt
                     and "CREATE" in stmt.upper()
                     and "MACRO" in stmt.upper()
                 ):
