@@ -2,15 +2,41 @@
 
 ## Overview
 
-This document outlines the changes needed to migrate blq to duck_hunt's Schema V2.
+This document outlines the changes needed to migrate blq to duck_hunt's Schema V2, plus the subsequent `lq_` to `blq_` schema rename and blq.duckdb architecture.
 
 ## Key Changes
 
-### Renamed Fields
+### 1. Field Renames (duck_hunt V2)
 
 | Old Field (blq) | New Field | Location |
 |-----------------|-----------|----------|
 | `error_fingerprint` | `fingerprint` | PARQUET_SCHEMA, schema.sql, Python code |
+
+### 2. SQL Macro/View Renames (blq_ prefix)
+
+All SQL macros and views renamed from `lq_*` to `blq_*`:
+
+| Old Name | New Name |
+|----------|----------|
+| `lq_base_path()` | `blq_base_path()` |
+| `lq_events` (view) | `blq_load_events()` (macro) |
+| `lq_runs` (view) | `blq_load_runs()` (macro) |
+| `lq_source_status` (view) | `blq_load_source_status()` (macro) |
+| `lq_status()` | `blq_status()` |
+| `lq_errors()` | `blq_errors()` |
+| `lq_warnings()` | `blq_warnings()` |
+| `lq_ref()` | `blq_ref()` |
+| `lq_location()` | `blq_location()` |
+| `lq_short_fp()` | `blq_short_fp()` |
+| `lq_history()` | `blq_history()` |
+| `lq_diff()` | `blq_diff()` |
+| `status_badge()` | `blq_status_badge()` |
+
+### 3. Architecture Changes (blq.duckdb)
+
+- **blq.duckdb**: Database file created at `blq init` with all macros pre-loaded
+- **Placeholder parquet**: Empty file at `logs/date=1970-01-01/source=_placeholder/` for glob validation
+- **Table-returning macros**: Views converted to macros that are evaluated at query time
 
 ### blq-Owned Fields (No Change Needed)
 
@@ -33,111 +59,74 @@ These fields are new in duck_hunt V2 and can be used if needed:
 - `pattern_id` - Pattern cluster ID
 - `similarity_score` - Pattern similarity
 
-## Files to Update
+## Schema Architecture
 
-### 1. `src/blq/commands/core.py`
+### Table-Returning Macros
 
-**PARQUET_SCHEMA** (line ~997):
-```python
-# Change:
-("error_fingerprint", "VARCHAR"),
-# To:
-("fingerprint", "VARCHAR"),
-```
+The schema now uses table-returning macros instead of views for data access:
 
-### 2. `src/blq/schema.sql`
-
-**lq_get_event macro** (line ~300):
 ```sql
--- Change:
-error_fingerprint,
--- To:
-fingerprint,
+-- Core data access (always works, even with no data)
+CREATE OR REPLACE MACRO blq_load_events() AS TABLE
+SELECT * FROM read_parquet(blq_base_path() || '/**/*.parquet', ...);
+
+-- Aggregated runs
+CREATE OR REPLACE MACRO blq_load_runs() AS TABLE
+SELECT ... FROM blq_load_events() GROUP BY ...;
+
+-- All other macros reference blq_load_events()
+CREATE OR REPLACE MACRO blq_status() AS TABLE
+SELECT ... FROM blq_load_source_status() ...;
 ```
 
-**lq_similar_events macro** (line ~316):
-```sql
--- Change:
-WHERE error_fingerprint = fp
--- To:
-WHERE fingerprint = fp
-```
+### Why Macros Instead of Views?
 
-**lq_errors_json macro** (line ~345):
-```sql
--- Change:
-fingerprint: lq_short_fp(error_fingerprint),
--- To:
-fingerprint: lq_short_fp(fingerprint),
-```
+Views fail at creation time if `read_parquet()` glob matches no files. Table-returning macros are only evaluated at query time, so they can be created even when no data exists.
 
-### 3. `src/blq/commands/events.py`
+### blq.duckdb Database File
 
-**Lines 49-50:**
-```python
-# Change:
-if event.get("error_fingerprint"):
-    print(f"  Fingerprint: {event.get('error_fingerprint')}")
-# To:
-if event.get("fingerprint"):
-    print(f"  Fingerprint: {event.get('fingerprint')}")
-```
+At `blq init`:
+1. Create placeholder parquet file (ensures glob always matches)
+2. Create `blq.duckdb` with all macros pre-loaded
+3. CLI/MCP opens database and overrides `blq_base_path()` with absolute path
 
-### 4. `src/blq/commands/execution.py`
+Benefits:
+- Faster startup (no schema parsing)
+- Direct DuckDB CLI access: `duckdb .lq/blq.duckdb "SELECT * FROM blq_status()"`
+- Consistent macro definitions
 
-**Line 317:**
-```python
-# Change:
-fingerprint=e.get("error_fingerprint"),
-# To:
-fingerprint=e.get("fingerprint"),
-```
+## Files Updated
 
-**Line 488:**
-```python
-# Change:
-fingerprint=e.get("error_fingerprint"),
-# To:
-fingerprint=e.get("fingerprint"),
-```
+### Core Files
 
-### 5. `src/blq/serve.py`
+| File | Changes |
+|------|---------|
+| `src/blq/schema.sql` | Complete rewrite with `blq_` prefix and table-returning macros |
+| `src/blq/commands/core.py` | `ConnectionFactory.create()` uses blq.duckdb, `blq_base_path()` |
+| `src/blq/commands/init_cmd.py` | `_create_placeholder_parquet()`, `_create_database()`, SQL splitting |
+| `src/blq/query.py` | `LogStore` uses blq.duckdb, `LogQuery.from_table()` handles macros |
+| `src/blq/commands/management.py` | `blq_status()`, `blq_status_verbose()` |
+| `src/blq/serve.py` | Updated docstrings |
 
-**Line 361:**
-```python
-# Change:
-"error_fingerprint": event_data.get("error_fingerprint"),
-# To:
-"fingerprint": event_data.get("fingerprint"),
-```
+### Test Files
 
-**Line 538:**
-```python
-# Change:
-fp = row.get("error_fingerprint")
-# To:
-fp = row.get("fingerprint")
-```
+| File | Changes |
+|------|---------|
+| `tests/test_core.py` | `blq_base_path()`, `blq_load_events()` |
+| `tests/test_mcp_server.py` | `blq_load_events()` in SQL queries |
+| `tests/test_query_filter.py` | `blq_base_path()` |
 
 ## Testing
 
-### SQL Tests
-
-Run the SQL migration tests with the new duck_hunt:
-```bash
-../duck_hunt/build/release/duckdb < tests/sql/test_duck_hunt_v2_migration.sql
-```
-
-### Python Tests
-
-After updating the code, run:
 ```bash
 python -m pytest -v
 ```
 
+All 234 tests pass.
+
 ## Existing Data
 
-Existing `.lq/` directories are incompatible with the new schema. Rename to `.lq~` before using the new version:
+Existing `.lq/` directories are incompatible with the new schema. Reinitialize:
 
 ```bash
 mv .lq .lq~
@@ -147,7 +136,8 @@ blq init
 ## Timeline
 
 1. ✅ Create SQL tests for new schema
-2. ✅ Update PARQUET_SCHEMA in core.py
-3. ✅ Update schema.sql
-4. ✅ Update Python code
-5. ✅ Run all tests
+2. ✅ Update PARQUET_SCHEMA in core.py (`fingerprint`)
+3. ✅ Update schema.sql (`blq_` prefix, table-returning macros)
+4. ✅ Update Python code (all `lq_` references)
+5. ✅ Implement blq.duckdb architecture
+6. ✅ Run all tests (234 passed)
