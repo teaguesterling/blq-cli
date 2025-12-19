@@ -1071,8 +1071,8 @@ def write_run_parquet(
 
     # Apply projection and write to parquet with zstd compression
     # zstd level 3 provides ~15% better compression than snappy with minimal overhead
-    rel.project(", ".join(projections))
-    conn.execute("CREATE TEMP TABLE _write_temp AS SELECT * FROM typed_rel")
+    typed_rel = rel.project(", ".join(projections))
+    conn.register("_write_temp", typed_rel)
     conn.execute(f"""
         COPY _write_temp TO '{filepath}'
         (FORMAT PARQUET, COMPRESSION 'zstd', COMPRESSION_LEVEL 3)
