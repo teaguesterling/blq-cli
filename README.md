@@ -216,7 +216,7 @@ Each `blq run` automatically captures execution context:
 
 Query metadata with SQL:
 ```bash
-blq sql "SELECT hostname, git_branch, environment['VIRTUAL_ENV'] FROM lq_events"
+blq sql "SELECT hostname, git_branch, environment['VIRTUAL_ENV'] FROM blq_load_events()"
 ```
 
 ## MCP Server
@@ -281,18 +281,40 @@ See [Python API Guide](docs/python-api.md) for full documentation.
 
 ## Storage
 
-Logs are stored as Hive-partitioned parquet files:
+Logs are stored as Hive-partitioned parquet files (zstd compressed):
 
 ```
 .lq/
+├── blq.duckdb     # Database with pre-loaded SQL macros
 ├── logs/
 │   └── date=2024-01-15/
 │       └── source=build/
 │           └── 001_make_103000.parquet
 ├── raw/           # Optional raw logs (--keep-raw)
 ├── commands.yaml  # Registered commands
-└── schema.sql     # SQL schema and macros
+└── schema.sql     # SQL schema reference
 ```
+
+### SQL Macros (blq_ prefix)
+
+All SQL macros use the `blq_` prefix:
+
+```bash
+# Direct DuckDB access
+duckdb .lq/blq.duckdb "SELECT * FROM blq_status()"
+duckdb .lq/blq.duckdb "SELECT * FROM blq_errors(20)"
+duckdb .lq/blq.duckdb "SELECT * FROM blq_load_events() WHERE severity='error'"
+```
+
+| Macro | Description |
+|-------|-------------|
+| `blq_load_events()` | All events from parquet files |
+| `blq_load_runs()` | Aggregated run statistics |
+| `blq_status()` | Quick status overview |
+| `blq_errors(n)` | Recent errors (default: 10) |
+| `blq_warnings(n)` | Recent warnings (default: 10) |
+| `blq_history(n)` | Run history (default: 20) |
+| `blq_diff(run1, run2)` | Compare errors between runs |
 
 ## Documentation
 
