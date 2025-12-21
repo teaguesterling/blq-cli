@@ -380,8 +380,8 @@ def cmd_watch(args: argparse.Namespace) -> None:
 
     # Run once on startup if --once flag
     if getattr(args, "once", False):
-        controller.on_files_changed({"<startup>"})
-        controller.stop()
+        # Run synchronously instead of through the controller
+        controller._execute_run({"<startup>"})
         observer.stop()
         observer.join()
         return
