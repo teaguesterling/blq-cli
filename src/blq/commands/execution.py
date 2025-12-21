@@ -36,6 +36,164 @@ from blq.commands.core import (
 logger = logging.getLogger("blq-cli")
 
 
+def _make_event_summary(run_id: int, e: dict) -> EventSummary:
+    """Create an EventSummary from an event dict."""
+    return EventSummary(
+        ref=f"{run_id}:{e.get('event_id', 0)}",
+        severity=e.get("severity"),
+        file_path=e.get("file_path"),
+        line_number=e.get("line_number"),
+        column_number=e.get("column_number"),
+        message=e.get("message"),
+        error_code=e.get("error_code"),
+        fingerprint=e.get("fingerprint"),
+        test_name=e.get("test_name"),
+        log_line_start=e.get("log_line_start"),
+        log_line_end=e.get("log_line_end"),
+    )
+
+
+def _execute_command(
+    command: str,
+    source_name: str,
+    source_type: str,
+    config: BlqConfig,
+    format_hint: str = "auto",
+    quiet: bool = False,
+    keep_raw: bool = False,
+    error_limit: int = 50,
+    session_id: str | None = None,
+    capture_env_vars: list[str] | None = None,
+) -> RunResult:
+    """Execute a command and capture its output.
+
+    This is the core execution function used by cmd_run, cmd_exec, and cmd_watch.
+    Unlike the CLI commands, this function returns a RunResult instead of calling
+    sys.exit, allowing callers to handle the result.
+
+    Args:
+        command: The shell command to execute
+        source_name: Name to use for this run in the logs
+        source_type: Type of source ("run", "exec", "watch")
+        config: BlqConfig with project settings
+        format_hint: Log format hint for parsing
+        quiet: If True, don't stream command output
+        keep_raw: If True, save raw log output
+        error_limit: Maximum number of errors to include in result
+        session_id: Optional session ID for grouping related runs (watch mode)
+        capture_env_vars: Environment variables to capture (default: config.capture_env)
+
+    Returns:
+        RunResult with execution details and parsed events
+    """
+    lq_dir = config.lq_dir
+
+    if capture_env_vars is None:
+        capture_env_vars = config.capture_env.copy()
+
+    run_id = get_next_run_id(lq_dir)
+    started_at = datetime.now()
+
+    # Capture execution context
+    cwd = os.getcwd()
+    executable_path = find_executable(command)
+    environment = capture_environment(capture_env_vars)
+    hostname = socket.gethostname()
+    platform_name = platform.system()
+    arch = platform.machine()
+    git_info = capture_git_info()
+    ci_info = capture_ci_info()
+
+    logger.debug(f"Running: {command}")
+    logger.debug(f"Run ID: {run_id}")
+
+    # Run command, capturing output
+    process = subprocess.Popen(
+        command,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    output_lines = []
+    for line in process.stdout:
+        if not quiet:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        output_lines.append(line)
+
+    exit_code = process.wait()
+    completed_at = datetime.now()
+    output = "".join(output_lines)
+    duration_sec = (completed_at - started_at).total_seconds()
+
+    # Save raw output if requested
+    if keep_raw:
+        raw_file = lq_dir / RAW_DIR / f"{run_id:03d}.log"
+        raw_file.parent.mkdir(parents=True, exist_ok=True)
+        raw_file.write_text(output)
+
+    # Parse output
+    events = parse_log_content(output, format_hint)
+
+    # Build run metadata
+    run_meta = {
+        "run_id": run_id,
+        "source_name": source_name,
+        "source_type": source_type,
+        "command": command,
+        "started_at": started_at.isoformat(),
+        "completed_at": completed_at.isoformat(),
+        "exit_code": exit_code,
+        "cwd": cwd,
+        "executable_path": executable_path,
+        "environment": environment or None,
+        "hostname": hostname,
+        "platform": platform_name,
+        "arch": arch,
+        "git_commit": git_info.commit,
+        "git_branch": git_info.branch,
+        "git_dirty": git_info.dirty,
+        "ci": ci_info,
+        "session_id": session_id,
+    }
+
+    filepath = write_run_parquet(events, run_meta, lq_dir)
+
+    # Build structured result
+    error_events = [e for e in events if e.get("severity") == "error"]
+    warning_events = [e for e in events if e.get("severity") == "warning"]
+
+    # Determine status
+    if error_events:
+        status = "FAIL"
+    elif warning_events:
+        status = "WARN"
+    elif exit_code != 0:
+        status = "FAIL"
+    else:
+        status = "OK"
+
+    return RunResult(
+        run_id=run_id,
+        command=command,
+        status=status,
+        exit_code=exit_code,
+        started_at=started_at.isoformat(),
+        completed_at=completed_at.isoformat(),
+        duration_sec=duration_sec,
+        summary={
+            "total_events": len(events),
+            "errors": len(error_events),
+            "warnings": len(warning_events),
+        },
+        errors=[_make_event_summary(run_id, e) for e in error_events[:error_limit]],
+        warnings=[_make_event_summary(run_id, e) for e in warning_events[:error_limit]],
+        parquet_path=str(filepath),
+    )
+
+
 def _find_similar_commands(name: str, registered: list[str], max_results: int = 3) -> list[str]:
     """Find registered commands similar to the given name.
 
@@ -122,6 +280,37 @@ def _parse_command_args(
     return named_args, positional_args, extra_args
 
 
+def _run_no_capture(command: str, quiet: bool = False) -> int:
+    """Run a command without capturing output to parquet.
+
+    Args:
+        command: Shell command to run
+        quiet: If True, don't stream output
+
+    Returns:
+        Exit code from the command
+    """
+    started_at = datetime.now()
+
+    process = subprocess.Popen(
+        command,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    for line in process.stdout:
+        if not quiet:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+
+    exit_code = process.wait()
+    duration_sec = (datetime.now() - started_at).total_seconds()
+    logger.debug(f"Completed in {duration_sec:.1f}s (exit code {exit_code})")
+    return exit_code
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     """Run a registered command and capture its output.
 
@@ -138,7 +327,6 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     # Get unified config (finds .lq, loads settings and commands)
     config = BlqConfig.ensure()
-    lq_dir = config.lq_dir
 
     # Check if first argument is a registered command name
     registered_commands = config.commands
@@ -209,24 +397,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     if args.capture is not None:
         should_capture = args.capture
 
-    run_id = get_next_run_id(lq_dir)
-    started_at = datetime.now()
-
-    # Capture execution context
-    cwd = os.getcwd()
-    executable_path = find_executable(command)
-    environment = capture_environment(capture_env_vars)
-    hostname = socket.gethostname()
-    platform_name = platform.system()
-    arch = platform.machine()
-    git_info = capture_git_info()
-    ci_info = capture_ci_info()
-
     # Determine output mode
-    # --json/--markdown produce structured output (no streaming, no lq messages)
-    # --quiet suppresses command output streaming
-    # --summary shows brief summary at end (INFO level)
-    # --verbose shows all lq messages (DEBUG level)
     structured_output = args.json or args.markdown
     show_summary = getattr(args, "summary", False)
     verbose = getattr(args, "verbose", False)
@@ -240,111 +411,22 @@ def cmd_run(args: argparse.Namespace) -> None:
     else:
         logger.setLevel(logging.WARNING)
 
-    logger.debug(f"Running: {command}")
-    logger.debug(f"Run ID: {run_id}")
-
-    # Run command, capturing output
-    process = subprocess.Popen(
-        command,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-
-    output_lines = []
-    for line in process.stdout:
-        if not quiet:
-            sys.stdout.write(line)
-            sys.stdout.flush()
-        output_lines.append(line)
-
-    exit_code = process.wait()
-    completed_at = datetime.now()
-    output = "".join(output_lines)
-    duration_sec = (completed_at - started_at).total_seconds()
-
     # No-capture mode: just run and exit with the command's exit code
     if not should_capture:
-        logger.debug(f"Completed in {duration_sec:.1f}s (exit code {exit_code})")
+        exit_code = _run_no_capture(command, quiet)
         sys.exit(exit_code)
 
-    # Always save raw output when using structured output (needed for context)
-    if args.keep_raw or structured_output:
-        raw_file = lq_dir / RAW_DIR / f"{run_id:03d}.log"
-        raw_file.write_text(output)
-
-    # Parse output
-    events = parse_log_content(output, format_hint)
-
-    # Write parquet
-    run_meta = {
-        "run_id": run_id,
-        "source_name": source_name,
-        "source_type": "run",
-        "command": command,
-        "started_at": started_at.isoformat(),
-        "completed_at": completed_at.isoformat(),
-        "exit_code": exit_code,
-        "cwd": cwd,
-        "executable_path": executable_path,
-        "environment": environment or None,  # dict -> MAP(VARCHAR, VARCHAR)
-        "hostname": hostname,
-        "platform": platform_name,
-        "arch": arch,
-        "git_commit": git_info.commit,
-        "git_branch": git_info.branch,
-        "git_dirty": git_info.dirty,
-        "ci": ci_info,  # dict -> MAP(VARCHAR, VARCHAR), None if not in CI
-    }
-
-    filepath = write_run_parquet(events, run_meta, lq_dir)
-
-    # Build structured result
-    error_events = [e for e in events if e.get("severity") == "error"]
-    warning_events = [e for e in events if e.get("severity") == "warning"]
-
-    def make_event_summary(e: dict) -> EventSummary:
-        return EventSummary(
-            ref=f"{run_id}:{e.get('event_id', 0)}",
-            severity=e.get("severity"),
-            file_path=e.get("file_path"),
-            line_number=e.get("line_number"),
-            column_number=e.get("column_number"),
-            message=e.get("message"),
-            error_code=e.get("error_code"),
-            fingerprint=e.get("fingerprint"),
-            test_name=e.get("test_name"),
-            log_line_start=e.get("log_line_start"),
-            log_line_end=e.get("log_line_end"),
-        )
-
-    # Determine status
-    if error_events:
-        status = "FAIL"
-    elif warning_events:
-        status = "WARN"
-    elif exit_code != 0:
-        status = "FAIL"
-    else:
-        status = "OK"
-
-    result = RunResult(
-        run_id=run_id,
+    # Execute command with capture
+    result = _execute_command(
         command=command,
-        status=status,
-        exit_code=exit_code,
-        started_at=started_at.isoformat(),
-        completed_at=completed_at.isoformat(),
-        duration_sec=duration_sec,
-        summary={
-            "total_events": len(events),
-            "errors": len(error_events),
-            "warnings": len(warning_events),
-        },
-        errors=[make_event_summary(e) for e in error_events[: args.error_limit]],
-        warnings=[make_event_summary(e) for e in warning_events[: args.error_limit]],
-        parquet_path=str(filepath),
+        source_name=source_name,
+        source_type="run",
+        config=config,
+        format_hint=format_hint,
+        quiet=quiet,
+        keep_raw=args.keep_raw or structured_output,
+        error_limit=args.error_limit,
+        capture_env_vars=capture_env_vars,
     )
 
     # Output based on format
@@ -354,14 +436,14 @@ def cmd_run(args: argparse.Namespace) -> None:
         print(result.to_markdown(include_warnings=args.include_warnings))
     else:
         # Log summary based on verbosity level
-        if error_events:
-            logger.info(f"Errors: {len(error_events)}")
-        if warning_events:
-            logger.info(f"Warnings: {len(warning_events)}")
-        logger.debug(f"Duration: {duration_sec:.1f}s")
-        logger.debug(f"Saved: {filepath}")
+        if result.summary.get("errors", 0) > 0:
+            logger.info(f"Errors: {result.summary['errors']}")
+        if result.summary.get("warnings", 0) > 0:
+            logger.info(f"Warnings: {result.summary['warnings']}")
+        logger.debug(f"Duration: {result.duration_sec:.1f}s")
+        logger.debug(f"Saved: {result.parquet_path}")
 
-    sys.exit(exit_code)
+    sys.exit(result.exit_code)
 
 
 def cmd_exec(args: argparse.Namespace) -> None:
@@ -372,30 +454,13 @@ def cmd_exec(args: argparse.Namespace) -> None:
     """
     # Get unified config (finds .lq, loads settings)
     config = BlqConfig.ensure()
-    lq_dir = config.lq_dir
-    capture_env_vars = config.capture_env.copy()
 
     # Build command from args - always treat as literal shell command
     command = " ".join(args.command)
     source_name = args.name or args.command[0]
 
     # Determine capture mode (default: capture)
-    should_capture = True
-    if args.no_capture:
-        should_capture = False
-
-    run_id = get_next_run_id(lq_dir)
-    started_at = datetime.now()
-
-    # Capture execution context
-    cwd = os.getcwd()
-    executable_path = find_executable(command)
-    environment = capture_environment(capture_env_vars)
-    hostname = socket.gethostname()
-    platform_name = platform.system()
-    arch = platform.machine()
-    git_info = capture_git_info()
-    ci_info = capture_ci_info()
+    should_capture = not args.no_capture
 
     # Determine output mode
     structured_output = args.json or args.markdown
@@ -411,111 +476,21 @@ def cmd_exec(args: argparse.Namespace) -> None:
     else:
         logger.setLevel(logging.WARNING)
 
-    logger.debug(f"Executing: {command}")
-    logger.debug(f"Run ID: {run_id}")
-
-    # Run command, capturing output
-    process = subprocess.Popen(
-        command,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-
-    output_lines = []
-    for line in process.stdout:
-        if not quiet:
-            sys.stdout.write(line)
-            sys.stdout.flush()
-        output_lines.append(line)
-
-    exit_code = process.wait()
-    completed_at = datetime.now()
-    output = "".join(output_lines)
-    duration_sec = (completed_at - started_at).total_seconds()
-
     # No-capture mode: just run and exit with the command's exit code
     if not should_capture:
-        logger.debug(f"Completed in {duration_sec:.1f}s (exit code {exit_code})")
+        exit_code = _run_no_capture(command, quiet)
         sys.exit(exit_code)
 
-    # Always save raw output when using structured output (needed for context)
-    if args.keep_raw or structured_output:
-        raw_file = lq_dir / RAW_DIR / f"{run_id:03d}.log"
-        raw_file.write_text(output)
-
-    # Parse output
-    events = parse_log_content(output, args.format)
-
-    # Write parquet
-    run_meta = {
-        "run_id": run_id,
-        "source_name": source_name,
-        "source_type": "exec",
-        "command": command,
-        "started_at": started_at.isoformat(),
-        "completed_at": completed_at.isoformat(),
-        "exit_code": exit_code,
-        "cwd": cwd,
-        "executable_path": executable_path,
-        "environment": environment or None,
-        "hostname": hostname,
-        "platform": platform_name,
-        "arch": arch,
-        "git_commit": git_info.commit,
-        "git_branch": git_info.branch,
-        "git_dirty": git_info.dirty,
-        "ci": ci_info,
-    }
-
-    filepath = write_run_parquet(events, run_meta, lq_dir)
-
-    # Build structured result
-    error_events = [e for e in events if e.get("severity") == "error"]
-    warning_events = [e for e in events if e.get("severity") == "warning"]
-
-    def make_event_summary(e: dict) -> EventSummary:
-        return EventSummary(
-            ref=f"{run_id}:{e.get('event_id', 0)}",
-            severity=e.get("severity"),
-            file_path=e.get("file_path"),
-            line_number=e.get("line_number"),
-            column_number=e.get("column_number"),
-            message=e.get("message"),
-            error_code=e.get("error_code"),
-            fingerprint=e.get("fingerprint"),
-            test_name=e.get("test_name"),
-            log_line_start=e.get("log_line_start"),
-            log_line_end=e.get("log_line_end"),
-        )
-
-    # Determine status
-    if error_events:
-        status = "FAIL"
-    elif warning_events:
-        status = "WARN"
-    elif exit_code != 0:
-        status = "FAIL"
-    else:
-        status = "OK"
-
-    result = RunResult(
-        run_id=run_id,
+    # Execute command with capture
+    result = _execute_command(
         command=command,
-        status=status,
-        exit_code=exit_code,
-        started_at=started_at.isoformat(),
-        completed_at=completed_at.isoformat(),
-        duration_sec=duration_sec,
-        summary={
-            "total_events": len(events),
-            "errors": len(error_events),
-            "warnings": len(warning_events),
-        },
-        errors=[make_event_summary(e) for e in error_events[: args.error_limit]],
-        warnings=[make_event_summary(e) for e in warning_events[: args.error_limit]],
-        parquet_path=str(filepath),
+        source_name=source_name,
+        source_type="exec",
+        config=config,
+        format_hint=args.format,
+        quiet=quiet,
+        keep_raw=args.keep_raw or structured_output,
+        error_limit=args.error_limit,
     )
 
     # Output based on format
@@ -525,14 +500,14 @@ def cmd_exec(args: argparse.Namespace) -> None:
         print(result.to_markdown(include_warnings=args.include_warnings))
     else:
         # Log summary based on verbosity level
-        if error_events:
-            logger.info(f"Errors: {len(error_events)}")
-        if warning_events:
-            logger.info(f"Warnings: {len(warning_events)}")
-        logger.debug(f"Duration: {duration_sec:.1f}s")
-        logger.debug(f"Saved: {filepath}")
+        if result.summary.get("errors", 0) > 0:
+            logger.info(f"Errors: {result.summary['errors']}")
+        if result.summary.get("warnings", 0) > 0:
+            logger.info(f"Warnings: {result.summary['warnings']}")
+        logger.debug(f"Duration: {result.duration_sec:.1f}s")
+        logger.debug(f"Saved: {result.parquet_path}")
 
-    sys.exit(exit_code)
+    sys.exit(result.exit_code)
 
 
 def cmd_import(args: argparse.Namespace) -> None:

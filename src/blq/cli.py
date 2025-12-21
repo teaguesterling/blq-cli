@@ -74,6 +74,7 @@ from blq.commands import (
     cmd_sync,
     cmd_unregister,
     cmd_warnings,
+    cmd_watch,
 )
 from blq.commands.core import (
     GLOBAL_PROJECTS_PATH,
@@ -123,6 +124,7 @@ __all__ = [
     "cmd_sync",
     "cmd_unregister",
     "cmd_warnings",
+    "cmd_watch",
     # Core types and utilities
     "ConnectionFactory",
     "EventRef",
@@ -516,6 +518,42 @@ def main() -> None:
         "hooks-list", help="List commands in pre-commit hook"
     )
     p_hooks_list.set_defaults(func=cmd_hooks_list)
+
+    # =========================================================================
+    # Watch command
+    # =========================================================================
+
+    p_watch = subparsers.add_parser(
+        "watch", aliases=["w"], help="Watch for changes and re-run commands"
+    )
+    p_watch.add_argument(
+        "commands", nargs="*", help="Commands to run (default: all registered)"
+    )
+    p_watch.add_argument(
+        "--include", "-i", action="append", default=[],
+        help="Glob patterns to watch (can be repeated)"
+    )
+    p_watch.add_argument(
+        "--exclude", "-e", action="append", default=[],
+        help="Glob patterns to ignore (can be repeated)"
+    )
+    p_watch.add_argument(
+        "--debounce", "-d", type=int, default=None,
+        help="Debounce delay in milliseconds (default: 500)"
+    )
+    p_watch.add_argument(
+        "--quiet", "-q", action="store_true",
+        help="Suppress command output, show only status"
+    )
+    p_watch.add_argument(
+        "--clear", "-c", action="store_true",
+        help="Clear screen between runs"
+    )
+    p_watch.add_argument(
+        "--once", action="store_true",
+        help="Run once on startup then exit (useful for testing)"
+    )
+    p_watch.set_defaults(func=cmd_watch)
 
     args = parser.parse_args()
 

@@ -332,6 +332,32 @@ def detect_project_info() -> ProjectInfo:
 
 
 # ============================================================================
+# Watch Configuration
+# ============================================================================
+
+
+@dataclass
+class WatchConfig:
+    """Configuration for watch mode."""
+
+    debounce_ms: int = 500
+    include: list[str] = field(default_factory=lambda: ["src/**/*", "tests/**/*"])
+    exclude: list[str] = field(
+        default_factory=lambda: [
+            "**/__pycache__/**",
+            "**/*.pyc",
+            "**/.git/**",
+            ".lq/**",
+            "**/*.egg-info/**",
+            "**/node_modules/**",
+            "**/.venv/**",
+        ]
+    )
+    clear_screen: bool = False
+    quiet: bool = False
+
+
+# ============================================================================
 # Unified Configuration (BlqConfig)
 # ============================================================================
 
@@ -374,6 +400,9 @@ class BlqConfig:
 
     # Hooks configuration (private, access via hooks_config property)
     _hooks_config: dict | None = field(default=None, repr=False)
+
+    # Watch configuration (private, access via watch_config property)
+    _watch_config: WatchConfig | None = field(default=None, repr=False)
 
     # Computed paths
     @property
@@ -437,6 +466,41 @@ class BlqConfig:
             else:
                 self._hooks_config = {}
         return self._hooks_config
+
+    @property
+    def watch_config(self) -> WatchConfig:
+        """Get watch configuration.
+
+        Returns:
+            WatchConfig with watch settings.
+        """
+        if self._watch_config is None:
+            # Load from config.yaml
+            if self.config_path.exists():
+                with open(self.config_path) as f:
+                    data = yaml.safe_load(f) or {}
+                watch_data = data.get("watch", {})
+                self._watch_config = WatchConfig(
+                    debounce_ms=watch_data.get("debounce_ms", 500),
+                    include=watch_data.get("include", ["src/**/*", "tests/**/*"]),
+                    exclude=watch_data.get(
+                        "exclude",
+                        [
+                            "**/__pycache__/**",
+                            "**/*.pyc",
+                            "**/.git/**",
+                            ".lq/**",
+                            "**/*.egg-info/**",
+                            "**/node_modules/**",
+                            "**/.venv/**",
+                        ],
+                    ),
+                    clear_screen=watch_data.get("clear_screen", False),
+                    quiet=watch_data.get("quiet", False),
+                )
+            else:
+                self._watch_config = WatchConfig()
+        return self._watch_config
 
     @classmethod
     def find(cls, start_dir: Path | None = None) -> BlqConfig | None:
@@ -1036,6 +1100,8 @@ PARQUET_SCHEMA = [
     ("git_dirty", "BOOLEAN"),
     # CI context
     ("ci", "MAP(VARCHAR, VARCHAR)"),
+    # Session (for watch mode)
+    ("session_id", "VARCHAR"),
     # Event identification
     ("event_id", "BIGINT"),
     ("severity", "VARCHAR"),

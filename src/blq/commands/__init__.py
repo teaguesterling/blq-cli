@@ -29,6 +29,7 @@ from blq.commands.query_cmd import cmd_filter, cmd_query, cmd_shell, cmd_sql
 from blq.commands.registry import cmd_commands, cmd_register, cmd_unregister
 from blq.commands.serve_cmd import cmd_serve
 from blq.commands.sync_cmd import cmd_sync
+from blq.commands.watch_cmd import cmd_watch
 
 __all__ = [
     # Init
@@ -45,6 +46,8 @@ __all__ = [
     "cmd_hooks_run",
     "cmd_hooks_add",
     "cmd_hooks_list",
+    # Watch
+    "cmd_watch",
     # Query
     "cmd_query",
     "cmd_filter",
