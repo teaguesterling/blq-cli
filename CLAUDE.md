@@ -25,7 +25,13 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - Shell completions for bash, zsh, fish (`blq completions`)
 - List available log formats (`blq formats`)
 - Version flag (`blq --version`)
-- 234 unit tests
+- Watch mode for continuous capture (`blq watch`) - Issue #7
+- CI integration commands (`blq ci check`, `blq ci comment`) - Issue #8
+- Report generation (`blq report`) - markdown summaries with baseline comparison
+- Format auto-detection for registered commands (e.g., `mypy` → `mypy_text`)
+- Output stats in run results (lines, bytes, tail) for visibility
+- Full mypy type checking compliance
+- 317 unit tests
 - Comprehensive documentation (README, docs/)
 
 ### TODO
@@ -166,6 +172,26 @@ Runtime override: `blq run --no-capture <cmd>` or `blq run --capture <cmd>`
 7. **Python duckdb API**: No subprocess calls to duckdb CLI
 8. **MAP for variable data**: Environment and CI use MAP(VARCHAR, VARCHAR) for flexible keys
 9. **zstd compression**: Parquet files use zstd level 3 for ~40% smaller files than snappy
+
+## MCP Server Tools
+
+The MCP server (`blq serve`) provides these tools for AI agents:
+
+| Tool | Description |
+|------|-------------|
+| `run` | Run a registered command |
+| `exec` | Execute an ad-hoc shell command |
+| `query` | Query stored events with SQL |
+| `errors` | Get recent errors |
+| `warnings` | Get recent warnings |
+| `event` | Get details for a specific event |
+| `context` | Get log context around an event |
+| `status` | Get status summary |
+| `history` | Get run history |
+| `diff` | Compare errors between runs |
+| `register_command` | Register a new command (with format auto-detection) |
+| `unregister_command` | Remove a registered command |
+| `list_commands` | List all registered commands |
 
 ## Integration Points
 
