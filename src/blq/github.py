@@ -81,7 +81,8 @@ class GitHubClient:
             with urllib.request.urlopen(req, timeout=30) as response:
                 content = response.read()
                 if content:
-                    return json_loads(content.decode("utf-8"))
+                    result = json_loads(content.decode("utf-8"))
+                    return result  # type: ignore[no-any-return]
                 return None
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8") if e.fp else ""
@@ -114,7 +115,7 @@ class GitHubClient:
         response = self._request("POST", endpoint, {"body": body})
         if not isinstance(response, dict):
             raise GitHubError("Unexpected response format")
-        return response["id"]
+        return int(response["id"])
 
     def update_comment(self, repo: str, comment_id: int, body: str) -> None:
         """Update an existing comment.
@@ -155,7 +156,7 @@ class GitHubClient:
             if isinstance(comment, dict):
                 body = comment.get("body", "")
                 if marker in body:
-                    return comment["id"]
+                    return int(comment["id"])
 
         return None
 

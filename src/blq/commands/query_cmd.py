@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 import duckdb
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
 from blq.commands.core import (
     BlqConfig,
@@ -41,13 +41,13 @@ def format_query_output(
         df = df.head(limit)
 
     if output_format == "json":
-        return df.to_json(orient="records", indent=2)
+        return str(df.to_json(orient="records", indent=2))
     elif output_format == "csv":
-        return df.to_csv(index=False)
+        return str(df.to_csv(index=False))
     elif output_format == "markdown":
-        return df.to_markdown(index=False)
+        return str(df.to_markdown(index=False))
     else:  # table
-        return df.to_string(index=False)
+        return str(df.to_string(index=False))
 
 
 def query_source(

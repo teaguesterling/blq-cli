@@ -13,7 +13,7 @@ import sys
 from importlib import resources
 from pathlib import Path
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from blq.commands.core import (
     COMMANDS_FILE,

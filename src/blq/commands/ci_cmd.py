@@ -14,6 +14,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass, field
+from typing import Any
 
 from blq.commands.core import get_store_for_args
 
@@ -144,13 +145,13 @@ def _compute_diff(store, baseline_id: int | None, current_id: int | None) -> Dif
         DiffResult with comparison details
     """
     # Get baseline errors
-    baseline_errors = []
+    baseline_errors: list[dict[str, Any]] = []
     if baseline_id is not None:
         baseline_df = store.run(baseline_id).filter(severity="error").df()
         baseline_errors = baseline_df.to_dict("records") if not baseline_df.empty else []
 
     # Get current errors
-    current_errors = []
+    current_errors: list[dict[str, Any]] = []
     if current_id is not None:
         current_df = store.run(current_id).filter(severity="error").df()
         current_errors = current_df.to_dict("records") if not current_df.empty else []
@@ -183,7 +184,7 @@ def _format_location(error: dict) -> str:
     line_number = error.get("line_number")
     if line_number:
         return f"{file_path}:{line_number}"
-    return file_path
+    return str(file_path)
 
 
 def _format_pr_comment(diff: DiffResult, include_fixed: bool = True) -> str:

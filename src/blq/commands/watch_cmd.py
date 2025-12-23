@@ -138,7 +138,7 @@ class DebounceHandler(FileSystemEventHandler):
         if event.event_type not in ("created", "modified", "deleted", "moved"):
             return
 
-        src_path = event.src_path
+        src_path = event.src_path if isinstance(event.src_path, str) else event.src_path.decode()
         if not self._should_include(src_path):
             return
 

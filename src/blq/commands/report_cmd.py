@@ -151,7 +151,7 @@ def _format_location(error: dict) -> str:
     line_number = error.get("line_number")
     if line_number:
         return f"{file_path}:{line_number}"
-    return file_path
+    return str(file_path)
 
 
 def _generate_markdown_report(

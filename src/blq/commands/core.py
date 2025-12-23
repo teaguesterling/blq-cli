@@ -19,8 +19,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import duckdb
-import pandas as pd
-import yaml
+import pandas as pd  # type: ignore[import-untyped]
+import yaml  # type: ignore[import-untyped]
 
 if TYPE_CHECKING:
     from blq.query import LogStore

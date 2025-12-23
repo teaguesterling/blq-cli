@@ -75,11 +75,11 @@ def cmd_context(args: argparse.Namespace) -> None:
             sys.exit(1)
 
         log_line_start = event.get("log_line_start")
-        log_line_end = event.get("log_line_end")
+        log_line_end = event.get("log_line_end") or log_line_start
         source_name = event.get("source_name")
         message = event.get("message")
 
-        if log_line_start is None:
+        if log_line_start is None or log_line_end is None:
             # For structured formats, show message instead
             print(f"Event {args.ref} (from structured format, no log line context)")
             print(f"  Source: {source_name}")

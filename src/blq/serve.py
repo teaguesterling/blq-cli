@@ -14,7 +14,7 @@ import json
 import subprocess
 from typing import Any
 
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 from fastmcp import FastMCP
 
 from blq.query import LogStore
@@ -104,7 +104,7 @@ def _run_impl(
         # Parse JSON output
         if result.stdout.strip():
             try:
-                return json.loads(result.stdout)
+                return json.loads(result.stdout)  # type: ignore[no-any-return]
             except json.JSONDecodeError:
                 pass
 
@@ -172,7 +172,7 @@ def _exec_impl(command: str, args: list[str] | None = None, timeout: int = 300) 
         # Parse JSON output
         if result.stdout.strip():
             try:
-                return json.loads(result.stdout)
+                return json.loads(result.stdout)  # type: ignore[no-any-return]
             except json.JSONDecodeError:
                 pass
 

@@ -117,6 +117,7 @@ def _execute_command(
     )
 
     output_lines = []
+    assert process.stdout is not None  # stdout=PIPE ensures this
     for line in process.stdout:
         if not quiet:
             sys.stdout.write(line)
@@ -177,7 +178,7 @@ def _execute_command(
 
     # Build output stats for visibility when no events are parsed
     tail_lines = 5
-    output_stats = {
+    output_stats: dict[str, int | list[str]] = {
         "lines": len(output_lines),
         "bytes": len(output),
         "tail": [ln.rstrip("\n\r") for ln in output_lines[-tail_lines:]],
@@ -309,6 +310,7 @@ def _run_no_capture(command: str, quiet: bool = False) -> int:
         text=True,
     )
 
+    assert process.stdout is not None  # stdout=PIPE ensures this
     for line in process.stdout:
         if not quiet:
             sys.stdout.write(line)

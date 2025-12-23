@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
 # Directory name constant - must match blq.commands.core.LQ_DIR
 LQ_DIR = ".lq"
