@@ -82,9 +82,9 @@ def cmd_summary(args: argparse.Namespace) -> None:
         conn = store.connection
 
         if args.latest:
-            result = conn.execute("FROM lq_summary_latest()").fetchdf()
+            result = conn.execute("FROM blq_summary_latest()").fetchdf()
         else:
-            result = conn.execute("FROM lq_summary()").fetchdf()
+            result = conn.execute("FROM blq_summary()").fetchdf()
         print(result.to_string(index=False))
     except duckdb.Error as e:
         print(f"Error: {e}", file=sys.stderr)

@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "lq": {
-      "command": "lq",
+    "blq": {
+      "command": "blq",
       "args": ["serve"]
     }
   }

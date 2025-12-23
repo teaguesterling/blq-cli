@@ -45,6 +45,8 @@ from importlib.metadata import version as get_version
 
 from blq.commands import (
     cmd_capture,
+    cmd_ci_check,
+    cmd_ci_comment,
     cmd_commands,
     cmd_completions,
     cmd_context,
@@ -65,6 +67,7 @@ from blq.commands import (
     cmd_prune,
     cmd_query,
     cmd_register,
+    cmd_report,
     cmd_run,
     cmd_serve,
     cmd_shell,
@@ -79,6 +82,7 @@ from blq.commands import (
 from blq.commands.core import (
     GLOBAL_PROJECTS_PATH,
     # Re-export commonly used items for backward compatibility
+    BlqConfig,
     ConnectionFactory,
     EventRef,
     EventSummary,
@@ -101,7 +105,10 @@ __all__ = [
     "main",
     # Commands
     "cmd_capture",
+    "cmd_ci_check",
+    "cmd_ci_comment",
     "cmd_commands",
+    "cmd_report",
     "cmd_completions",
     "cmd_context",
     "cmd_errors",
@@ -126,6 +133,7 @@ __all__ = [
     "cmd_warnings",
     "cmd_watch",
     # Core types and utilities
+    "BlqConfig",
     "ConnectionFactory",
     "EventRef",
     "EventSummary",
@@ -554,6 +562,92 @@ def main() -> None:
         help="Run once on startup then exit (useful for testing)"
     )
     p_watch.set_defaults(func=cmd_watch)
+
+    # =========================================================================
+    # CI commands
+    # =========================================================================
+
+    p_ci = subparsers.add_parser("ci", help="CI integration commands")
+    ci_subparsers = p_ci.add_subparsers(dest="ci_command", help="CI subcommand")
+
+    # ci check
+    p_ci_check = ci_subparsers.add_parser(
+        "check", help="Check for new errors vs baseline"
+    )
+    p_ci_check.add_argument(
+        "--baseline", "-b",
+        help="Baseline (run ID, branch name, or commit SHA)"
+    )
+    p_ci_check.add_argument(
+        "--fail-on-any", action="store_true",
+        help="Fail if any errors (no baseline comparison)"
+    )
+    p_ci_check.add_argument(
+        "--json", "-j", action="store_true",
+        help="Output as JSON"
+    )
+    p_ci_check.set_defaults(func=cmd_ci_check)
+
+    # ci comment
+    p_ci_comment = ci_subparsers.add_parser(
+        "comment", help="Post error summary as PR comment"
+    )
+    p_ci_comment.add_argument(
+        "--update", "-u", action="store_true",
+        help="Update existing comment instead of creating new"
+    )
+    p_ci_comment.add_argument(
+        "--diff", "-d", action="store_true",
+        help="Include diff vs baseline"
+    )
+    p_ci_comment.add_argument(
+        "--baseline", "-b",
+        help="Baseline for diff (run ID, branch, or commit)"
+    )
+    p_ci_comment.set_defaults(func=cmd_ci_comment)
+
+    def ci_help(args: argparse.Namespace) -> None:
+        """Show help for ci command."""
+        p_ci.print_help()
+
+    p_ci.set_defaults(func=ci_help)
+
+    # =========================================================================
+    # Report command
+    # =========================================================================
+
+    p_report = subparsers.add_parser(
+        "report", help="Generate markdown report of build/test results"
+    )
+    p_report.add_argument(
+        "--run", "-r", type=int,
+        help="Run ID to report on (default: latest)"
+    )
+    p_report.add_argument(
+        "--baseline", "-b",
+        help="Baseline for comparison (run ID or branch name)"
+    )
+    p_report.add_argument(
+        "--output", "-o",
+        help="Output file (default: stdout)"
+    )
+    p_report.add_argument(
+        "--warnings", "-w", action="store_true",
+        help="Include warning details"
+    )
+    p_report.add_argument(
+        "--summary-only", "-s", action="store_true",
+        help="Summary only, no individual error details"
+    )
+    p_report.add_argument(
+        "--error-limit", "-n", type=int, default=20,
+        help="Max errors to include (default: 20)"
+    )
+    p_report.add_argument(
+        "--file-limit", "-f", type=int, default=10,
+        help="Max files in breakdown (default: 10)"
+    )
+    p_report.set_defaults(func=cmd_report)
 
     args = parser.parse_args()
 
