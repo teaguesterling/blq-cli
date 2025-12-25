@@ -61,6 +61,15 @@ These options apply to all commands:
 | `unregister` | Remove a registered command | [registry](registry.md) |
 | `commands` | List registered commands | [registry](registry.md) |
 
+### CI Integration
+
+| Command | Description | Documentation |
+|---------|-------------|---------------|
+| `ci check` | Compare errors against baseline | [ci](ci.md) |
+| `ci comment` | Post error summary as PR comment | [ci](ci.md) |
+| `report` | Generate markdown report | [report](report.md) |
+| `watch` | Watch files and auto-run commands | [watch](watch.md) |
+
 ### Maintenance
 
 | Command | Description | Documentation |
