@@ -1193,6 +1193,7 @@ PARQUET_SCHEMA = [
     ("run_id", "BIGINT"),
     ("source_name", "VARCHAR"),
     ("source_type", "VARCHAR"),
+    ("tag", "VARCHAR"),  # Logical command name (how user refers to it)
     ("command", "VARCHAR"),
     ("started_at", "VARCHAR"),
     ("completed_at", "VARCHAR"),

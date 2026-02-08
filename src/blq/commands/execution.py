@@ -140,10 +140,12 @@ def _execute_command(
     events = parse_log_content(output, format_hint)
 
     # Build run metadata
+    # tag is the logical command name (how user refers to it, e.g., "build", "test")
     run_meta = {
         "run_id": run_id,
         "source_name": source_name,
         "source_type": source_type,
+        "tag": source_name,  # Logical command name for easy lookup
         "command": command,
         "started_at": started_at.isoformat(),
         "completed_at": completed_at.isoformat(),
@@ -552,6 +554,7 @@ def cmd_import(args: argparse.Namespace) -> None:
         "run_id": run_id,
         "source_name": source_name,
         "source_type": "import",
+        "tag": source_name,
         "command": f"import {filepath}",
         "started_at": now,
         "completed_at": now,
@@ -584,6 +587,7 @@ def cmd_capture(args: argparse.Namespace) -> None:
         "run_id": run_id,
         "source_name": source_name,
         "source_type": "capture",
+        "tag": source_name,
         "command": "stdin",
         "started_at": started_at,
         "completed_at": completed_at,

@@ -456,6 +456,37 @@ class TestWriteBirdInvocation:
         assert result[0] == 1
         store.close()
 
+    def test_write_bird_invocation_sets_tag(self, temp_dir):
+        """write_bird_invocation sets tag to source_name (logical command name)."""
+        lq_dir = temp_dir / ".lq"
+        lq_dir.mkdir()
+        (lq_dir / "blobs" / "content").mkdir(parents=True)
+
+        store = BirdStore.open(lq_dir)
+        store.close()
+
+        run_meta = {
+            "source_name": "build",  # Logical command name
+            "source_type": "run",
+            "command": "make -j8 all",  # Actual shell command
+            "started_at": datetime.now().isoformat(),
+            "completed_at": datetime.now().isoformat(),
+            "exit_code": 0,
+            "cwd": str(temp_dir),
+        }
+
+        inv_id, _ = write_bird_invocation([], run_meta, lq_dir)
+
+        # Verify tag was set to source_name
+        store = BirdStore.open(lq_dir)
+        result = store.connection.execute(
+            "SELECT tag, source_name, cmd FROM invocations WHERE id = ?", [inv_id]
+        ).fetchone()
+        assert result[0] == "build"  # tag = source_name
+        assert result[1] == "build"  # source_name
+        assert result[2] == "make -j8 all"  # actual command
+        store.close()
+
 
 class TestBirdInit:
     """Tests for blq init (BIRD is default storage mode)."""

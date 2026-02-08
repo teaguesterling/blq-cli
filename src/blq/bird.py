@@ -708,6 +708,9 @@ def write_bird_invocation(
                 pass
 
         # Create invocation record
+        # Use tag for the logical command name (how user refers to it)
+        tag = run_meta.get("tag") or source_name
+
         invocation = InvocationRecord(
             id=InvocationRecord.generate_id(),
             session_id=session_id,
@@ -721,6 +724,7 @@ def write_bird_invocation(
             format_hint=run_meta.get("format_hint"),
             hostname=run_meta.get("hostname"),
             username=run_meta.get("username"),
+            tag=tag,
             source_name=source_name,
             source_type=source_type,
             environment=run_meta.get("environment"),
