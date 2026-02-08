@@ -9,7 +9,8 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - CLI module (`src/blq/cli.py`) with all core commands
 - SQL schema with table-returning macros (`src/blq/schema.sql`)
 - blq.duckdb database file with pre-loaded macros
-- Hive-partitioned parquet storage design with zstd compression
+- **BIRD storage backend** (DuckDB tables with content-addressed blob storage)
+- Migration command (`blq migrate --to-bird`) for parquet to BIRD conversion
 - Basic error/warning parsing fallback
 - Integration hooks for duck_hunt extension
 - Pythonic query API (`LogQuery`, `LogStore`, `LogQueryGrouped`)
@@ -31,7 +32,7 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - Format auto-detection for registered commands (e.g., `mypy` → `mypy_text`)
 - Output stats in run results (lines, bytes, tail) for visibility
 - Full mypy type checking compliance
-- 317 unit tests
+- 340+ unit tests
 - Comprehensive documentation (README, docs/)
 
 ### TODO
@@ -43,14 +44,33 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 ```
 blq (Python CLI)
     │
-    ├── .lq/blq.duckdb     - Database with pre-loaded macros (blq_*)
+    ├── .lq/blq.duckdb     - BIRD database with tables and macros
+    │   ├── sessions       - Invoker sessions (shell, CLI, MCP)
+    │   ├── invocations    - Command executions with metadata
+    │   ├── outputs        - Captured stdout/stderr (content-addressed)
+    │   └── events         - Parsed diagnostics (errors, warnings)
     │
-    ├── .lq/logs/          - Hive-partitioned parquet files (zstd compressed)
-    │   └── date=.../source=.../
+    ├── .lq/blobs/         - Content-addressed blob storage
+    │   └── content/ab/{hash}.bin
     │
     ├── Uses duckdb Python API directly
     │
     └── Optionally uses duck_hunt extension for 60+ format parsing
+```
+
+### Storage Modes
+
+BIRD is the default storage mode. Legacy parquet mode is still supported:
+
+| Mode | Storage | Use Case |
+|------|---------|----------|
+| **BIRD** (default) | DuckDB tables + blobs | Single-writer CLI, simpler queries |
+| Parquet (legacy) | Hive-partitioned files | Multi-writer scenarios |
+
+```bash
+blq init                    # Uses BIRD by default
+blq init --parquet          # Use legacy parquet mode
+blq migrate --to-bird       # Convert parquet to BIRD
 ```
 
 ### SQL Schema (blq_ prefix)
@@ -163,15 +183,16 @@ Runtime override: `blq run --no-capture <cmd>` or `blq run --capture <cmd>`
 
 ## Key Design Decisions
 
-1. **Parquet over DuckDB files**: Enables concurrent writes without locking
-2. **Hive partitioning**: Efficient date/source-based queries
+1. **BIRD as default storage**: DuckDB tables for simpler queries, content-addressed blobs for outputs
+2. **Parquet mode available**: For multi-writer scenarios (legacy, use `--parquet` flag)
 3. **Project-local storage**: `.lq/` directory in project root
-4. **blq.duckdb for macros**: Pre-loaded SQL macros for faster startup and direct CLI access
+4. **blq.duckdb for everything**: Tables, views, and macros in single database file
 5. **Table-returning macros**: `blq_load_events()` evaluated at query time, not view creation
-6. **Optional duck_hunt**: Works with basic parsing if extension not available
-7. **Python duckdb API**: No subprocess calls to duckdb CLI
-8. **MAP for variable data**: Environment and CI use MAP(VARCHAR, VARCHAR) for flexible keys
-9. **zstd compression**: Parquet files use zstd level 3 for ~40% smaller files than snappy
+6. **Backward-compatible views**: `blq_events_flat` provides v1-compatible schema
+7. **Optional duck_hunt**: Works with basic parsing if extension not available
+8. **Python duckdb API**: No subprocess calls to duckdb CLI
+9. **Content-addressed blobs**: Output deduplication with BLAKE2b hashing
+10. **JSON for variable data**: Environment and CI stored as JSON in BIRD mode
 
 ## MCP Server Tools
 

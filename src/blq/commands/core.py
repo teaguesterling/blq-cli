@@ -398,8 +398,8 @@ class BlqConfig:
     namespace: str | None = None
     project: str | None = None
 
-    # Storage mode: "parquet" (v1) or "bird" (v2)
-    storage_mode: str = "parquet"
+    # Storage mode: "bird" (v2, default) or "parquet" (v1, legacy)
+    storage_mode: str = "bird"
 
     # Lazy-loaded commands (private, access via commands property)
     _commands: dict | None = field(default=None, repr=False)

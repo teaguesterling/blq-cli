@@ -85,6 +85,9 @@ CREATE TABLE IF NOT EXISTS invocations (
     hostname          VARCHAR,
     username          VARCHAR,
 
+    -- BIRD spec: user-defined tag (non-unique alias)
+    tag               VARCHAR,                          -- e.g., "build-v1.2.3"
+
     -- blq-specific fields
     source_name       VARCHAR,                          -- Registered command name
     source_type       VARCHAR,                          -- 'run', 'exec', 'import', 'capture'
@@ -223,6 +226,7 @@ SELECT
     i.git_dirty,
     i.ci,
     i.environment,
+    i.tag,
 
     -- Event fields
     e.severity,

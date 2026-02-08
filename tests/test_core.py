@@ -86,9 +86,22 @@ class TestBlqConfigEnsureInitialized:
 class TestCmdInit:
     """Tests for lq init command."""
 
-    def test_creates_lq_directory(self, chdir_temp, capsys):
-        """Create .lq directory structure."""
+    def _make_init_args(self, parquet: bool = True):
+        """Create args namespace for cmd_init."""
         args = argparse.Namespace()
+        args.mcp = False
+        args.detect = False
+        args.detect_mode = "none"
+        args.yes = False
+        args.force = False
+        args.parquet = parquet
+        args.namespace = None
+        args.project = None
+        return args
+
+    def test_creates_lq_directory(self, chdir_temp, capsys):
+        """Create .lq directory structure (parquet mode)."""
+        args = self._make_init_args(parquet=True)
         cmd_init(args)
 
         lq_path = chdir_temp / ".lq"
@@ -97,9 +110,21 @@ class TestCmdInit:
         assert (lq_path / "raw").exists()
         assert (lq_path / "schema.sql").exists()
 
+    def test_creates_bird_directory(self, chdir_temp, capsys):
+        """Create .lq directory structure (BIRD mode - default)."""
+        args = self._make_init_args(parquet=False)
+        cmd_init(args)
+
+        lq_path = chdir_temp / ".lq"
+        assert lq_path.exists()
+        assert (lq_path / "blobs" / "content").exists()
+        assert (lq_path / "raw").exists()
+        assert (lq_path / "schema.sql").exists()
+        assert (lq_path / "blq.duckdb").exists()
+
     def test_schema_file_has_content(self, chdir_temp):
-        """Schema file contains SQL definitions."""
-        args = argparse.Namespace()
+        """Schema file contains SQL definitions (parquet mode)."""
+        args = self._make_init_args(parquet=True)
         cmd_init(args)
 
         schema = (chdir_temp / ".lq" / "schema.sql").read_text()
@@ -108,7 +133,7 @@ class TestCmdInit:
 
     def test_prints_confirmation(self, chdir_temp, capsys):
         """Print confirmation message."""
-        args = argparse.Namespace()
+        args = self._make_init_args(parquet=True)
         cmd_init(args)
 
         captured = capsys.readouterr()

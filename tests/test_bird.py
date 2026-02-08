@@ -57,7 +57,7 @@ def bird_store(temp_dir):
 
 @pytest.fixture
 def bird_initialized_dir(temp_dir):
-    """Initialize a directory with BIRD mode."""
+    """Initialize a directory with BIRD mode (default)."""
     original_cwd = os.getcwd()
     os.chdir(temp_dir)
     try:
@@ -67,7 +67,7 @@ def bird_initialized_dir(temp_dir):
         args.detect_mode = "none"
         args.yes = False
         args.force = False
-        args.bird = True
+        args.parquet = False  # BIRD is now default, parquet is opt-in
         args.namespace = "test"
         args.project = "bird-test"
 
@@ -458,10 +458,10 @@ class TestWriteBirdInvocation:
 
 
 class TestBirdInit:
-    """Tests for blq init --bird."""
+    """Tests for blq init (BIRD is default storage mode)."""
 
-    def test_init_bird_creates_structure(self, bird_initialized_dir):
-        """blq init --bird creates correct directory structure."""
+    def test_init_creates_bird_structure(self, bird_initialized_dir):
+        """Default blq init creates BIRD directory structure."""
         lq_dir = bird_initialized_dir / ".lq"
 
         assert lq_dir.exists()
@@ -470,8 +470,8 @@ class TestBirdInit:
         assert (lq_dir / "schema.sql").exists()
         assert (lq_dir / "config.yaml").exists()
 
-    def test_init_bird_sets_storage_mode(self, bird_initialized_dir):
-        """blq init --bird sets storage mode in config."""
+    def test_init_sets_bird_storage_mode(self, bird_initialized_dir):
+        """Default blq init sets storage mode to bird."""
         config = BlqConfig.load(bird_initialized_dir / ".lq")
 
         assert config.storage_mode == "bird"
@@ -496,6 +496,35 @@ class TestBirdInit:
 
         assert store.invocation_count() == 1
         store.close()
+
+    def test_init_parquet_flag_uses_legacy_mode(self, temp_dir):
+        """blq init --parquet creates legacy parquet structure."""
+        original_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            args = argparse.Namespace()
+            args.mcp = False
+            args.detect = False
+            args.detect_mode = "none"
+            args.yes = False
+            args.force = False
+            args.parquet = True  # Opt into legacy mode
+            args.namespace = "test"
+            args.project = "parquet-test"
+
+            cmd_init(args)
+
+            lq_dir = temp_dir / ".lq"
+            assert lq_dir.exists()
+            assert (lq_dir / "blq.duckdb").exists()
+            assert (lq_dir / "logs").exists()  # Parquet uses logs dir
+            assert not (lq_dir / "blobs").exists()  # No blobs in parquet mode
+
+            config = BlqConfig.load(lq_dir)
+            assert config.storage_mode == "parquet"
+            assert config.use_bird is False
+        finally:
+            os.chdir(original_cwd)
 
 
 class TestBirdCompatibilityViews:
@@ -615,7 +644,7 @@ def parquet_initialized_dir(temp_dir):
         args.detect_mode = "none"
         args.yes = False
         args.force = False
-        args.bird = False
+        args.parquet = True  # Explicitly use legacy parquet mode (not BIRD)
         args.namespace = "test"
         args.project = "parquet-test"
 
@@ -769,7 +798,7 @@ class TestMigration:
             args.detect_mode = "none"
             args.yes = False
             args.force = False
-            args.bird = False
+            args.parquet = True  # Explicitly use legacy parquet mode (not BIRD)
             args.namespace = "test"
             args.project = "empty-test"
 

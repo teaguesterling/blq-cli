@@ -765,7 +765,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     detect_mode = getattr(args, "detect_mode", DETECT_AUTO)
     auto_yes = getattr(args, "yes", False)
     force_reinit = getattr(args, "force", False)
-    use_bird = getattr(args, "bird", False)
+    use_parquet = getattr(args, "parquet", False)
 
     if lq_dir.exists():
         if force_reinit:
@@ -794,8 +794,9 @@ def cmd_init(args: argparse.Namespace) -> None:
     (lq_dir / LOGS_DIR).mkdir(parents=True)
     (lq_dir / RAW_DIR).mkdir(parents=True)
 
-    # Storage mode
-    storage_mode = "bird" if use_bird else "parquet"
+    # Storage mode - BIRD is default, parquet is legacy
+    use_bird = not use_parquet
+    storage_mode = "parquet" if use_parquet else "bird"
 
     if use_bird:
         # BIRD mode: create blob directory instead of parquet structure

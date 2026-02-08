@@ -67,6 +67,9 @@ class InvocationRecord:
     hostname: str | None = None
     username: str | None = None
 
+    # BIRD spec: user-defined tag (non-unique alias for this invocation)
+    tag: str | None = None
+
     # blq-specific fields
     source_name: str | None = None
     source_type: str | None = None
@@ -355,11 +358,11 @@ class BirdStore:
             """
             INSERT INTO invocations (
                 id, session_id, timestamp, duration_ms, cwd, cmd, executable,
-                exit_code, format_hint, client_id, hostname, username,
+                exit_code, format_hint, client_id, hostname, username, tag,
                 source_name, source_type, environment, platform, arch,
                 git_commit, git_branch, git_dirty, ci, date
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 record.id,
@@ -374,6 +377,7 @@ class BirdStore:
                 record.client_id,
                 record.hostname,
                 record.username,
+                record.tag,
                 record.source_name,
                 record.source_type,
                 json.dumps(record.environment) if record.environment else None,

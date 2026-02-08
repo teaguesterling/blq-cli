@@ -232,9 +232,9 @@ def main() -> None:
         help="Reinitialize config files (schema, config) without deleting data",
     )
     p_init.add_argument(
-        "--bird",
+        "--parquet",
         action="store_true",
-        help="Use BIRD storage mode (DuckDB tables instead of parquet files)",
+        help="Use legacy parquet storage mode (instead of default BIRD)",
     )
     p_init.set_defaults(func=cmd_init)
 

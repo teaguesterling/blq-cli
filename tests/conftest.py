@@ -44,12 +44,45 @@ def chdir_temp(temp_dir):
 
 @pytest.fixture
 def initialized_project(chdir_temp):
-    """A project directory with blq initialized."""
+    """A project directory with blq initialized (using legacy parquet mode).
+
+    Note: This fixture uses parquet mode for backward compatibility with
+    existing tests. Use initialized_bird_project for tests that need BIRD mode.
+    """
     import argparse
 
     from blq.cli import cmd_init
 
     args = argparse.Namespace()
+    args.mcp = False
+    args.detect = False
+    args.detect_mode = "none"
+    args.yes = False
+    args.force = False
+    args.parquet = True  # Explicitly use parquet for backward compatibility
+    args.namespace = None
+    args.project = None
+    cmd_init(args)
+
+    return chdir_temp
+
+
+@pytest.fixture
+def initialized_bird_project(chdir_temp):
+    """A project directory with blq initialized using BIRD mode (default)."""
+    import argparse
+
+    from blq.cli import cmd_init
+
+    args = argparse.Namespace()
+    args.mcp = False
+    args.detect = False
+    args.detect_mode = "none"
+    args.yes = False
+    args.force = False
+    args.parquet = False  # BIRD is default
+    args.namespace = None
+    args.project = None
     cmd_init(args)
 
     return chdir_temp

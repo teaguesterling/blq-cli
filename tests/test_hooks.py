@@ -26,13 +26,21 @@ def git_repo(temp_dir):
 
 @pytest.fixture
 def initialized_git_project(git_repo):
-    """A git repo with blq initialized."""
+    """A git repo with blq initialized (using legacy parquet mode for compat)."""
     original = os.getcwd()
     os.chdir(git_repo)
 
     from blq.cli import cmd_init
 
     args = argparse.Namespace()
+    args.mcp = False
+    args.detect = False
+    args.detect_mode = "none"
+    args.yes = False
+    args.force = False
+    args.parquet = True  # Explicitly use parquet for backward compatibility
+    args.namespace = None
+    args.project = None
     cmd_init(args)
 
     yield git_repo
