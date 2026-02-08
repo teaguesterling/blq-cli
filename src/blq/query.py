@@ -704,14 +704,14 @@ class LogStore:
         return self.events().filter(severity="warning")
 
     def runs(self) -> pd.DataFrame:
-        """Get summary of all runs.
+        """Get summary of all runs (invocations in BIRD mode).
 
         Returns:
             DataFrame with run_id, source_name, started_at, metadata, etc.
         """
         self._ensure_schema()
         return self._conn.sql("""
-            SELECT DISTINCT
+            SELECT
                 run_id,
                 source_name,
                 source_type,
@@ -728,7 +728,7 @@ class LogStore:
                 git_branch,
                 git_dirty,
                 ci
-            FROM blq_load_events()
+            FROM blq_load_runs()
             ORDER BY run_id DESC
         """).df()
 

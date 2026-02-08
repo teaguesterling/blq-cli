@@ -295,13 +295,25 @@ SELECT
     i.timestamp AS started_at,
     i.timestamp + INTERVAL (COALESCE(i.duration_ms, 0) / 1000) SECOND AS completed_at,
     i.exit_code,
+    i.cwd,
+    i.executable AS executable_path,
+    i.hostname,
+    i.platform,
+    i.arch,
+    i.git_commit,
+    i.git_branch,
+    i.git_dirty,
+    i.ci,
+    i.tag,
     COUNT(e.id) AS event_count,
     COUNT(e.id) FILTER (WHERE e.severity = 'error') AS error_count,
     COUNT(e.id) FILTER (WHERE e.severity = 'warning') AS warning_count,
     i.date AS log_date
 FROM invocations i
 LEFT JOIN events e ON e.invocation_id = i.id
-GROUP BY i.id, i.source_name, i.source_type, i.cmd, i.timestamp, i.duration_ms, i.exit_code, i.date;
+GROUP BY i.id, i.source_name, i.source_type, i.cmd, i.timestamp, i.duration_ms,
+         i.exit_code, i.cwd, i.executable, i.hostname, i.platform, i.arch,
+         i.git_commit, i.git_branch, i.git_dirty, i.ci, i.tag, i.date;
 
 -- Load latest run per source with status badge
 CREATE OR REPLACE MACRO blq_load_source_status() AS TABLE
