@@ -321,6 +321,59 @@ class BlqStorage:
         """
         return self.events(run_id=run_id, severity="warning", limit=limit)
 
+    def event(self, run_id: int, event_id: int) -> dict[str, Any] | None:
+        """Get a specific event by reference.
+
+        Args:
+            run_id: Run ID
+            event_id: Event ID within the run
+
+        Returns:
+            Event as dict or None if not found
+        """
+        result = self._conn.sql(f"""
+            SELECT * FROM blq_load_events()
+            WHERE run_id = {run_id} AND event_id = {event_id}
+        """).fetchone()
+
+        if result is None:
+            return None
+
+        columns = self._conn.sql("SELECT * FROM blq_load_events() LIMIT 0").columns
+        return dict(zip(columns, result))
+
+    def error_count(self, run_id: int | None = None) -> int:
+        """Count error events.
+
+        Args:
+            run_id: Filter to specific run (None for all runs)
+
+        Returns:
+            Number of error events
+        """
+        where = f"run_id = {run_id} AND " if run_id else ""
+        result = self._conn.sql(f"""
+            SELECT COUNT(*) FROM blq_load_events()
+            WHERE {where}severity = 'error'
+        """).fetchone()
+        return result[0] if result else 0
+
+    def warning_count(self, run_id: int | None = None) -> int:
+        """Count warning events.
+
+        Args:
+            run_id: Filter to specific run (None for all runs)
+
+        Returns:
+            Number of warning events
+        """
+        where = f"run_id = {run_id} AND " if run_id else ""
+        result = self._conn.sql(f"""
+            SELECT COUNT(*) FROM blq_load_events()
+            WHERE {where}severity = 'warning'
+        """).fetchone()
+        return result[0] if result else 0
+
     # =========================================================================
     # Status Queries
     # =========================================================================

@@ -17,7 +17,7 @@ from typing import Any
 import pandas as pd  # type: ignore[import-untyped]
 from fastmcp import FastMCP
 
-from blq.query import LogStore
+from blq.storage import BlqStorage
 
 
 def _to_json_safe(value: Any) -> Any:
@@ -47,9 +47,9 @@ mcp = FastMCP(
 )
 
 
-def _get_store() -> LogStore:
-    """Get LogStore for current directory."""
-    return LogStore.open()
+def _get_storage() -> BlqStorage:
+    """Get BlqStorage for current directory."""
+    return BlqStorage.open()
 
 
 def _format_ref(run_id: int, event_id: int) -> str:
@@ -222,7 +222,7 @@ def _exec_impl(command: str, args: list[str] | None = None, timeout: int = 300) 
 def _query_impl(sql: str, limit: int = 100) -> dict[str, Any]:
     """Implementation of query command."""
     try:
-        store = _get_store()
+        store = _get_storage()
         conn = store.connection
 
         # Add LIMIT if not present (basic safety)
@@ -253,22 +253,34 @@ def _errors_impl(
 ) -> dict[str, Any]:
     """Implementation of errors command."""
     try:
-        store = _get_store()
-        if not store.has_data():
+        storage = _get_storage()
+        if not storage.has_data():
             return {"errors": [], "total_count": 0}
 
-        query = store.errors()
-
+        # Build WHERE conditions
+        conditions = ["severity = 'error'"]
         if run_id is not None:
-            query = query.filter(run_id=run_id)
+            conditions.append(f"run_id = {run_id}")
         if source:
-            query = query.filter(source_name=source)
+            conditions.append(f"source_name = '{source}'")
         if file_pattern:
-            query = query.filter(ref_file=file_pattern)
+            conditions.append(f"ref_file LIKE '{file_pattern}'")
 
-        total_count = query.count()
-        query = query.order_by("run_id", desc=True).limit(limit)
-        df = query.df()
+        where = " AND ".join(conditions)
+
+        # Get total count
+        count_result = storage.sql(
+            f"SELECT COUNT(*) FROM blq_load_events() WHERE {where}"
+        ).fetchone()
+        total_count = count_result[0] if count_result else 0
+
+        # Get errors
+        df = storage.sql(f"""
+            SELECT * FROM blq_load_events()
+            WHERE {where}
+            ORDER BY run_id DESC, event_id
+            LIMIT {limit}
+        """).df()
 
         error_list = []
         for _, row in df.iterrows():
@@ -299,20 +311,32 @@ def _warnings_impl(
 ) -> dict[str, Any]:
     """Implementation of warnings command."""
     try:
-        store = _get_store()
-        if not store.has_data():
+        storage = _get_storage()
+        if not storage.has_data():
             return {"warnings": [], "total_count": 0}
 
-        query = store.warnings()
-
+        # Build WHERE conditions
+        conditions = ["severity = 'warning'"]
         if run_id is not None:
-            query = query.filter(run_id=run_id)
+            conditions.append(f"run_id = {run_id}")
         if source:
-            query = query.filter(source_name=source)
+            conditions.append(f"source_name = '{source}'")
 
-        total_count = query.count()
-        query = query.order_by("run_id", desc=True).limit(limit)
-        df = query.df()
+        where = " AND ".join(conditions)
+
+        # Get total count
+        count_result = storage.sql(
+            f"SELECT COUNT(*) FROM blq_load_events() WHERE {where}"
+        ).fetchone()
+        total_count = count_result[0] if count_result else 0
+
+        # Get warnings
+        df = storage.sql(f"""
+            SELECT * FROM blq_load_events()
+            WHERE {where}
+            ORDER BY run_id DESC, event_id
+            LIMIT {limit}
+        """).df()
 
         warning_list = []
         for _, row in df.iterrows():
@@ -340,7 +364,7 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
     """Implementation of event command."""
     try:
         run_id, event_id = _parse_ref(ref)
-        store = _get_store()
+        store = _get_storage()
         event_data = store.event(run_id, event_id)
 
         if event_data is None:
@@ -393,8 +417,8 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
     """Implementation of context command."""
     try:
         run_id, event_id = _parse_ref(ref)
-        store = _get_store()
-        event_data = store.event(run_id, event_id)
+        storage = _get_storage()
+        event_data = storage.event(run_id, event_id)
 
         if event_data is None:
             return {"ref": ref, "context_lines": [], "error": "Event not found"}
@@ -407,14 +431,15 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
 
         if log_line_start is not None:
             # Get events near this log line
-            nearby = (
-                store.run(run_id)
-                .filter(f"log_line_start >= {log_line_start - lines}")
-                .filter(f"log_line_end <= {log_line_end + lines}" if log_line_end else "TRUE")
-                .order_by("log_line_start")
-                .limit(lines * 2 + 1)
-                .df()
-            )
+            end_condition = f"AND log_line_end <= {log_line_end + lines}" if log_line_end else ""
+            nearby = storage.sql(f"""
+                SELECT * FROM blq_load_events()
+                WHERE run_id = {run_id}
+                  AND log_line_start >= {log_line_start - lines}
+                  {end_condition}
+                ORDER BY log_line_start
+                LIMIT {lines * 2 + 1}
+            """).df()
 
             for _, row in nearby.iterrows():
                 is_event = row.get("run_id") == run_id and row.get("event_id") == event_id
@@ -443,17 +468,17 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
 def _status_impl() -> dict[str, Any]:
     """Implementation of status command."""
     try:
-        store = _get_store()
-        if not store.has_data():
+        storage = _get_storage()
+        if not storage.has_data():
             return {"sources": []}
 
-        # Get status for each source
-        runs_df = store.runs()
+        # Get status for each source (blq_load_runs includes error_count/warning_count)
+        runs_df = storage.runs().df()
         sources = []
 
         for _, row in runs_df.iterrows():
-            error_count = store.run(row["run_id"]).filter(severity="error").count()
-            warning_count = store.run(row["run_id"]).filter(severity="warning").count()
+            error_count = _safe_int(row.get("error_count")) or 0
+            warning_count = _safe_int(row.get("warning_count")) or 0
 
             if error_count > 0:
                 status_str = "FAIL"
@@ -481,21 +506,26 @@ def _status_impl() -> dict[str, Any]:
 def _history_impl(limit: int = 20, source: str | None = None) -> dict[str, Any]:
     """Implementation of history command."""
     try:
-        store = _get_store()
-        if not store.has_data():
+        storage = _get_storage()
+        if not storage.has_data():
             return {"runs": []}
 
-        runs_df = store.runs()
-
+        # Build query with optional source filter
         if source:
-            runs_df = runs_df[runs_df["source_name"] == source]
+            runs_df = storage.sql(f"""
+                SELECT * FROM blq_load_runs()
+                WHERE source_name = '{source}'
+                ORDER BY run_id DESC
+                LIMIT {limit}
+            """).df()
+        else:
+            runs_df = storage.runs(limit=limit).df()
 
-        runs_df = runs_df.head(limit)
         runs = []
 
         for _, row in runs_df.iterrows():
-            error_count = store.run(row["run_id"]).filter(severity="error").count()
-            warning_count = store.run(row["run_id"]).filter(severity="warning").count()
+            error_count = _safe_int(row.get("error_count")) or 0
+            warning_count = _safe_int(row.get("warning_count")) or 0
 
             if error_count > 0:
                 status_str = "FAIL"
@@ -533,11 +563,11 @@ def _history_impl(limit: int = 20, source: str | None = None) -> dict[str, Any]:
 def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
     """Implementation of diff command."""
     try:
-        store = _get_store()
+        storage = _get_storage()
 
         # Get errors from each run
-        errors1 = store.run(run1).filter(severity="error").df()
-        errors2 = store.run(run2).filter(severity="error").df()
+        errors1 = storage.errors(run_id=run1, limit=1000).df()
+        errors2 = storage.errors(run_id=run2, limit=1000).df()
 
         # Use fingerprints for comparison if available, else use file+line+message
         def get_error_key(row):
