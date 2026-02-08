@@ -45,16 +45,16 @@ This queries the `lq_events` view which combines all stored parquet files.
 blq f severity=error build.log
 
 # With location info
-blq q -s file_path,line_number,message -f "severity='error'" build.log
+blq q -s ref_file,ref_line,message -f "severity='error'" build.log
 ```
 
 ### Group by File
 
 ```bash
-blq sql "SELECT file_path, COUNT(*) as errors
+blq sql "SELECT ref_file, COUNT(*) as errors
         FROM read_duck_hunt_log('build.log', 'auto')
         WHERE severity='error'
-        GROUP BY file_path
+        GROUP BY ref_file
         ORDER BY errors DESC"
 ```
 
@@ -102,9 +102,9 @@ blq sql "SELECT date, source_name, COUNT(*) as errors
 |-------|-------------|
 | `event_id` | Sequential ID within the file |
 | `severity` | error, warning, info, note |
-| `file_path` | Source file path |
-| `line_number` | Line in source file |
-| `column_number` | Column in source file |
+| `ref_file` | Source file path |
+| `ref_line` | Line in source file |
+| `ref_column` | Column in source file |
 | `message` | Error/warning text |
 | `error_fingerprint` | Unique hash for deduplication |
 | `tool_name` | Detected tool (gcc, pytest, etc.) |
@@ -126,11 +126,11 @@ Additional fields:
 ### Table (Default)
 
 ```bash
-blq q -s file_path,message build.log
+blq q -s ref_file,message build.log
 ```
 
 ```
-  file_path                   message
+  ref_file                   message
  src/main.c undefined variable 'foo'
 ```
 
@@ -180,7 +180,7 @@ blq q -n 10 build.log
 
 ```bash
 # Fast
-blq q -s file_path,message build.log
+blq q -s ref_file,message build.log
 
 # Slow (returns all columns)
 blq q build.log
@@ -200,7 +200,7 @@ For complex analysis, use `blq sql` or `blq shell`:
 
 ```bash
 # Ad-hoc query
-blq sql "SELECT file_path, COUNT(*) FROM lq_events GROUP BY 1"
+blq sql "SELECT ref_file, COUNT(*) FROM lq_events GROUP BY 1"
 
 # Interactive session
 blq shell

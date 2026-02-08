@@ -10,9 +10,9 @@ This document outlines the changes needed to migrate blq to duck_hunt's Schema V
 
 | Old Field (blq) | New Field (V3) | Description |
 |-----------------|----------------|-------------|
-| `file_path` | `ref_file` | Source file referenced in log message |
-| `line_number` | `ref_line` | Line number in referenced file |
-| `column_number` | `ref_column` | Column number in referenced file |
+| `ref_file` | `ref_file` | Source file referenced in log message |
+| `ref_line` | `ref_line` | Line number in referenced file |
+| `ref_column` | `ref_column` | Column number in referenced file |
 | `raw_text` | `log_content` | Raw content from log file |
 
 ### 2. New Fields
@@ -103,9 +103,9 @@ The V3 naming makes the distinction clear:
 # Old → New mapping
 FIELD_RENAMES = {
     # Reference context (location in source code)
-    "file_path": "ref_file",
-    "line_number": "ref_line",
-    "column_number": "ref_column",
+    "ref_file": "ref_file",
+    "ref_line": "ref_line",
+    "ref_column": "ref_column",
     # Log context
     "raw_text": "log_content",
 }
@@ -130,9 +130,9 @@ PARQUET_SCHEMA = [
     ("severity", "VARCHAR"),
 
     # Reference context (renamed)
-    ("ref_file", "VARCHAR"),      # was: file_path
-    ("ref_line", "BIGINT"),       # was: line_number
-    ("ref_column", "BIGINT"),     # was: column_number
+    ("ref_file", "VARCHAR"),      # was: ref_file
+    ("ref_line", "BIGINT"),       # was: ref_line
+    ("ref_column", "BIGINT"),     # was: ref_column
 
     # Content
     ("message", "VARCHAR"),

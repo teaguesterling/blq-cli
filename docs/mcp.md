@@ -97,9 +97,9 @@ Run a registered command and capture its output. For ad-hoc commands, use `exec`
   "errors": [
     {
       "ref": "1:1",
-      "file_path": "src/main.c",
-      "line_number": 15,
-      "column_number": 5,
+      "ref_file": "src/main.c",
+      "ref_line": 15,
+      "ref_column": 5,
       "message": "undefined variable 'foo'",
       "tool_name": "gcc",
       "category": "error"
@@ -173,7 +173,7 @@ Query stored log events with SQL.
 
 ```json
 {
-  "columns": ["file_path", "line_number", "message"],
+  "columns": ["ref_file", "ref_line", "message"],
   "rows": [
     ["src/main.c", 15, "undefined variable 'foo'"],
     ["src/utils.c", 42, "unused variable 'bar'"]
@@ -188,7 +188,7 @@ Query stored log events with SQL.
 {
   "tool": "query",
   "arguments": {
-    "sql": "SELECT file_path, COUNT(*) as count FROM lq_events WHERE severity='error' GROUP BY file_path ORDER BY count DESC",
+    "sql": "SELECT ref_file, COUNT(*) as count FROM lq_events WHERE severity='error' GROUP BY ref_file ORDER BY count DESC",
     "limit": 10
   }
 }
@@ -216,9 +216,9 @@ Get recent errors (convenience wrapper around `query`).
   "errors": [
     {
       "ref": "1:1",
-      "file_path": "src/main.c",
-      "line_number": 15,
-      "column_number": 5,
+      "ref_file": "src/main.c",
+      "ref_line": 15,
+      "ref_column": 5,
       "message": "undefined variable 'foo'",
       "tool_name": "gcc",
       "category": "error"
@@ -276,9 +276,9 @@ Get details for a specific event by reference.
   "run_id": 1,
   "event_id": 3,
   "severity": "error",
-  "file_path": "src/main.c",
-  "line_number": 15,
-  "column_number": 5,
+  "ref_file": "src/main.c",
+  "ref_line": 15,
+  "ref_column": 5,
   "message": "undefined variable 'foo'",
   "tool_name": "gcc",
   "category": "error",
@@ -450,14 +450,14 @@ Compare errors between two runs.
   },
   "fixed": [
     {
-      "file_path": "src/old.c",
+      "ref_file": "src/old.c",
       "message": "unused variable"
     }
   ],
   "new": [
     {
       "ref": "6:1",
-      "file_path": "src/new.c",
+      "ref_file": "src/new.c",
       "message": "undefined function"
     }
   ]

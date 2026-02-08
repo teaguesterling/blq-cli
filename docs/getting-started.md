@@ -48,7 +48,7 @@ blq q build.log
 Select specific columns:
 
 ```bash
-blq q -s file_path,line_number,severity,message build.log
+blq q -s ref_file,ref_line,severity,message build.log
 ```
 
 Filter for errors:
@@ -89,11 +89,11 @@ blq status
 ### Default Table
 
 ```bash
-blq q -s file_path,severity,message build.log
+blq q -s ref_file,severity,message build.log
 ```
 
 ```
-  file_path severity                  message
+  ref_file severity                  message
  src/main.c    error undefined variable 'foo'
 src/utils.c    error        missing semicolon
 ```
@@ -106,8 +106,8 @@ blq q --json build.log
 
 ```json
 [
-  {"file_path": "src/main.c", "severity": "error", "message": "undefined variable 'foo'"},
-  {"file_path": "src/utils.c", "severity": "error", "message": "missing semicolon"}
+  {"ref_file": "src/main.c", "severity": "error", "message": "undefined variable 'foo'"},
+  {"ref_file": "src/utils.c", "severity": "error", "message": "missing semicolon"}
 ]
 ```
 

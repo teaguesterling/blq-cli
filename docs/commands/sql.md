@@ -8,7 +8,7 @@ Run arbitrary SQL queries against the log database.
 
 ```bash
 blq sql "SELECT * FROM lq_events LIMIT 10"
-blq sql "SELECT file_path, COUNT(*) FROM lq_events GROUP BY file_path"
+blq sql "SELECT ref_file, COUNT(*) FROM lq_events GROUP BY ref_file"
 blq sql "FROM lq_status()"
 ```
 
@@ -54,7 +54,7 @@ blq sql "SELECT COUNT(*) FROM lq_events"
 
 **Errors by file:**
 ```bash
-blq sql "SELECT file_path, COUNT(*) as errors FROM lq_events WHERE severity='error' GROUP BY file_path ORDER BY errors DESC"
+blq sql "SELECT ref_file, COUNT(*) as errors FROM lq_events WHERE severity='error' GROUP BY ref_file ORDER BY errors DESC"
 ```
 
 **Recent runs with errors:**
@@ -155,9 +155,9 @@ FROM lq_similar_events('src/auth.c', 20);
 | `run_id` | INTEGER | Run identifier |
 | `event_id` | INTEGER | Event number within run |
 | `severity` | VARCHAR | error, warning, info, debug |
-| `file_path` | VARCHAR | Source file path |
-| `line_number` | INTEGER | Line number |
-| `column_number` | INTEGER | Column number |
+| `ref_file` | VARCHAR | Source file path |
+| `ref_line` | INTEGER | Line number |
+| `ref_column` | INTEGER | Column number |
 | `message` | VARCHAR | Event message |
 | `tool_name` | VARCHAR | Tool that generated event |
 | `category` | VARCHAR | Error category |
@@ -217,10 +217,10 @@ For complex analysis, use the shell:
 blq shell << 'EOF'
 .timer on
 WITH error_files AS (
-    SELECT file_path, COUNT(*) as errors
+    SELECT ref_file, COUNT(*) as errors
     FROM lq_events
     WHERE severity = 'error'
-    GROUP BY file_path
+    GROUP BY ref_file
 )
 SELECT * FROM error_files WHERE errors > 5 ORDER BY errors DESC;
 EOF

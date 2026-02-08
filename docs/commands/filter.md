@@ -33,7 +33,7 @@ The `filter` command provides a simple, grep-like interface for filtering log ev
 
 ```bash
 blq f severity=error build.log
-blq f file_path=src/main.c build.log
+blq f ref_file=src/main.c build.log
 ```
 
 ### Multiple Values (`=v1,v2`)
@@ -51,11 +51,11 @@ Equivalent SQL: `severity IN ('error', 'warning')`
 Pattern matching with ILIKE (case insensitive):
 
 ```bash
-blq f file_path~main build.log
+blq f ref_file~main build.log
 blq f message~undefined build.log
 ```
 
-Equivalent SQL: `file_path ILIKE '%main%'`
+Equivalent SQL: `ref_file ILIKE '%main%'`
 
 ### Not Equal (`!=`)
 
@@ -68,10 +68,10 @@ blq f severity!=info build.log
 Multiple expressions are combined with AND:
 
 ```bash
-blq f severity=error file_path~main build.log
+blq f severity=error ref_file~main build.log
 ```
 
-Equivalent SQL: `severity = 'error' AND file_path ILIKE '%main%'`
+Equivalent SQL: `severity = 'error' AND ref_file ILIKE '%main%'`
 
 ## Examples
 
@@ -90,8 +90,8 @@ blq f severity=error,warning build.log
 ### Filter by File
 
 ```bash
-blq f file_path~utils build.log
-blq f file_path~.c build.log     # All C files
+blq f ref_file~utils build.log
+blq f ref_file~.c build.log     # All C files
 ```
 
 ### Exclude Info Messages
@@ -124,7 +124,7 @@ blq f -i message~error build.log
 ### Combine Options
 
 ```bash
-blq f -c severity=error,warning file_path~main build.log
+blq f -c severity=error,warning ref_file~main build.log
 ```
 
 ### Query Stored Events
@@ -148,10 +148,10 @@ blq f severity=error --csv build.log
 | Task | filter | query |
 |------|--------|-------|
 | Errors only | `blq f severity=error` | `blq q -f "severity='error'"` |
-| Contains | `blq f file_path~main` | `blq q -f "file_path LIKE '%main%'"` |
+| Contains | `blq f ref_file~main` | `blq q -f "ref_file LIKE '%main%'"` |
 | Multiple values | `blq f severity=error,warning` | `blq q -f "severity IN ('error','warning')"` |
-| Select columns | Not supported | `blq q -s file_path,message` |
-| Complex SQL | Not supported | `blq q -f "line_number > 100"` |
+| Select columns | Not supported | `blq q -s ref_file,message` |
+| Complex SQL | Not supported | `blq q -f "ref_line > 100"` |
 
 Use `filter` for quick, simple filtering. Use `query` when you need column selection, complex conditions, or ordering.
 

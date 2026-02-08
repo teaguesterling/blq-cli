@@ -143,7 +143,7 @@ blq event 1:3
 blq context 1:3 -n 5
 
 # 5. Get JSON for programmatic processing
-blq errors --json | jq '.[] | select(.file_path | contains("main"))'
+blq errors --json | jq '.[] | select(.ref_file | contains("main"))'
 ```
 
 ## For AI Agents
@@ -157,7 +157,7 @@ blq run --json make
 # Response includes event references:
 # {
 #   "errors": [
-#     {"ref": "1:3", "file_path": "src/main.c", ...}
+#     {"ref": "1:3", "ref_file": "src/main.c", ...}
 #   ]
 # }
 

@@ -23,8 +23,8 @@ Output:
   "errors": [
     {
       "ref": "1:1",
-      "file_path": "src/main.c",
-      "line_number": 15,
+      "ref_file": "src/main.c",
+      "ref_line": 15,
       "message": "undefined variable 'foo'"
     }
   ]
@@ -55,7 +55,7 @@ Agents can query logs directly:
 blq q --json -f "severity='error'" build.log
 
 # Count errors by file
-blq sql "SELECT file_path, COUNT(*) as count
+blq sql "SELECT ref_file, COUNT(*) as count
         FROM read_duck_hunt_log('build.log', 'auto')
         WHERE severity='error'
         GROUP BY 1
@@ -68,7 +68,7 @@ For generating reports or PR comments:
 
 ```bash
 blq run --markdown make
-blq q --markdown -s file_path,line_number,message build.log
+blq q --markdown -s ref_file,ref_line,message build.log
 ```
 
 ## CI/CD Integration
@@ -242,9 +242,9 @@ store = LogStore.open()
 # Query errors with chaining
 errors = (
     store.errors()
-    .filter(file_path="%main%")
-    .select("file_path", "line_number", "message")
-    .order_by("line_number")
+    .filter(ref_file="%main%")
+    .select("ref_file", "ref_line", "message")
+    .order_by("ref_line")
     .limit(10)
     .df()
 )
@@ -253,7 +253,7 @@ errors = (
 events = LogQuery.from_file("build.log").filter(severity="error").df()
 
 # Aggregations
-errors_by_file = store.errors().group_by("file_path").count()
+errors_by_file = store.errors().group_by("ref_file").count()
 severity_counts = store.events().value_counts("severity")
 ```
 
@@ -271,10 +271,10 @@ conn = store.connection
 
 # Run arbitrary SQL
 result = conn.sql("""
-    SELECT file_path, COUNT(*) as count
+    SELECT ref_file, COUNT(*) as count
     FROM lq_events
     WHERE severity = 'error'
-    GROUP BY file_path
+    GROUP BY ref_file
     ORDER BY count DESC
 """).df()
 ```

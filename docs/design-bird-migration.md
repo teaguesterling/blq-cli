@@ -23,7 +23,7 @@ This document describes the plan to migrate blq from its current storage model t
 events (
     run_id, event_id, source_name, source_type, command,
     started_at, completed_at, exit_code,
-    severity, message, file_path, line_number, column_number,
+    severity, message, ref_file, ref_line, ref_column,
     tool_name, category, code, rule, fingerprint,
     log_line_start, log_line_end, context, metadata,
     -- Run-level metadata mixed in
@@ -137,9 +137,9 @@ CREATE TABLE events (
     event_index       INTEGER NOT NULL,      -- Index within command
     severity          TEXT NOT NULL,         -- 'error', 'warning', 'info', 'note'
     message           TEXT,
-    file_path         TEXT,
-    line_number       INTEGER,
-    column_number     INTEGER,
+    ref_file         TEXT,
+    ref_line       INTEGER,
+    ref_column     INTEGER,
     tool_name         TEXT,
     category          TEXT,
     code              TEXT,
@@ -491,9 +491,9 @@ def write_blob(self, content_hash: str, data: bytes) -> str:
 | event_id | event_index | Direct mapping |
 | severity | severity | Direct mapping |
 | message | message | Direct mapping |
-| file_path | file_path | Direct mapping |
-| line_number | line_number | Direct mapping |
-| column_number | column_number | Direct mapping |
+| ref_file | ref_file | Direct mapping |
+| ref_line | ref_line | Direct mapping |
+| ref_column | ref_column | Direct mapping |
 | tool_name | tool_name | Direct mapping |
 | category | category | Direct mapping |
 | code | code | Direct mapping |

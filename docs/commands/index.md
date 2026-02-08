@@ -94,7 +94,7 @@ These options apply to all commands:
 ```bash
 # Query a file
 blq q build.log
-blq q -s file_path,message build.log
+blq q -s ref_file,message build.log
 blq q -f "severity='error'" build.log
 
 # Filter (simple syntax)

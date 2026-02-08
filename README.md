@@ -34,11 +34,11 @@ blq init --project myapp --namespace myorg  # Override project identification
 ```bash
 # Query a log file directly
 blq q build.log
-blq q -s file_path,line_number,message build.log
+blq q -s ref_file,ref_line,message build.log
 
 # Filter with simple syntax
 blq f severity=error build.log
-blq f severity=error,warning file_path~main build.log
+blq f severity=error,warning ref_file~main build.log
 
 # Run and capture a command
 blq run make -j8
@@ -108,13 +108,13 @@ blq context 1:3
 
 ```bash
 # Select specific columns
-blq q -s file_path,line_number,severity,message build.log
+blq q -s ref_file,ref_line,severity,message build.log
 
 # Filter with SQL WHERE clause
-blq q -f "severity='error' AND file_path LIKE '%main%'" build.log
+blq q -f "severity='error' AND ref_file LIKE '%main%'" build.log
 
 # Order and limit results
-blq q -o "line_number" -n 10 build.log
+blq q -o "ref_line" -n 10 build.log
 
 # Output as JSON (great for agents)
 blq q --json build.log
@@ -138,7 +138,7 @@ blq f severity=error build.log
 blq f severity=error,warning build.log
 
 # Contains (LIKE)
-blq f file_path~main build.log
+blq f ref_file~main build.log
 
 # Not equal
 blq f severity!=info build.log
@@ -174,8 +174,8 @@ Output includes event references for drill-down:
   "errors": [
     {
       "ref": "1:1",
-      "file_path": "src/main.c",
-      "line_number": 15,
+      "ref_file": "src/main.c",
+      "ref_line": 15,
       "message": "undefined variable 'foo'"
     }
   ]
@@ -313,9 +313,9 @@ store = LogStore.open()
 # Query errors with chaining
 errors = (
     store.errors()
-    .filter(file_path="%main%")
-    .select("file_path", "line_number", "message")
-    .order_by("line_number")
+    .filter(ref_file="%main%")
+    .select("ref_file", "ref_line", "message")
+    .order_by("ref_line")
     .limit(10)
     .df()
 )
@@ -323,8 +323,8 @@ errors = (
 # Filter patterns
 store.events().filter(severity="error")              # exact match
 store.events().filter(severity=["error", "warning"]) # IN clause
-store.events().filter(file_path="%test%")            # LIKE pattern
-store.events().filter("line_number > 100")           # raw SQL
+store.events().filter(ref_file="%test%")            # LIKE pattern
+store.events().filter("ref_line > 100")           # raw SQL
 
 # Query a log file directly (without storing)
 events = (
@@ -334,7 +334,7 @@ events = (
 )
 
 # Aggregations
-store.events().group_by("file_path").count()
+store.events().group_by("ref_file").count()
 store.events().value_counts("severity")
 ```
 

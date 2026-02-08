@@ -17,9 +17,9 @@ errors = store.errors().limit(10).df()
 results = (
     store.events()
     .filter(severity="error")
-    .filter(file_path="%main%")
-    .select("file_path", "line_number", "message")
-    .order_by("line_number")
+    .filter(ref_file="%main%")
+    .select("ref_file", "ref_line", "message")
+    .order_by("ref_line")
     .limit(10)
     .df()
 )
@@ -200,22 +200,22 @@ query.filter(severity=["error", "warning"])
 
 **LIKE pattern:**
 ```python
-query.filter(file_path="%main%")     # Contains 'main'
-query.filter(file_path="%.py")       # Ends with '.py'
+query.filter(ref_file="%main%")     # Contains 'main'
+query.filter(ref_file="%.py")       # Ends with '.py'
 query.filter(message="%undefined%")  # Contains 'undefined'
 ```
 
 **Raw SQL condition:**
 ```python
-query.filter("line_number > 100")
-query.filter("file_path LIKE '%test%' AND severity = 'error'")
+query.filter("ref_line > 100")
+query.filter("ref_file LIKE '%test%' AND severity = 'error'")
 ```
 
 **Multiple conditions (AND):**
 ```python
-query.filter(severity="error", file_path="main.c")
+query.filter(severity="error", ref_file="main.c")
 # Equivalent to:
-query.filter(severity="error").filter(file_path="main.c")
+query.filter(severity="error").filter(ref_file="main.c")
 ```
 
 #### `exclude(**kwargs) -> LogQuery`
@@ -224,7 +224,7 @@ Exclude rows matching conditions (NOT filter).
 
 ```python
 query.exclude(severity="info")         # NOT severity = 'info'
-query.exclude(file_path="%test%")      # NOT file_path LIKE '%test%'
+query.exclude(ref_file="%test%")      # NOT ref_file LIKE '%test%'
 ```
 
 #### `where(condition: str) -> LogQuery`
@@ -232,8 +232,8 @@ query.exclude(file_path="%test%")      # NOT file_path LIKE '%test%'
 Add a raw SQL WHERE condition.
 
 ```python
-query.where("line_number BETWEEN 10 AND 50")
-query.where("file_path IS NOT NULL")
+query.where("ref_line BETWEEN 10 AND 50")
+query.where("ref_file IS NOT NULL")
 ```
 
 ### Projection
@@ -243,7 +243,7 @@ query.where("file_path IS NOT NULL")
 Select specific columns.
 
 ```python
-query.select("file_path", "line_number", "message")
+query.select("ref_file", "ref_line", "message")
 ```
 
 #### `order_by(*columns, desc=False) -> LogQuery`
@@ -251,8 +251,8 @@ query.select("file_path", "line_number", "message")
 Order results.
 
 ```python
-query.order_by("line_number")
-query.order_by("severity", "line_number")
+query.order_by("ref_line")
+query.order_by("severity", "ref_line")
 query.order_by("run_id", desc=True)  # Descending
 ```
 
@@ -362,7 +362,7 @@ print(plan)
 Group by columns for aggregation.
 
 ```python
-grouped = query.group_by("file_path")
+grouped = query.group_by("ref_file")
 ```
 
 #### `value_counts(column) -> DataFrame`
@@ -385,7 +385,7 @@ Returned by `group_by()`, provides aggregation methods.
 Count rows in each group.
 
 ```python
-errors_by_file = store.errors().group_by("file_path").count()
+errors_by_file = store.errors().group_by("ref_file").count()
 ```
 
 #### `sum(column) -> DataFrame`
@@ -401,7 +401,7 @@ totals = query.group_by("category").sum("amount")
 Average values in each group.
 
 ```python
-averages = query.group_by("file_path").avg("line_number")
+averages = query.group_by("ref_file").avg("ref_line")
 ```
 
 #### `min(column) / max(column) -> DataFrame`
@@ -409,7 +409,7 @@ averages = query.group_by("file_path").avg("line_number")
 Minimum/maximum values in each group.
 
 ```python
-first_errors = store.errors().group_by("file_path").min("line_number")
+first_errors = store.errors().group_by("ref_file").min("ref_line")
 ```
 
 #### `agg(**aggregations) -> DataFrame`
@@ -417,10 +417,10 @@ first_errors = store.errors().group_by("file_path").min("line_number")
 Custom aggregations.
 
 ```python
-stats = query.group_by("file_path").agg(
+stats = query.group_by("ref_file").agg(
     total="COUNT(*)",
-    first_line="MIN(line_number)",
-    last_line="MAX(line_number)"
+    first_line="MIN(ref_line)",
+    last_line="MAX(ref_line)"
 )
 ```
 
@@ -434,7 +434,7 @@ from blq import LogStore
 store = LogStore.open()
 error_counts = (
     store.errors()
-    .group_by("file_path")
+    .group_by("ref_file")
     .count()
 )
 print(error_counts.head(10))
@@ -464,10 +464,10 @@ store = LogStore.open()
 # Get specific errors and export
 errors = (
     store.errors()
-    .filter(file_path="%src%")
-    .filter("line_number < 100")
-    .select("file_path", "line_number", "message")
-    .order_by("file_path", "line_number")
+    .filter(ref_file="%src%")
+    .filter("ref_line < 100")
+    .select("ref_file", "ref_line", "message")
+    .order_by("ref_file", "ref_line")
     .df()
 )
 
@@ -483,7 +483,7 @@ from blq import LogQuery
 errors = (
     LogQuery.from_file("build.log")
     .filter(severity="error")
-    .select("file_path", "line_number", "message")
+    .select("ref_file", "ref_line", "message")
     .df()
 )
 
@@ -503,12 +503,12 @@ conn = store.connection
 # Run arbitrary SQL
 result = conn.sql("""
     SELECT
-        file_path,
+        ref_file,
         COUNT(*) as error_count,
         COUNT(DISTINCT error_fingerprint) as unique_errors
     FROM lq_events
     WHERE severity = 'error'
-    GROUP BY file_path
+    GROUP BY ref_file
     ORDER BY error_count DESC
     LIMIT 10
 """).df()

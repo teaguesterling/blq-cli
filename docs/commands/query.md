@@ -40,12 +40,12 @@ blq q build.log
 ### Select Columns
 
 ```bash
-blq q -s file_path,line_number,severity,message build.log
+blq q -s ref_file,ref_line,severity,message build.log
 ```
 
 Output:
 ```
-  file_path  line_number severity                  message
+  ref_file  ref_line severity                  message
  src/main.c           15    error undefined variable 'foo'
  src/main.c           28  warning   unused variable 'temp'
 ```
@@ -54,15 +54,15 @@ Output:
 
 ```bash
 blq q -f "severity='error'" build.log
-blq q -f "severity='error' AND file_path LIKE '%main%'" build.log
-blq q -f "line_number > 100" build.log
+blq q -f "severity='error' AND ref_file LIKE '%main%'" build.log
+blq q -f "ref_line > 100" build.log
 ```
 
 ### Order and Limit
 
 ```bash
-blq q -o "line_number DESC" -n 10 build.log
-blq q -o "file_path, line_number" build.log
+blq q -o "ref_line DESC" -n 10 build.log
+blq q -o "ref_file, ref_line" build.log
 ```
 
 ### Output Formats
@@ -110,9 +110,9 @@ When querying log files, these columns are typically available:
 |--------|-------------|
 | `event_id` | Unique event ID within the log |
 | `severity` | error, warning, info, etc. |
-| `file_path` | Source file path |
-| `line_number` | Line number in source |
-| `column_number` | Column number in source |
+| `ref_file` | Source file path |
+| `ref_line` | Line number in source |
+| `ref_column` | Column number in source |
 | `message` | Error/warning message |
 | `error_fingerprint` | Unique fingerprint for deduplication |
 | `tool_name` | Tool that produced the event |

@@ -144,9 +144,9 @@ With `--json`, the output includes:
     {
       "ref": "1:1",
       "severity": "error",
-      "file_path": "src/main.c",
-      "line_number": 15,
-      "column_number": 5,
+      "ref_file": "src/main.c",
+      "ref_line": 15,
+      "ref_column": 5,
       "message": "undefined variable 'foo'"
     }
   ]

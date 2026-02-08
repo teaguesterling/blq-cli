@@ -21,7 +21,7 @@ blq solves this by:
 
 Every error, warning, or notable item in a log becomes an **event** with:
 - `severity` - error, warning, info, etc.
-- `file_path`, `line_number`, `column_number` - source location
+- `ref_file`, `ref_line`, `ref_column` - source location
 - `message` - the error/warning text
 - `error_fingerprint` - unique identifier for deduplication
 
