@@ -62,9 +62,9 @@ class TestEventSummary:
         event = EventSummary(
             ref="1:1",
             severity="error",
-            file_path="src/main.c",
-            line_number=15,
-            column_number=5,
+            ref_file="src/main.c",
+            ref_line=15,
+            ref_column=5,
             message="test error",
         )
         assert event.location() == "src/main.c:15:5"
@@ -74,9 +74,9 @@ class TestEventSummary:
         event = EventSummary(
             ref="1:1",
             severity="error",
-            file_path="src/main.c",
-            line_number=15,
-            column_number=None,
+            ref_file="src/main.c",
+            ref_line=15,
+            ref_column=None,
             message="test error",
         )
         assert event.location() == "src/main.c:15"
@@ -86,9 +86,9 @@ class TestEventSummary:
         event = EventSummary(
             ref="1:1",
             severity="error",
-            file_path="Makefile",
-            line_number=None,
-            column_number=None,
+            ref_file="Makefile",
+            ref_line=None,
+            ref_column=None,
             message="test error",
         )
         assert event.location() == "Makefile"
@@ -98,9 +98,9 @@ class TestEventSummary:
         event = EventSummary(
             ref="1:1",
             severity="error",
-            file_path=None,
-            line_number=None,
-            column_number=None,
+            ref_file=None,
+            ref_line=None,
+            ref_column=None,
             message="test error",
         )
         assert event.location() == "?"
@@ -110,9 +110,9 @@ class TestEventSummary:
         event = EventSummary(
             ref="1:1",
             severity="error",
-            file_path="src/main.c",
-            line_number=15,
-            column_number=0,
+            ref_file="src/main.c",
+            ref_line=15,
+            ref_column=0,
             message="test error",
         )
         assert event.location() == "src/main.c:15"
@@ -137,17 +137,17 @@ class TestRunResult:
                 EventSummary(
                     ref="5:1",
                     severity="error",
-                    file_path="src/main.c",
-                    line_number=15,
-                    column_number=5,
+                    ref_file="src/main.c",
+                    ref_line=15,
+                    ref_column=5,
                     message="undefined variable 'foo'",
                 ),
                 EventSummary(
                     ref="5:2",
                     severity="error",
-                    file_path="src/utils.c",
-                    line_number=10,
-                    column_number=1,
+                    ref_file="src/utils.c",
+                    ref_line=10,
+                    ref_column=1,
                     message="missing semicolon",
                 ),
             ],
@@ -155,9 +155,9 @@ class TestRunResult:
                 EventSummary(
                     ref="5:3",
                     severity="warning",
-                    file_path="src/main.c",
-                    line_number=28,
-                    column_number=12,
+                    ref_file="src/main.c",
+                    ref_line=28,
+                    ref_column=12,
                     message="unused variable 'temp'",
                 ),
             ],
@@ -183,7 +183,7 @@ class TestRunResult:
 
         assert len(data["errors"]) == 2
         assert data["errors"][0]["ref"] == "5:1"
-        assert data["errors"][0]["file_path"] == "src/main.c"
+        assert data["errors"][0]["ref_file"] == "src/main.c"
 
     def test_to_json_warnings_excluded_by_default(self, sample_result):
         """JSON output excludes warnings by default."""
@@ -267,9 +267,9 @@ class TestRunResult:
                 EventSummary(
                     ref="1:1",
                     severity="warning",
-                    file_path="src/main.c",
-                    line_number=10,
-                    column_number=1,
+                    ref_file="src/main.c",
+                    ref_line=10,
+                    ref_column=1,
                     message="unused",
                 )
             ],
@@ -280,7 +280,10 @@ class TestRunResult:
 
 
 class TestParseLogContent:
-    """Tests for parse_log_content function (fallback parser)."""
+    """Tests for parse_log_content function (duck_hunt parser).
+
+    Note: Column names follow BIRD spec (ref_file, ref_line, ref_column).
+    """
 
     def test_parse_gcc_error(self):
         """Parse GCC-style error message."""
@@ -289,9 +292,9 @@ class TestParseLogContent:
 
         assert len(events) == 1
         assert events[0]["severity"] == "error"
-        assert events[0]["file_path"] == "src/main.c"
-        assert events[0]["line_number"] == 15
-        assert events[0]["column_number"] == 5
+        assert events[0]["ref_file"] == "src/main.c"
+        assert events[0]["ref_line"] == 15
+        assert events[0]["ref_column"] == 5
         assert "undefined variable" in events[0]["message"]
 
     def test_parse_gcc_warning(self):
@@ -301,8 +304,8 @@ class TestParseLogContent:
 
         assert len(events) == 1
         assert events[0]["severity"] == "warning"
-        assert events[0]["file_path"] == "src/main.c"
-        assert events[0]["line_number"] == 28
+        assert events[0]["ref_file"] == "src/main.c"
+        assert events[0]["ref_line"] == 28
 
     def test_parse_multiple_events(self):
         """Parse multiple error/warning messages."""
@@ -325,8 +328,8 @@ Done
         events = parse_log_content(content)
 
         assert len(events) == 1
-        assert events[0]["line_number"] == 15
-        assert events[0]["column_number"] is None
+        assert events[0]["ref_line"] == 15
+        assert events[0]["ref_column"] is None
 
     def test_parse_assigns_event_ids(self):
         """Events get sequential IDs."""
@@ -340,7 +343,7 @@ src/c.c:3:3: error: third
         assert events[1]["event_id"] == 2
         assert events[2]["event_id"] == 3
 
-    def test_parse_assigns_log_line_numbers(self):
+    def test_parse_assigns_log_ref_lines(self):
         """Events get log line start/end positions (when available).
 
         Note: log_line_start/end may be None depending on the parser used.

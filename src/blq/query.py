@@ -12,9 +12,9 @@ Example usage:
     results = (
         store.events()
         .filter(severity="error")
-        .filter(file_path="%main%")  # LIKE pattern
-        .select("file_path", "line_number", "message")
-        .order_by("line_number")
+        .filter(ref_file="%main%")  # LIKE pattern
+        .select("ref_file", "ref_line", "message")
+        .order_by("ref_line")
         .limit(10)
         .df()
     )
@@ -199,8 +199,8 @@ class LogQuery:
         Examples:
             .filter(severity="error")
             .filter(severity=["error", "warning"])
-            .filter(file_path="%main%")
-            .filter("line_number > 100")
+            .filter(ref_file="%main%")
+            .filter("ref_line > 100")
         """
         if _condition:
             self._filters.append(_condition)
@@ -285,7 +285,7 @@ class LogQuery:
             Self for chaining
 
         Example:
-            .select("file_path", "line_number", "message")
+            .select("ref_file", "ref_line", "message")
         """
         self._select_cols = list(columns)
         return self
@@ -301,8 +301,8 @@ class LogQuery:
             Self for chaining
 
         Example:
-            .order_by("line_number")
-            .order_by("severity", "line_number", desc=True)
+            .order_by("ref_line")
+            .order_by("severity", "ref_line", desc=True)
         """
         if desc:
             self._order_cols = [f"{col} DESC" for col in columns]

@@ -44,7 +44,7 @@ def cmd_event(args: argparse.Namespace) -> None:
             print(f"Event: {args.ref}")
             print(f"  Source: {event.get('source_name', '?')}")
             print(f"  Severity: {event.get('severity', '?')}")
-            print(f"  File: {event.get('file_path', '?')}:{event.get('line_number', '?')}")
+            print(f"  File: {event.get('ref_file', '?')}:{event.get('ref_line', '?')}")
             print(f"  Message: {event.get('message', '?')}")
             if event.get("fingerprint"):
                 print(f"  Fingerprint: {event.get('fingerprint')}")

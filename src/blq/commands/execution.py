@@ -42,9 +42,9 @@ def _make_event_summary(run_id: int, e: dict) -> EventSummary:
     return EventSummary(
         ref=f"{run_id}:{e.get('event_id', 0)}",
         severity=e.get("severity"),
-        file_path=e.get("file_path"),
-        line_number=e.get("line_number"),
-        column_number=e.get("column_number"),
+        ref_file=e.get("ref_file"),
+        ref_line=e.get("ref_line"),
+        ref_column=e.get("ref_column"),
         message=e.get("message"),
         error_code=e.get("error_code"),
         fingerprint=e.get("fingerprint"),

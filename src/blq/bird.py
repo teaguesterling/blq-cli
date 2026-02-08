@@ -120,9 +120,9 @@ class EventRecord:
     event_type: str | None = None
 
     # Location
-    file_path: str | None = None
-    line_number: int | None = None
-    column_number: int | None = None
+    ref_file: str | None = None
+    ref_line: int | None = None
+    ref_column: int | None = None
 
     # Content
     message: str | None = None
@@ -572,7 +572,7 @@ class BirdStore:
                 """
                 INSERT INTO events (
                     id, invocation_id, event_index, client_id, hostname,
-                    event_type, severity, file_path, line_number, column_number,
+                    event_type, severity, ref_file, ref_line, ref_column,
                     message, code, rule, tool_name, category, fingerprint,
                     log_line_start, log_line_end, context, metadata,
                     format_used, date
@@ -587,9 +587,9 @@ class BirdStore:
                     hostname,
                     event.get("event_type"),
                     event.get("severity"),
-                    event.get("file_path"),
-                    event.get("line_number"),
-                    event.get("column_number"),
+                    event.get("ref_file"),
+                    event.get("ref_line"),
+                    event.get("ref_column"),
                     event.get("message"),
                     event.get("error_code") or event.get("code"),
                     event.get("rule"),

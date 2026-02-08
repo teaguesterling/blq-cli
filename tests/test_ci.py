@@ -202,12 +202,12 @@ class TestComputeDiff:
         import pandas as pd
 
         baseline_df = pd.DataFrame(
-            [{"fingerprint": "fp1", "file_path": "a.py", "line_number": 1, "message": "err1"}]
+            [{"fingerprint": "fp1", "ref_file": "a.py", "ref_line": 1, "message": "err1"}]
         )
         current_df = pd.DataFrame(
             [
-                {"fingerprint": "fp1", "file_path": "a.py", "line_number": 1, "message": "err1"},
-                {"fingerprint": "fp2", "file_path": "b.py", "line_number": 2, "message": "err2"},
+                {"fingerprint": "fp1", "ref_file": "a.py", "ref_line": 1, "message": "err1"},
+                {"fingerprint": "fp2", "ref_file": "b.py", "ref_line": 2, "message": "err2"},
             ]
         )
 
@@ -236,12 +236,12 @@ class TestComputeDiff:
 
         baseline_df = pd.DataFrame(
             [
-                {"fingerprint": "fp1", "file_path": "a.py", "line_number": 1, "message": "err1"},
-                {"fingerprint": "fp2", "file_path": "b.py", "line_number": 2, "message": "err2"},
+                {"fingerprint": "fp1", "ref_file": "a.py", "ref_line": 1, "message": "err1"},
+                {"fingerprint": "fp2", "ref_file": "b.py", "ref_line": 2, "message": "err2"},
             ]
         )
         current_df = pd.DataFrame(
-            [{"fingerprint": "fp1", "file_path": "a.py", "line_number": 1, "message": "err1"}]
+            [{"fingerprint": "fp1", "ref_file": "a.py", "ref_line": 1, "message": "err1"}]
         )
 
         mock_query = MagicMock()
@@ -263,17 +263,17 @@ class TestFormatLocation:
 
     def test_with_file_and_line(self):
         """Format with file path and line number."""
-        error = {"file_path": "src/main.py", "line_number": 42}
+        error = {"ref_file": "src/main.py", "ref_line": 42}
         assert _format_location(error) == "src/main.py:42"
 
     def test_with_file_only(self):
         """Format with file path only."""
-        error = {"file_path": "src/main.py", "line_number": None}
+        error = {"ref_file": "src/main.py", "ref_line": None}
         assert _format_location(error) == "src/main.py"
 
     def test_without_file(self):
         """Format without file path."""
-        error = {"file_path": None, "line_number": 42}
+        error = {"ref_file": None, "ref_line": 42}
         assert _format_location(error) == "?"
 
 
@@ -288,7 +288,7 @@ class TestFormatPRComment:
             baseline_errors=5,
             current_errors=6,
             fixed=[],
-            new_errors=[{"file_path": "a.py", "line_number": 10, "message": "Error message"}],
+            new_errors=[{"ref_file": "a.py", "ref_line": 10, "message": "Error message"}],
         )
         result = _format_pr_comment(diff)
         assert "## Build Log Analysis" in result
@@ -304,7 +304,7 @@ class TestFormatPRComment:
             current_run_id=2,
             baseline_errors=5,
             current_errors=4,
-            fixed=[{"file_path": "b.py", "line_number": 20, "message": "Fixed error"}],
+            fixed=[{"ref_file": "b.py", "ref_line": 20, "message": "Fixed error"}],
             new_errors=[],
         )
         result = _format_pr_comment(diff, include_fixed=True)
@@ -338,10 +338,10 @@ class TestFormatJsonOutput:
             baseline_errors=5,
             current_errors=6,
             fixed=[
-                {"file_path": "a.py", "line_number": 1, "message": "fixed", "fingerprint": "fp1"}
+                {"ref_file": "a.py", "ref_line": 1, "message": "fixed", "fingerprint": "fp1"}
             ],
             new_errors=[
-                {"file_path": "b.py", "line_number": 2, "message": "new", "fingerprint": "fp2"}
+                {"ref_file": "b.py", "ref_line": 2, "message": "new", "fingerprint": "fp2"}
             ],
         )
         result = json.loads(_format_json_output(diff))
@@ -499,7 +499,7 @@ class TestCmdCiCheck:
         current_df = pd.DataFrame(
             [
                 {"fingerprint": "fp1"},
-                {"fingerprint": "fp2", "file_path": "a.py", "line_number": 1, "message": "new"},
+                {"fingerprint": "fp2", "ref_file": "a.py", "ref_line": 1, "message": "new"},
             ]
         )
 
@@ -639,7 +639,7 @@ class TestCmdCiComment:
 
         mock_runs = pd.DataFrame({"run_id": [1], "git_branch": ["main"], "git_commit": [None]})
         mock_df = pd.DataFrame(
-            [{"fingerprint": "fp1", "file_path": "a.py", "line_number": 1, "message": "test"}]
+            [{"fingerprint": "fp1", "ref_file": "a.py", "ref_line": 1, "message": "test"}]
         )
 
         mock_query = MagicMock()

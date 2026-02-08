@@ -8,7 +8,7 @@ Example usage:
 
     # Query stored events
     store = LogStore.open()
-    errors = store.errors().filter(file_path="%main%").df()
+    errors = store.errors().filter(ref_file="%main%").df()
 
     # Query a log file directly
     events = LogQuery.from_file("build.log").filter(severity="error").df()

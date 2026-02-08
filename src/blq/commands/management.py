@@ -52,7 +52,7 @@ def cmd_errors(args: argparse.Namespace) -> None:
 
         # Select columns based on compact mode
         if args.compact:
-            query = query.select("run_id", "event_id", "file_path", "line_number", "message")
+            query = query.select("run_id", "event_id", "ref_file", "ref_line", "message")
 
         result = query.df()
 

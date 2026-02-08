@@ -116,7 +116,7 @@ def parse_filter_expression(expr: str, ignore_case: bool = False) -> str:
         key!=value     -> key != 'value'
 
     Args:
-        expr: Filter expression like "severity=error" or "file_path~main"
+        expr: Filter expression like "severity=error" or "ref_file~main"
         ignore_case: If True, use ILIKE for = comparisons too
 
     Returns:

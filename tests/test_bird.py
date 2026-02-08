@@ -280,16 +280,16 @@ class TestEventManagement:
             {
                 "event_id": 0,
                 "severity": "error",
-                "file_path": "src/main.c",
-                "line_number": 10,
+                "ref_file": "src/main.c",
+                "ref_line": 10,
                 "message": "undefined reference to 'foo'",
                 "tool_name": "gcc",
             },
             {
                 "event_id": 1,
                 "severity": "warning",
-                "file_path": "src/util.c",
-                "line_number": 25,
+                "ref_file": "src/util.c",
+                "ref_line": 25,
                 "message": "unused variable 'x'",
                 "tool_name": "gcc",
             },
@@ -402,7 +402,7 @@ class TestWriteBirdInvocation:
         store.close()
 
         events = [
-            {"severity": "error", "message": "test error", "file_path": "test.py"},
+            {"severity": "error", "message": "test error", "ref_file": "test.py"},
         ]
         run_meta = {
             "source_name": "test",
@@ -551,8 +551,8 @@ class TestBirdCompatibilityViews:
         events = [
             {
                 "severity": "error",
-                "file_path": "src/main.c",
-                "line_number": 10,
+                "ref_file": "src/main.c",
+                "ref_line": 10,
                 "message": "error message",
             },
         ]
@@ -560,7 +560,7 @@ class TestBirdCompatibilityViews:
 
         # Query through compatibility view
         result = bird_store.connection.execute(
-            "SELECT source_name, severity, file_path, message FROM blq_events_flat"
+            "SELECT source_name, severity, ref_file, message FROM blq_events_flat"
         ).fetchone()
 
         assert result[0] == "build"
@@ -656,16 +656,16 @@ def parquet_initialized_dir(temp_dir):
             {
                 "event_id": 0,
                 "severity": "error",
-                "file_path": "src/main.c",
-                "line_number": 10,
+                "ref_file": "src/main.c",
+                "ref_line": 10,
                 "message": "undefined reference",
                 "tool_name": "gcc",
             },
             {
                 "event_id": 1,
                 "severity": "warning",
-                "file_path": "src/util.c",
-                "line_number": 25,
+                "ref_file": "src/util.c",
+                "ref_line": 25,
                 "message": "unused variable",
                 "tool_name": "gcc",
             },

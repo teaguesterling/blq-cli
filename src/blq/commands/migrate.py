@@ -188,9 +188,9 @@ def _migrate_parquet_to_bird(
                     events.append({
                         "event_id": event.get("event_id"),
                         "severity": event.get("severity"),
-                        "file_path": event.get("file_path"),
-                        "line_number": event.get("line_number"),
-                        "column_number": event.get("column_number"),
+                        "ref_file": event.get("ref_file"),
+                        "ref_line": event.get("ref_line"),
+                        "ref_column": event.get("ref_column"),
                         "message": event.get("message"),
                         "error_code": event.get("error_code"),
                         "tool_name": event.get("tool_name"),

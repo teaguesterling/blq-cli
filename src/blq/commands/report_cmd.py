@@ -90,26 +90,26 @@ def _collect_report_data(
     data.total_warnings = len(warnings_df)
 
     # Errors by file
-    if not errors_df.empty and "file_path" in errors_df.columns:
-        file_counts = errors_df.groupby("file_path").size().reset_index(name="count")
+    if not errors_df.empty and "ref_file" in errors_df.columns:
+        file_counts = errors_df.groupby("ref_file").size().reset_index(name="count")
         file_counts = file_counts.sort_values("count", ascending=False).head(file_limit)
         data.errors_by_file = file_counts.to_dict("records")
 
     # Warnings by file
-    if not warnings_df.empty and "file_path" in warnings_df.columns:
-        file_counts = warnings_df.groupby("file_path").size().reset_index(name="count")
+    if not warnings_df.empty and "ref_file" in warnings_df.columns:
+        file_counts = warnings_df.groupby("ref_file").size().reset_index(name="count")
         file_counts = file_counts.sort_values("count", ascending=False).head(file_limit)
         data.warnings_by_file = file_counts.to_dict("records")
 
     # Top errors with details
     if not errors_df.empty:
-        cols = ["file_path", "line_number", "message", "error_code", "fingerprint"]
+        cols = ["ref_file", "ref_line", "message", "error_code", "fingerprint"]
         available_cols = [c for c in cols if c in errors_df.columns]
         data.top_errors = errors_df[available_cols].head(error_limit).to_dict("records")
 
     # Top warnings with details
     if not warnings_df.empty:
-        cols = ["file_path", "line_number", "message", "error_code", "fingerprint"]
+        cols = ["ref_file", "ref_line", "message", "error_code", "fingerprint"]
         available_cols = [c for c in cols if c in warnings_df.columns]
         data.top_warnings = warnings_df[available_cols].head(error_limit).to_dict("records")
 
@@ -145,13 +145,13 @@ def _collect_report_data(
 
 def _format_location(error: dict) -> str:
     """Format error location as file:line string."""
-    file_path = error.get("file_path")
-    if not file_path:
+    ref_file = error.get("ref_file")
+    if not ref_file:
         return "?"
-    line_number = error.get("line_number")
-    if line_number:
-        return f"{file_path}:{line_number}"
-    return str(file_path)
+    ref_line = error.get("ref_line")
+    if ref_line:
+        return f"{ref_file}:{ref_line}"
+    return str(ref_file)
 
 
 def _generate_markdown_report(
@@ -275,9 +275,9 @@ def _generate_markdown_report(
         lines.append("| File | Count |")
         lines.append("|------|-------|")
         for item in data.errors_by_file:
-            file_path = item.get("file_path", "?")
+            ref_file = item.get("ref_file", "?")
             count = item.get("count", 0)
-            lines.append(f"| `{file_path}` | {count} |")
+            lines.append(f"| `{ref_file}` | {count} |")
         lines.append("")
 
     # Error details
@@ -302,9 +302,9 @@ def _generate_markdown_report(
             lines.append("| File | Count |")
             lines.append("|------|-------|")
             for item in data.warnings_by_file:
-                file_path = item.get("file_path", "?")
+                ref_file = item.get("ref_file", "?")
                 count = item.get("count", 0)
-                lines.append(f"| `{file_path}` | {count} |")
+                lines.append(f"| `{ref_file}` | {count} |")
             lines.append("")
 
         if include_details and data.top_warnings:

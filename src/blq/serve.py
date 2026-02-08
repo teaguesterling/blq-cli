@@ -27,6 +27,16 @@ def _to_json_safe(value: Any) -> Any:
     return value
 
 
+def _safe_int(value: Any) -> int | None:
+    """Safely convert a value to int, returning None for NA/null values."""
+    if pd.isna(value):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 # Create the MCP server
 mcp = FastMCP(
     "blq",
@@ -254,7 +264,7 @@ def _errors_impl(
         if source:
             query = query.filter(source_name=source)
         if file_pattern:
-            query = query.filter(file_path=file_pattern)
+            query = query.filter(ref_file=file_pattern)
 
         total_count = query.count()
         query = query.order_by("run_id", desc=True).limit(limit)
@@ -264,17 +274,16 @@ def _errors_impl(
         for _, row in df.iterrows():
             error_list.append(
                 {
-                    "ref": _format_ref(int(row.get("run_id", 0)), int(row.get("event_id", 0))),
-                    "file_path": row.get("file_path"),
-                    "line_number": int(row["line_number"])
-                    if row.get("line_number") is not None
-                    else None,
-                    "column_number": int(row["column_number"])
-                    if row.get("column_number") is not None
-                    else None,
-                    "message": row.get("message"),
-                    "tool_name": row.get("tool_name"),
-                    "category": row.get("category"),
+                    "ref": _format_ref(
+                        _safe_int(row.get("run_id")) or 0,
+                        _safe_int(row.get("event_id")) or 0,
+                    ),
+                    "ref_file": _to_json_safe(row.get("ref_file")),
+                    "ref_line": _safe_int(row.get("ref_line")),
+                    "ref_column": _safe_int(row.get("ref_column")),
+                    "message": _to_json_safe(row.get("message")),
+                    "tool_name": _to_json_safe(row.get("tool_name")),
+                    "category": _to_json_safe(row.get("category")),
                 }
             )
 
@@ -309,17 +318,16 @@ def _warnings_impl(
         for _, row in df.iterrows():
             warning_list.append(
                 {
-                    "ref": _format_ref(int(row.get("run_id", 0)), int(row.get("event_id", 0))),
-                    "file_path": row.get("file_path"),
-                    "line_number": int(row["line_number"])
-                    if row.get("line_number") is not None
-                    else None,
-                    "column_number": int(row["column_number"])
-                    if row.get("column_number") is not None
-                    else None,
-                    "message": row.get("message"),
-                    "tool_name": row.get("tool_name"),
-                    "category": row.get("category"),
+                    "ref": _format_ref(
+                        _safe_int(row.get("run_id")) or 0,
+                        _safe_int(row.get("event_id")) or 0,
+                    ),
+                    "ref_file": _to_json_safe(row.get("ref_file")),
+                    "ref_line": _safe_int(row.get("ref_line")),
+                    "ref_column": _safe_int(row.get("ref_column")),
+                    "message": _to_json_safe(row.get("message")),
+                    "tool_name": _to_json_safe(row.get("tool_name")),
+                    "category": _to_json_safe(row.get("category")),
                 }
             )
 
@@ -352,9 +360,9 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
             "run_id": run_id,
             "event_id": event_id,
             "severity": event_data.get("severity"),
-            "file_path": event_data.get("file_path"),
-            "line_number": event_data.get("line_number"),
-            "column_number": event_data.get("column_number"),
+            "ref_file": event_data.get("ref_file"),
+            "ref_line": event_data.get("ref_line"),
+            "ref_column": event_data.get("ref_column"),
             "message": event_data.get("message"),
             "tool_name": event_data.get("tool_name"),
             "category": event_data.get("category"),
@@ -456,12 +464,12 @@ def _status_impl() -> dict[str, Any]:
 
             sources.append(
                 {
-                    "name": row.get("source_name", "unknown"),
+                    "name": _to_json_safe(row.get("source_name")) or "unknown",
                     "status": status_str,
                     "error_count": error_count,
                     "warning_count": warning_count,
                     "last_run": str(row.get("started_at", "")),
-                    "run_id": int(row["run_id"]),
+                    "run_id": _safe_int(row.get("run_id")) or 0,
                 }
             )
 
@@ -498,15 +506,13 @@ def _history_impl(limit: int = 20, source: str | None = None) -> dict[str, Any]:
 
             runs.append(
                 {
-                    "run_id": int(row["run_id"]),
+                    "run_id": _safe_int(row.get("run_id")) or 0,
                     "source_name": _to_json_safe(row.get("source_name")) or "unknown",
                     "status": status_str,
                     "error_count": error_count,
                     "warning_count": warning_count,
                     "started_at": str(row.get("started_at", "")),
-                    "exit_code": int(row["exit_code"])
-                    if not pd.isna(row.get("exit_code"))
-                    else None,
+                    "exit_code": _safe_int(row.get("exit_code")),
                     "command": _to_json_safe(row.get("command")),
                     "cwd": _to_json_safe(row.get("cwd")),
                     "executable_path": _to_json_safe(row.get("executable_path")),
@@ -538,7 +544,7 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
             fp = row.get("fingerprint")
             if fp:
                 return fp
-            return f"{row.get('file_path')}:{row.get('line_number')}:{row.get('message', '')[:50]}"
+            return f"{row.get('ref_file')}:{row.get('ref_line')}:{row.get('message', '')[:50]}"
 
         keys1 = set(get_error_key(row) for _, row in errors1.iterrows())
         keys2 = set(get_error_key(row) for _, row in errors2.iterrows())
@@ -553,7 +559,7 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
             if get_error_key(row) in fixed_keys:
                 fixed.append(
                     {
-                        "file_path": row.get("file_path"),
+                        "ref_file": row.get("ref_file"),
                         "message": row.get("message"),
                     }
                 )
@@ -564,8 +570,8 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
                 new_errors.append(
                     {
                         "ref": _format_ref(run2, int(row.get("event_id", 0))),
-                        "file_path": row.get("file_path"),
-                        "line_number": row.get("line_number"),
+                        "ref_file": row.get("ref_file"),
+                        "ref_line": row.get("ref_line"),
                         "message": row.get("message"),
                     }
                 )
@@ -984,9 +990,9 @@ def fix_errors(run_id: int | None = None, file_pattern: str | None = None) -> st
     # Build error list
     error_lines = []
     for i, err in enumerate(error_result.get("errors", []), 1):
-        loc = f"{err.get('file_path', '?')}:{err.get('line_number', '?')}"
-        if err.get("column_number"):
-            loc += f":{err['column_number']}"
+        loc = f"{err.get('ref_file', '?')}:{err.get('ref_line', '?')}"
+        if err.get("ref_column"):
+            loc += f":{err['ref_column']}"
         error_lines.append(
             f"{i}. **ref: {err['ref']}** `{loc}`\n   ```\n   {err.get('message', '')}\n   ```"
         )
@@ -1045,7 +1051,7 @@ def analyze_regression(good_run: int | None = None, bad_run: int | None = None) 
     # Build new errors list
     new_error_lines = []
     for err in diff_result.get("new", []):
-        loc = f"{err.get('file_path', '?')}:{err.get('line_number', '?')}"
+        loc = f"{err.get('ref_file', '?')}:{err.get('ref_line', '?')}"
         new_error_lines.append(f"- **ref: {err['ref']}** `{loc}`\n  {err.get('message', '')}")
     new_errors = "\n".join(new_error_lines) if new_error_lines else "None"
 
@@ -1098,7 +1104,7 @@ def summarize_run(run_id: int | None = None, format: str = "brief") -> str:
     # Build error details
     error_lines = []
     for err in error_result.get("errors", []):
-        loc = f"{err.get('file_path', '?')}:{err.get('line_number', '?')}"
+        loc = f"{err.get('ref_file', '?')}:{err.get('ref_line', '?')}"
         error_lines.append(f"- `{loc}` - {err.get('message', '')[:80]}")
     error_details = "\n".join(error_lines) if error_lines else "No errors"
 

@@ -94,8 +94,8 @@ class TestParseFilterExpression:
 
     def test_contains_pattern(self):
         """Parse ~ as ILIKE contains pattern."""
-        result = parse_filter_expression("file_path~main")
-        assert result == "file_path ILIKE '%main%'"
+        result = parse_filter_expression("ref_file~main")
+        assert result == "ref_file ILIKE '%main%'"
 
     def test_not_equal(self):
         """Parse != as not equal."""
@@ -130,7 +130,7 @@ class TestFormatQueryOutput:
         return pd.DataFrame(
             {
                 "severity": ["error", "warning"],
-                "file_path": ["main.c", "utils.c"],
+                "ref_file": ["main.c", "utils.c"],
                 "message": ["undefined var", "unused var"],
             }
         )
@@ -437,9 +437,9 @@ class TestCmdFilter:
 
         capsys.readouterr()
 
-        # Filter by severity AND file_path
+        # Filter by severity AND ref_file
         args = argparse.Namespace(
-            args=["severity=error", "file_path~main"],
+            args=["severity=error", "ref_file~main"],
             invert=False,
             count=False,
             ignore_case=False,
@@ -543,7 +543,7 @@ class TestCmdFilter:
 
         # Filter by file path containing "main"
         args = argparse.Namespace(
-            args=["file_path~main"],
+            args=["ref_file~main"],
             invert=False,
             count=True,
             ignore_case=False,

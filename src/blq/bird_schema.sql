@@ -142,10 +142,10 @@ CREATE TABLE IF NOT EXISTS events (
     event_type        VARCHAR,                          -- 'diagnostic', 'test_result', etc.
     severity          VARCHAR,                          -- 'error', 'warning', 'info', 'note'
 
-    -- Source location
-    file_path         VARCHAR,                          -- Source file path
-    line_number       INTEGER,                          -- Line number
-    column_number     INTEGER,                          -- Column number
+    -- Source location (BIRD spec names)
+    ref_file          VARCHAR,                          -- Source file path
+    ref_line          INTEGER,                          -- Line number
+    ref_column        INTEGER,                          -- Column number
 
     -- Content
     message           VARCHAR,                          -- Error/warning message
@@ -231,9 +231,9 @@ SELECT
     -- Event fields
     e.severity,
     e.message,
-    e.file_path,
-    e.line_number,
-    e.column_number,
+    e.ref_file,
+    e.ref_line,
+    e.ref_column,
     e.tool_name,
     e.category,
     e.code,
@@ -338,9 +338,9 @@ ORDER BY
 CREATE OR REPLACE MACRO blq_errors(n := 10) AS TABLE
 SELECT
     i.source_name,
-    e.file_path,
-    e.line_number,
-    e.column_number,
+    e.ref_file,
+    e.ref_line,
+    e.ref_column,
     LEFT(e.message, 200) AS message,
     e.tool_name,
     e.category
@@ -354,9 +354,9 @@ LIMIT n;
 CREATE OR REPLACE MACRO blq_warnings(n := 10) AS TABLE
 SELECT
     i.source_name,
-    e.file_path,
-    e.line_number,
-    e.column_number,
+    e.ref_file,
+    e.ref_line,
+    e.ref_column,
     LEFT(e.message, 200) AS message,
     e.tool_name,
     e.category
@@ -459,9 +459,9 @@ SELECT to_json(list(err)) AS json FROM (
             (SELECT run_id FROM blq_load_runs() r WHERE r.invocation_id = e.invocation_id),
             e.event_index
         ),
-        file_path: e.file_path,
-        line: e.line_number,
-        col: e.column_number,
+        file_path: e.ref_file,
+        line: e.ref_line,
+        col: e.ref_column,
         message: e.message,
         tool: e.tool_name,
         category: e.category,

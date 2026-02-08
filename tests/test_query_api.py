@@ -28,7 +28,7 @@ class TestLogQueryBasic:
                 (3, 'error', 'main.c', 30, 'missing semicolon'),
                 (4, 'info', 'test.c', 40, 'test passed'),
                 (5, 'warning', 'main.c', 50, 'deprecated function')
-            ) AS t(event_id, severity, file_path, line_number, message)
+            ) AS t(event_id, severity, ref_file, ref_line, message)
         """)
         return conn
 
@@ -49,7 +49,7 @@ class TestLogQueryBasic:
         """Access column names."""
         query = LogQuery.from_table(conn_with_data, "events")
         assert "severity" in query.columns
-        assert "file_path" in query.columns
+        assert "ref_file" in query.columns
 
     def test_count(self, conn_with_data):
         """Count rows."""
@@ -78,7 +78,7 @@ class TestLogQueryFilter:
                 (3, 'error', 'main.c', 30, 'missing semicolon'),
                 (4, 'info', 'test.c', 40, 'test passed'),
                 (5, 'warning', 'main.c', 50, 'deprecated function')
-            ) AS t(event_id, severity, file_path, line_number, message)
+            ) AS t(event_id, severity, ref_file, ref_line, message)
         """)
         return LogQuery.from_table(conn, "events")
 
@@ -96,24 +96,24 @@ class TestLogQueryFilter:
 
     def test_filter_like_pattern(self, query):
         """Filter with LIKE pattern."""
-        df = query.filter(file_path="%main%").df()
+        df = query.filter(ref_file="%main%").df()
         assert len(df) == 3
-        assert all("main" in fp for fp in df["file_path"])
+        assert all("main" in fp for fp in df["ref_file"])
 
     def test_filter_sql_condition(self, query):
         """Filter with raw SQL condition."""
-        df = query.filter("line_number > 25").df()
+        df = query.filter("ref_line > 25").df()
         assert len(df) == 3
-        assert all(df["line_number"] > 25)
+        assert all(df["ref_line"] > 25)
 
     def test_filter_multiple_conditions(self, query):
         """Filter with multiple conditions (AND)."""
-        df = query.filter(severity="error", file_path="main.c").df()
+        df = query.filter(severity="error", ref_file="main.c").df()
         assert len(df) == 2
 
     def test_filter_chained(self, query):
         """Chain multiple filter calls."""
-        df = query.filter(severity=["error", "warning"]).filter(file_path="%main%").df()
+        df = query.filter(severity=["error", "warning"]).filter(ref_file="%main%").df()
         assert len(df) == 3
 
     def test_exclude(self, query):
@@ -124,7 +124,7 @@ class TestLogQueryFilter:
 
     def test_where_raw_sql(self, query):
         """Use where() for raw SQL."""
-        df = query.where("line_number BETWEEN 20 AND 40").df()
+        df = query.where("ref_line BETWEEN 20 AND 40").df()
         assert len(df) == 3
 
 
@@ -141,7 +141,7 @@ class TestLogQueryProjection:
                 (1, 'error', 'main.c', 10, 'msg1'),
                 (2, 'warning', 'utils.c', 20, 'msg2'),
                 (3, 'error', 'test.c', 30, 'msg3')
-            ) AS t(event_id, severity, file_path, line_number, message)
+            ) AS t(event_id, severity, ref_file, ref_line, message)
         """)
         return LogQuery.from_table(conn, "events")
 
@@ -152,13 +152,13 @@ class TestLogQueryProjection:
 
     def test_order_by(self, query):
         """Order results."""
-        df = query.order_by("line_number").df()
-        assert list(df["line_number"]) == [10, 20, 30]
+        df = query.order_by("ref_line").df()
+        assert list(df["ref_line"]) == [10, 20, 30]
 
     def test_order_by_desc(self, query):
         """Order results descending."""
-        df = query.order_by("line_number", desc=True).df()
-        assert list(df["line_number"]) == [30, 20, 10]
+        df = query.order_by("ref_line", desc=True).df()
+        assert list(df["ref_line"]) == [30, 20, 10]
 
     def test_limit(self, query):
         """Limit results."""
@@ -169,13 +169,13 @@ class TestLogQueryProjection:
         """Combine filter, select, order, limit."""
         df = (
             query.filter(severity=["error", "warning"])
-            .select("file_path", "message")
-            .order_by("file_path")
+            .select("ref_file", "message")
+            .order_by("ref_file")
             .limit(2)
             .df()
         )
         assert len(df) == 2
-        assert list(df.columns) == ["file_path", "message"]
+        assert list(df.columns) == ["ref_file", "message"]
 
 
 class TestLogQueryAggregation:
@@ -192,7 +192,7 @@ class TestLogQueryAggregation:
                 (2, 'warning', 'main.c', 20),
                 (3, 'error', 'utils.c', 30),
                 (4, 'error', 'main.c', 40)
-            ) AS t(event_id, severity, file_path, line_number)
+            ) AS t(event_id, severity, ref_file, ref_line)
         """)
         return LogQuery.from_table(conn, "events")
 
@@ -206,12 +206,12 @@ class TestLogQueryAggregation:
 
     def test_group_by_count(self, query):
         """Group by and count."""
-        df = query.group_by("file_path").count()
+        df = query.group_by("ref_file").count()
         assert len(df) == 2
 
     def test_group_by_with_filter(self, query):
         """Group by with pre-filter."""
-        df = query.filter(severity="error").group_by("file_path").count()
+        df = query.filter(severity="error").group_by("ref_file").count()
         # Only errors grouped by file
         assert len(df) == 2
 
@@ -352,11 +352,11 @@ class TestLogStoreChaining:
         result = (
             store.events()
             .filter(severity="error")
-            .select("file_path", "message")
-            .order_by("file_path")
+            .select("ref_file", "message")
+            .order_by("ref_file")
             .limit(5)
             .df()
         )
 
         assert len(result) <= 5
-        assert list(result.columns) == ["file_path", "message"]
+        assert list(result.columns) == ["ref_file", "message"]

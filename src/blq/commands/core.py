@@ -66,13 +66,16 @@ class EventRef:
 
 @dataclass
 class EventSummary:
-    """Summary of a parsed event for structured output."""
+    """Summary of a parsed event for structured output.
+
+    Uses BIRD spec column names (ref_file, ref_line, ref_column).
+    """
 
     ref: str
     severity: str | None
-    file_path: str | None
-    line_number: int | None
-    column_number: int | None
+    ref_file: str | None
+    ref_line: int | None
+    ref_column: int | None
     message: str | None
     error_code: str | None = None
     fingerprint: str | None = None
@@ -84,13 +87,13 @@ class EventSummary:
 
     def location(self) -> str:
         """Format as file:line:col string."""
-        if not self.file_path:
+        if not self.ref_file:
             return "?"
-        loc = self.file_path
-        if self.line_number is not None:
-            loc += f":{self.line_number}"
-            if self.column_number and self.column_number > 0:
-                loc += f":{self.column_number}"
+        loc = self.ref_file
+        if self.ref_line is not None:
+            loc += f":{self.ref_line}"
+            if self.ref_column and self.ref_column > 0:
+                loc += f":{self.ref_column}"
         return loc
 
 
@@ -1213,10 +1216,10 @@ PARQUET_SCHEMA = [
     # Event identification
     ("event_id", "BIGINT"),
     ("severity", "VARCHAR"),
-    # Location
-    ("file_path", "VARCHAR"),
-    ("line_number", "BIGINT"),
-    ("column_number", "BIGINT"),
+    # Location (BIRD spec names)
+    ("ref_file", "VARCHAR"),
+    ("ref_line", "BIGINT"),
+    ("ref_column", "BIGINT"),
     # Content
     ("message", "VARCHAR"),
     ("raw_text", "VARCHAR"),
@@ -1330,7 +1333,10 @@ def parse_log_content(content: str, format_hint: str = "auto") -> list[dict[str,
         format_hint: Format hint for duck_hunt (default: "auto")
 
     Returns:
-        List of parsed events, or empty list if parsing unavailable
+        List of parsed events with BIRD spec column names:
+        - ref_file, ref_line, ref_column (location)
+        - severity, message, error_code (content)
+        - tool_name, category, fingerprint (metadata)
     """
     conn = duckdb.connect(":memory:")
 

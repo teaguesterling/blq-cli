@@ -140,9 +140,9 @@ ORDER BY started_at DESC;
 CREATE OR REPLACE MACRO blq_errors(n := 10) AS TABLE
 SELECT
     source_name,
-    file_path,
-    line_number,
-    column_number,
+    ref_file,
+    ref_line,
+    ref_column,
     LEFT(message, 200) AS message,
     tool_name,
     category
@@ -154,9 +154,9 @@ LIMIT n;
 -- Recent errors for a specific source
 CREATE OR REPLACE MACRO blq_errors_for(src, n := 10) AS TABLE
 SELECT
-    file_path,
-    line_number,
-    column_number,
+    ref_file,
+    ref_line,
+    ref_column,
     LEFT(message, 200) AS message,
     tool_name,
     category
@@ -169,9 +169,9 @@ LIMIT n;
 CREATE OR REPLACE MACRO blq_warnings(n := 10) AS TABLE
 SELECT
     source_name,
-    file_path,
-    line_number,
-    column_number,
+    ref_file,
+    ref_line,
+    ref_column,
     LEFT(message, 200) AS message,
     tool_name,
     category
@@ -225,14 +225,14 @@ SELECT * FROM blq_load_events() WHERE event_id = id;
 -- Get events for a specific file
 CREATE OR REPLACE MACRO blq_file(path) AS TABLE
 SELECT
-    line_number,
-    column_number,
+    ref_line,
+    ref_column,
     severity,
     message,
     tool_name
 FROM blq_load_events()
-WHERE file_path LIKE '%' || path || '%'
-ORDER BY line_number, column_number;
+WHERE ref_file LIKE '%' || path || '%'
+ORDER BY ref_line, ref_column;
 
 -- ============================================================================
 -- HISTORY MACROS
@@ -292,10 +292,10 @@ CREATE OR REPLACE MACRO blq_parse_ref(ref) AS {
 };
 
 -- Format location string: "src/main.c:15:5"
-CREATE OR REPLACE MACRO blq_location(file_path, line_number, column_number) AS
-    COALESCE(file_path, '?') ||
-    CASE WHEN line_number IS NOT NULL THEN ':' || line_number::VARCHAR ELSE '' END ||
-    CASE WHEN column_number IS NOT NULL AND column_number > 0 THEN ':' || column_number::VARCHAR ELSE '' END;
+CREATE OR REPLACE MACRO blq_location(ref_file, ref_line, ref_column) AS
+    COALESCE(ref_file, '?') ||
+    CASE WHEN ref_line IS NOT NULL THEN ':' || ref_line::VARCHAR ELSE '' END ||
+    CASE WHEN ref_column IS NOT NULL AND ref_column > 0 THEN ':' || ref_column::VARCHAR ELSE '' END;
 
 -- Short fingerprint for display: "make_98586554"
 CREATE OR REPLACE MACRO blq_short_fp(fp) AS
@@ -309,7 +309,7 @@ SELECT
     blq_ref(run_id, event_id) AS ref,
     source_name,
     severity,
-    blq_location(file_path, line_number, column_number) AS location,
+    blq_location(ref_file, ref_line, ref_column) AS location,
     message,
     fingerprint,
     log_line_start,
@@ -324,7 +324,7 @@ SELECT
     blq_ref(run_id, event_id) AS ref,
     source_name,
     started_at,
-    blq_location(file_path, line_number, column_number) AS location,
+    blq_location(ref_file, ref_line, ref_column) AS location,
     LEFT(message, 80) AS message
 FROM blq_load_events()
 WHERE fingerprint = fp
@@ -339,7 +339,7 @@ LIMIT n;
 CREATE OR REPLACE MACRO blq_errors_compact(n := 10) AS TABLE
 SELECT
     blq_ref(run_id, event_id) AS ref,
-    blq_location(file_path, line_number, column_number) || ': ' || LEFT(message, 100) AS error
+    blq_location(ref_file, ref_line, ref_column) || ': ' || LEFT(message, 100) AS error
 FROM blq_load_events()
 WHERE severity = 'error'
 ORDER BY started_at DESC, event_id
@@ -350,9 +350,9 @@ CREATE OR REPLACE MACRO blq_errors_json(n := 10) AS TABLE
 SELECT to_json(list(err)) AS json FROM (
     SELECT {
         ref: blq_ref(run_id, event_id),
-        file_path: file_path,
-        line: line_number,
-        col: column_number,
+        ref_file: ref_file,
+        line: ref_line,
+        col: ref_column,
         message: message,
         tool: tool_name,
         category: category,

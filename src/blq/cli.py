@@ -23,14 +23,14 @@ Usage:
 
 Query examples:
     blq q build.log                           # all events from file
-    blq q -s file_path,message build.log      # select columns
+    blq q -s ref_file,message build.log      # select columns
     blq q -f "severity='error'" build.log     # filter with SQL WHERE
     blq q -f "severity='error'"               # query stored events
 
 Filter examples:
     blq f severity=error build.log            # filter by exact match
     blq f severity=error,warning build.log    # OR within field
-    blq f file_path~main build.log            # contains (LIKE)
+    blq f ref_file~main build.log            # contains (LIKE)
     blq f severity!=info build.log            # not equal
     blq f -v severity=error build.log         # invert (grep -v style)
     blq f -c severity=error build.log         # count matches only

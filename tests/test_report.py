@@ -34,17 +34,17 @@ class TestFormatLocation:
 
     def test_with_file_and_line(self):
         """Format with file path and line number."""
-        error = {"file_path": "src/main.py", "line_number": 42}
+        error = {"ref_file": "src/main.py", "ref_line": 42}
         assert _format_location(error) == "src/main.py:42"
 
     def test_with_file_only(self):
         """Format with file path only."""
-        error = {"file_path": "src/main.py", "line_number": None}
+        error = {"ref_file": "src/main.py", "ref_line": None}
         assert _format_location(error) == "src/main.py"
 
     def test_without_file(self):
         """Format without file path."""
-        error = {"file_path": None, "line_number": 42}
+        error = {"ref_file": None, "ref_line": 42}
         assert _format_location(error) == "?"
 
 
@@ -121,13 +121,13 @@ class TestGenerateMarkdownReport:
             total_errors=5,
             total_warnings=2,
             errors_by_file=[
-                {"file_path": "src/main.py", "count": 3},
-                {"file_path": "src/utils.py", "count": 2},
+                {"ref_file": "src/main.py", "count": 3},
+                {"ref_file": "src/utils.py", "count": 2},
             ],
             top_errors=[
                 {
-                    "file_path": "src/main.py",
-                    "line_number": 10,
+                    "ref_file": "src/main.py",
+                    "ref_line": 10,
                     "message": "Undefined variable",
                     "error_code": "E001",
                 },
@@ -153,11 +153,11 @@ class TestGenerateMarkdownReport:
             baseline_errors=5,
             baseline_warnings=2,
             new_errors=[
-                {"file_path": "src/new.py", "line_number": 1, "message": "New error"},
+                {"ref_file": "src/new.py", "ref_line": 1, "message": "New error"},
             ],
             fixed_errors=[
-                {"file_path": "src/fixed.py", "line_number": 1, "message": "Fixed"},
-                {"file_path": "src/fixed2.py", "line_number": 2, "message": "Fixed 2"},
+                {"ref_file": "src/fixed.py", "ref_line": 1, "message": "Fixed"},
+                {"ref_file": "src/fixed2.py", "ref_line": 2, "message": "Fixed 2"},
             ],
         )
         result = _generate_markdown_report(data)
@@ -174,7 +174,7 @@ class TestGenerateMarkdownReport:
             run_id=1,
             total_errors=5,
             top_errors=[
-                {"file_path": "a.py", "line_number": 1, "message": "Error"},
+                {"ref_file": "a.py", "ref_line": 1, "message": "Error"},
             ],
         )
         result = _generate_markdown_report(data, include_details=False)
@@ -189,10 +189,10 @@ class TestGenerateMarkdownReport:
             total_errors=0,
             total_warnings=2,
             warnings_by_file=[
-                {"file_path": "src/main.py", "count": 2},
+                {"ref_file": "src/main.py", "count": 2},
             ],
             top_warnings=[
-                {"file_path": "src/main.py", "line_number": 5, "message": "Warning"},
+                {"ref_file": "src/main.py", "ref_line": 5, "message": "Warning"},
             ],
         )
         result = _generate_markdown_report(data, include_warnings=True)
@@ -224,15 +224,15 @@ class TestCollectReportData:
         })
 
         mock_errors = pd.DataFrame({
-            "file_path": ["a.py", "a.py", "b.py"],
-            "line_number": [1, 2, 3],
+            "ref_file": ["a.py", "a.py", "b.py"],
+            "ref_line": [1, 2, 3],
             "message": ["err1", "err2", "err3"],
             "fingerprint": ["fp1", "fp2", "fp3"],
         })
 
         mock_warnings = pd.DataFrame({
-            "file_path": ["c.py"],
-            "line_number": [1],
+            "ref_file": ["c.py"],
+            "ref_line": [1],
             "message": ["warn1"],
         })
 
@@ -284,7 +284,7 @@ class TestCmdReport:
             "git_commit": ["abc123"],
         })
 
-        mock_df = pd.DataFrame(columns=["file_path", "line_number", "message"])
+        mock_df = pd.DataFrame(columns=["ref_file", "ref_line", "message"])
 
         mock_query = MagicMock()
         mock_query.filter.return_value = mock_query
@@ -357,7 +357,7 @@ class TestCmdReport:
             "git_commit": ["abc123"],
         })
 
-        mock_df = pd.DataFrame(columns=["file_path", "line_number", "message"])
+        mock_df = pd.DataFrame(columns=["ref_file", "ref_line", "message"])
 
         mock_query = MagicMock()
         mock_query.filter.return_value = mock_query
@@ -399,7 +399,7 @@ class TestCmdReport:
             "git_commit": ["abc123"],
         })
 
-        mock_df = pd.DataFrame(columns=["file_path", "line_number", "message"])
+        mock_df = pd.DataFrame(columns=["ref_file", "ref_line", "message"])
 
         mock_query = MagicMock()
         mock_query.filter.return_value = mock_query

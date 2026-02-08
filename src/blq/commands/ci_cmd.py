@@ -178,13 +178,13 @@ def _compute_diff(store, baseline_id: int | None, current_id: int | None) -> Dif
 
 def _format_location(error: dict) -> str:
     """Format error location as file:line string."""
-    file_path = error.get("file_path")
-    if not file_path:
+    ref_file = error.get("ref_file")
+    if not ref_file:
         return "?"
-    line_number = error.get("line_number")
-    if line_number:
-        return f"{file_path}:{line_number}"
-    return str(file_path)
+    ref_line = error.get("ref_line")
+    if ref_line:
+        return f"{ref_file}:{ref_line}"
+    return str(ref_file)
 
 
 def _format_pr_comment(diff: DiffResult, include_fixed: bool = True) -> str:
@@ -269,8 +269,8 @@ def _format_json_output(diff: DiffResult) -> str:
         "delta": diff.delta,
         "new_errors": [
             {
-                "file_path": e.get("file_path"),
-                "line_number": e.get("line_number"),
+                "ref_file": e.get("ref_file"),
+                "ref_line": e.get("ref_line"),
                 "message": e.get("message"),
                 "error_code": e.get("error_code"),
                 "fingerprint": e.get("fingerprint"),
@@ -279,8 +279,8 @@ def _format_json_output(diff: DiffResult) -> str:
         ],
         "fixed": [
             {
-                "file_path": e.get("file_path"),
-                "line_number": e.get("line_number"),
+                "ref_file": e.get("ref_file"),
+                "ref_line": e.get("ref_line"),
                 "message": e.get("message"),
                 "fingerprint": e.get("fingerprint"),
             }
