@@ -208,7 +208,7 @@ This is the recommended starting point - you can see errors with their surroundi
 |------|---------|
 | `register_command(name, cmd, run_now)` | Register and optionally run a command |
 | `unregister_command(name)` | Remove a command |
-| `reset(mode, confirm)` | Clear data or reinitialize |
+| `clean(mode, confirm, days)` | Database cleanup (data, prune, schema, full) |
 
 ### Batch Mode
 
@@ -296,12 +296,13 @@ This is the recommended pattern for agents - it ensures clean refs while being e
 - Skip checking existing results - the user may have already run the build
 - Call `events()` then `inspect()` for each error - use `info(context=N)` instead
 
-## Resetting State
+## Cleaning Up
 
 ```python
-blq.reset(mode="data", confirm=True)    # Clear runs, keep commands
-blq.reset(mode="schema", confirm=True)  # Recreate database
-blq.reset(mode="full", confirm=True)    # Full reinitialize
+blq.clean(mode="data", confirm=True)              # Clear runs, keep commands
+blq.clean(mode="prune", days=30, confirm=True)    # Remove data older than 30 days
+blq.clean(mode="schema", confirm=True)            # Recreate database
+blq.clean(mode="full", confirm=True)              # Full reinitialize
 ```
 
 ## Example: Collaborative Debugging Session

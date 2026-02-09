@@ -594,6 +594,43 @@ def main() -> None:
     )
     p_migrate.set_defaults(func=cmd_migrate)
 
+    # clean (database cleanup and maintenance)
+    p_clean = subparsers.add_parser("clean", help="Database cleanup and maintenance")
+    clean_subparsers = p_clean.add_subparsers(dest="clean_command", help="Cleanup mode")
+
+    # clean data - clear run data, keep config
+    p_clean_data = clean_subparsers.add_parser("data", help="Clear run data, keep config and commands")
+    p_clean_data.add_argument(
+        "--confirm", "-y", action="store_true", help="Confirm destructive operation"
+    )
+
+    # clean prune - remove old data
+    p_clean_prune = clean_subparsers.add_parser("prune", help="Remove data older than N days")
+    p_clean_prune.add_argument(
+        "--days", "-d", type=int, required=True, help="Remove data older than N days"
+    )
+    p_clean_prune.add_argument(
+        "--confirm", "-y", action="store_true", help="Confirm destructive operation"
+    )
+    p_clean_prune.add_argument(
+        "--dry-run", "-n", action="store_true", help="Show what would be removed without removing"
+    )
+
+    # clean schema - recreate database schema
+    p_clean_schema = clean_subparsers.add_parser("schema", help="Recreate database schema")
+    p_clean_schema.add_argument(
+        "--confirm", "-y", action="store_true", help="Confirm destructive operation"
+    )
+
+    # clean full - full reset
+    p_clean_full = clean_subparsers.add_parser("full", help="Delete and recreate .lq directory")
+    p_clean_full.add_argument(
+        "--confirm", "-y", action="store_true", help="Confirm destructive operation"
+    )
+
+    from blq.commands.clean_cmd import cmd_clean
+    p_clean.set_defaults(func=cmd_clean)
+
     # query (with alias 'q')
     p_query = subparsers.add_parser("query", aliases=["q"], help="Query log files or stored events")
     p_query.add_argument("files", nargs="*", help="Log file(s) to query (omit for stored data)")

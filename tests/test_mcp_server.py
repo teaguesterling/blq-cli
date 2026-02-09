@@ -873,32 +873,32 @@ class TestBatchModes:
             assert result["commands_run"] == 0
 
 
-class TestResetTool:
-    """Tests for the reset tool."""
+class TestCleanTool:
+    """Tests for the clean tool."""
 
     @pytest.mark.asyncio
-    async def test_reset_requires_confirm(self, mcp_server):
-        """Reset requires confirm=true."""
+    async def test_clean_requires_confirm(self, mcp_server):
+        """Clean requires confirm=true."""
         async with Client(mcp_server) as client:
-            raw = await client.call_tool("reset", {"mode": "data"})
+            raw = await client.call_tool("clean", {"mode": "data"})
             result = get_data(raw)
 
             assert result["success"] is False
             assert "confirm" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_reset_invalid_mode(self, mcp_server):
-        """Invalid reset mode returns error."""
+    async def test_clean_invalid_mode(self, mcp_server):
+        """Invalid clean mode returns error."""
         async with Client(mcp_server) as client:
-            raw = await client.call_tool("reset", {"mode": "invalid", "confirm": True})
+            raw = await client.call_tool("clean", {"mode": "invalid", "confirm": True})
             result = get_data(raw)
 
             assert result["success"] is False
             assert "invalid" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_reset_data_clears_runs(self, mcp_server_empty, sample_build_script):
-        """Reset data clears run data."""
+    async def test_clean_data_clears_runs(self, mcp_server_empty, sample_build_script):
+        """Clean data clears run data."""
         async with Client(mcp_server_empty) as client:
             # Create some data
             await client.call_tool("exec", {"command": str(sample_build_script)})
@@ -908,10 +908,10 @@ class TestResetTool:
             history = get_data(history_raw)
             assert len(history["runs"]) > 0
 
-            # Reset data
-            reset_raw = await client.call_tool("reset", {"mode": "data", "confirm": True})
-            reset = get_data(reset_raw)
-            assert reset["success"] is True
+            # Clean data
+            clean_raw = await client.call_tool("clean", {"mode": "data", "confirm": True})
+            clean = get_data(clean_raw)
+            assert clean["success"] is True
 
             # Verify data is cleared
             history_raw = await client.call_tool("history", {})

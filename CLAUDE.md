@@ -41,6 +41,9 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **Inspect command** with dual context (log + source)
 - **Consolidated MCP tools** (reduced from 22 to 12 tools)
 - **CLI command subgroups** (`blq commands list/register/unregister`)
+- **Clean command** (`blq clean data/prune/schema/full`) for database maintenance
+- **Timeout handling** for command execution with partial output capture
+- **Verbose mode** (`-v`) for run/exec with summary output
 - Full mypy type checking compliance
 - 431 unit tests
 - Comprehensive documentation (README, docs/)
@@ -48,9 +51,8 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 ### TODO
 - [ ] Implement sync feature (see `docs/design-sync.md`) - Issue #21
 - [ ] Consider integration with duckdb_mcp for ATTACH/DETACH workflow
-- [ ] Rename `reset` to `clean` with modes: archive, prune, reset
-- [ ] Handle command timeouts properly (create invocation record before execution)
 - [ ] Running process tracking (pending BIRD spec)
+- [ ] Blob cleanup in prune mode (track orphaned content-addressed blobs)
 
 ## Architecture
 
@@ -251,7 +253,7 @@ blq mcp serve --transport sse  # SSE transport
 | `commands` | List all registered commands |
 | `register_command` | Register a command (idempotent, with run_now option) |
 | `unregister_command` | Remove a registered command |
-| `reset` | Reset database (modes: data, schema, full) |
+| `clean` | Database cleanup (modes: data, prune, schema, full) |
 
 ### MCP Security
 
@@ -259,12 +261,12 @@ Disable sensitive tools via `.lq/config.yaml`:
 ```yaml
 mcp:
   disabled_tools:
-    - reset
+    - clean
     - register_command
     - unregister_command
 ```
 
-Or via environment: `BLQ_MCP_DISABLED_TOOLS=reset`
+Or via environment: `BLQ_MCP_DISABLED_TOOLS=clean`
 
 ### MCP Resources
 
@@ -376,5 +378,5 @@ source_lookup:
 
 mcp:
   disabled_tools:             # Security: disable sensitive tools
-    - reset
+    - clean
 ```

@@ -2056,15 +2056,17 @@ def commands() -> dict[str, Any]:
     return _commands_impl()
 
 
-def _reset_impl(
+def _clean_impl(
     mode: str = "data",
     confirm: bool = False,
+    days: int | None = None,
 ) -> dict[str, Any]:
-    """Implementation of reset command."""
+    """Implementation of clean command."""
     import shutil
+    from datetime import datetime, timedelta
     from pathlib import Path
 
-    valid_modes = ["data", "full", "schema"]
+    valid_modes = ["data", "prune", "schema", "full"]
 
     if mode not in valid_modes:
         return {
@@ -2072,13 +2074,20 @@ def _reset_impl(
             "error": f"Invalid mode '{mode}'. Valid modes: {', '.join(valid_modes)}",
         }
 
+    if mode == "prune" and days is None:
+        return {
+            "success": False,
+            "error": "Prune mode requires 'days' parameter",
+        }
+
     if not confirm:
         return {
             "success": False,
-            "error": "Reset requires confirm=true to proceed. This is a destructive operation.",
+            "error": "Clean requires confirm=true to proceed. This is a destructive operation.",
             "mode": mode,
             "description": {
                 "data": "Clear run data but keep config and commands",
+                "prune": f"Remove data older than {days} days",
                 "schema": "Recreate database schema (clears data, keeps config)",
                 "full": "Delete and recreate entire .lq directory",
             }.get(mode, "Unknown mode"),
@@ -2120,6 +2129,75 @@ def _reset_impl(
                 "success": True,
                 "message": "Cleared all run data. Config and commands preserved.",
                 "mode": mode,
+            }
+
+        elif mode == "prune":
+            # Remove data older than N days
+            cutoff = datetime.now() - timedelta(days=days)
+            cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
+
+            db_path = lq_dir / "blq.duckdb"
+            if not db_path.exists():
+                return {"success": False, "error": "No database found", "mode": mode}
+
+            import duckdb
+            conn = duckdb.connect(str(db_path))
+
+            # Count what will be removed
+            result = conn.execute(
+                "SELECT COUNT(*) FROM invocations WHERE timestamp < ?", [cutoff_str]
+            ).fetchone()
+            invocation_count = result[0] if result else 0
+
+            if invocation_count == 0:
+                conn.close()
+                return {
+                    "success": True,
+                    "message": f"No data older than {days} days found.",
+                    "mode": mode,
+                    "removed": {"invocations": 0, "events": 0},
+                }
+
+            result = conn.execute("""
+                SELECT COUNT(*) FROM events e
+                JOIN invocations i ON e.invocation_id = i.id
+                WHERE i.timestamp < ?
+            """, [cutoff_str]).fetchone()
+            event_count = result[0] if result else 0
+
+            # Delete events first
+            conn.execute("""
+                DELETE FROM events WHERE invocation_id IN (
+                    SELECT id FROM invocations WHERE timestamp < ?
+                )
+            """, [cutoff_str])
+
+            # Delete outputs
+            conn.execute("""
+                DELETE FROM outputs WHERE invocation_id IN (
+                    SELECT id FROM invocations WHERE timestamp < ?
+                )
+            """, [cutoff_str])
+
+            # Delete invocations
+            conn.execute("DELETE FROM invocations WHERE timestamp < ?", [cutoff_str])
+
+            # Clean up orphaned sessions
+            conn.execute("""
+                DELETE FROM sessions WHERE id NOT IN (
+                    SELECT DISTINCT session_id FROM invocations WHERE session_id IS NOT NULL
+                )
+            """)
+
+            conn.close()
+
+            # TODO: Clean up orphaned blobs
+
+            return {
+                "success": True,
+                "message": f"Removed data older than {days} days.",
+                "mode": mode,
+                "removed": {"invocations": invocation_count, "events": event_count},
             }
 
         elif mode == "schema":
@@ -2176,26 +2254,29 @@ def _reset_impl(
 
 
 @mcp.tool()
-def reset(
+def clean(
     mode: str = "data",
     confirm: bool = False,
+    days: int | None = None,
 ) -> dict[str, Any]:
-    """Reset or reinitialize the blq database.
+    """Database cleanup and maintenance.
 
     Note: This tool can be disabled via mcp.disabled_tools config.
 
     Args:
-        mode: Reset level:
+        mode: Cleanup mode:
             - "data": Clear all run data but keep config and commands
+            - "prune": Remove data older than N days (requires `days` param)
             - "schema": Recreate database schema (clears data, keeps config files)
             - "full": Delete and recreate entire .lq directory
         confirm: Must be true to proceed (safety check)
+        days: For prune mode, remove data older than this many days
 
     Returns:
         Success status and message
     """
-    _check_tool_enabled("reset")
-    return _reset_impl(mode, confirm)
+    _check_tool_enabled("clean")
+    return _clean_impl(mode, confirm, days)
 
 
 
