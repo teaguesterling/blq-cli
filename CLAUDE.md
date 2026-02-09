@@ -49,9 +49,23 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - Comprehensive documentation (README, docs/)
 
 ### TODO
+
+**Features:**
 - [ ] Implement sync feature (see `docs/design-sync.md`) - Issue #21
+- [ ] Add `--disabled-tools` parameter to `blq mcp serve` command
+- [ ] Parameterized commands (avoid duplicate commands for variations like test subsets)
+- [ ] Plugin system for adding commands or extra fields to existing commands
+
+**Architecture:**
+- [ ] Refactor MCP and CLI command processors into unified service layer
 - [ ] Consider integration with duckdb_mcp for ATTACH/DETACH workflow
+
+**BIRD Spec:**
+- [ ] Migrate from `.lq/` to `.bird/` directory (pending spec finalization)
 - [ ] Running process tracking (pending BIRD spec)
+- [ ] Migrate to updated BIRD spec (when ready)
+
+**Maintenance:**
 - [ ] Blob cleanup in prune mode (track orphaned content-addressed blobs)
 
 ## Architecture
