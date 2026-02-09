@@ -210,18 +210,27 @@ class BirdStore:
         return cls(lq_dir, conn)
 
     @classmethod
-    def _ensure_schema(cls, conn: duckdb.DuckDBPyConnection, lq_dir: Path) -> None:
-        """Ensure BIRD schema is initialized."""
-        # Check if schema is already initialized
-        try:
-            result = conn.execute(
-                "SELECT value FROM blq_metadata WHERE key = 'schema_version'"
-            ).fetchone()
-            if result:
-                # Schema exists
-                return
-        except duckdb.Error:
-            pass  # Table doesn't exist, need to create
+    def _ensure_schema(
+        cls, conn: duckdb.DuckDBPyConnection, lq_dir: Path, force: bool = False
+    ) -> None:
+        """Ensure BIRD schema is initialized.
+
+        Args:
+            conn: DuckDB connection
+            lq_dir: Path to .lq directory
+            force: If True, reload schema even if it exists (for reinit)
+        """
+        # Check if schema is already initialized (skip on force)
+        if not force:
+            try:
+                result = conn.execute(
+                    "SELECT value FROM blq_metadata WHERE key = 'schema_version'"
+                ).fetchone()
+                if result:
+                    # Schema exists
+                    return
+            except duckdb.Error:
+                pass  # Table doesn't exist, need to create
 
         # Load schema from SQL file
         schema_path = Path(__file__).parent / "bird_schema.sql"

@@ -328,6 +328,7 @@ SELECT
     COUNT(e.id) AS event_count,
     COUNT(e.id) FILTER (WHERE e.severity = 'error') AS error_count,
     COUNT(e.id) FILTER (WHERE e.severity = 'warning') AS warning_count,
+    COUNT(e.id) FILTER (WHERE e.severity = 'info') AS info_count,
     i.date AS log_date
 FROM invocations i
 LEFT JOIN events e ON e.invocation_id = i.id
@@ -342,6 +343,7 @@ SELECT
     blq_status_badge(error_count, warning_count) AS badge,
     error_count,
     warning_count,
+    info_count,
     event_count,
     started_at,
     completed_at,
@@ -355,9 +357,12 @@ ORDER BY source_name;
 -- Quick status overview
 CREATE OR REPLACE MACRO blq_status() AS TABLE
 SELECT
-    badge || ' ' || source_name AS status,
-    error_count AS errors,
-    warning_count AS warnings,
+    badge,
+    source_name,
+    error_count,
+    warning_count,
+    info_count,
+    event_count,
     age(now(), started_at::TIMESTAMP) AS age
 FROM blq_load_source_status()
 ORDER BY
@@ -404,8 +409,10 @@ SELECT
     run_id,
     blq_status_badge(error_count, warning_count) AS badge,
     source_name,
+    event_count,
     error_count,
     warning_count,
+    info_count,
     started_at,
     age(completed_at::TIMESTAMP, started_at::TIMESTAMP) AS duration
 FROM blq_load_runs()

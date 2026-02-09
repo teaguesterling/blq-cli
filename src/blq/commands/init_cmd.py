@@ -730,7 +730,7 @@ def _create_placeholder_parquet(lq_dir: Path) -> None:
     conn.close()
 
 
-def _create_database(lq_dir: Path, use_bird: bool = False) -> bool:
+def _create_database(lq_dir: Path, use_bird: bool = False, force: bool = False) -> bool:
     """Create blq.duckdb with schema macros.
 
     The schema uses table-returning macros (e.g., blq_load_events()) which
@@ -740,6 +740,7 @@ def _create_database(lq_dir: Path, use_bird: bool = False) -> bool:
     Args:
         lq_dir: Path to .lq directory
         use_bird: If True, create BIRD schema instead of parquet schema
+        force: If True, reload schema even if it exists (for reinit)
 
     Returns:
         True if database was created/updated successfully
@@ -751,7 +752,7 @@ def _create_database(lq_dir: Path, use_bird: bool = False) -> bool:
     try:
         if use_bird:
             # BIRD mode: use BirdStore to create schema
-            BirdStore._ensure_schema(duckdb.connect(str(db_path)), lq_dir)
+            BirdStore._ensure_schema(duckdb.connect(str(db_path)), lq_dir, force=force)
             return True
 
         # Legacy parquet mode: Load schema SQL
@@ -774,20 +775,41 @@ def _create_database(lq_dir: Path, use_bird: bool = False) -> bool:
 
 def _reinit_config_files(lq_dir: Path, args: argparse.Namespace) -> None:
     """Reinitialize configuration files (schema, config, commands, database)."""
+    import duckdb
+
+    # Detect storage mode from existing database
+    db_path = lq_dir / DB_FILE
+    use_bird = False
+    if db_path.exists():
+        try:
+            conn = duckdb.connect(str(db_path), read_only=True)
+            result = conn.execute(
+                "SELECT value FROM blq_metadata WHERE key = 'storage_mode'"
+            ).fetchone()
+            use_bird = result and result[0] == "duckdb"
+            conn.close()
+        except Exception:
+            # Check for blobs directory as fallback
+            use_bird = (lq_dir / "blobs").exists()
+
     # Update schema file (human-readable reference)
     try:
-        schema_content = resources.files("blq").joinpath("schema.sql").read_text()
+        schema_file = "bird_schema.sql" if use_bird else "schema.sql"
+        schema_content = resources.files("blq").joinpath(schema_file).read_text()
         (lq_dir / SCHEMA_FILE).write_text(schema_content)
         print(f"  Updated {SCHEMA_FILE}")
     except Exception as e:
         print(f"  Warning: Could not update schema.sql: {e}", file=sys.stderr)
 
-    # Ensure placeholder parquet exists (required for schema macros)
-    _create_placeholder_parquet(lq_dir)
-
-    # Update database with schema
-    if _create_database(lq_dir):
-        print(f"  Updated {DB_FILE}")
+    # Update database with schema (force=True to reload macros)
+    if use_bird:
+        if _create_database(lq_dir, use_bird=True, force=True):
+            print(f"  Updated {DB_FILE}")
+    else:
+        # Ensure placeholder parquet exists (required for schema macros)
+        _create_placeholder_parquet(lq_dir)
+        if _create_database(lq_dir, force=True):
+            print(f"  Updated {DB_FILE}")
 
     # Update config with project info
     project_info = detect_project_info()
