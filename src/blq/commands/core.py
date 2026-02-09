@@ -475,6 +475,12 @@ class BlqConfig:
     # MCP configuration (private, access via mcp_config property)
     _mcp_config: dict | None = field(default=None, repr=False)
 
+    # Source lookup configuration (private, access via source_lookup_* properties)
+    _source_lookup: dict | None = field(default=None, repr=False)
+
+    # Storage configuration (private, access via storage_* properties)
+    _storage_config: dict | None = field(default=None, repr=False)
+
     # Computed paths
     @property
     def logs_dir(self) -> Path:
@@ -595,6 +601,60 @@ class BlqConfig:
             else:
                 self._mcp_config = {}
         return self._mcp_config
+
+    @property
+    def source_lookup_enabled(self) -> bool:
+        """Whether source file lookup is enabled for inspect command.
+
+        Returns:
+            True if source lookup is enabled (default: True)
+        """
+        self._ensure_source_lookup_loaded()
+        return self._source_lookup.get("enabled", True)  # type: ignore[union-attr]
+
+    @property
+    def ref_root(self) -> Path:
+        """Root path for resolving ref_file paths in source lookup.
+
+        Returns:
+            Path to root directory (default: current working directory)
+        """
+        self._ensure_source_lookup_loaded()
+        root = self._source_lookup.get("ref_root", ".")  # type: ignore[union-attr]
+        return Path(root)
+
+    def _ensure_source_lookup_loaded(self) -> None:
+        """Load source_lookup config if not already loaded."""
+        if self._source_lookup is None:
+            if self.config_path.exists():
+                with open(self.config_path) as f:
+                    data = yaml.safe_load(f) or {}
+                self._source_lookup = data.get("source_lookup", {})
+            else:
+                self._source_lookup = {}
+
+    @property
+    def keep_raw(self) -> bool:
+        """Whether to always keep raw output in BIRD storage.
+
+        When True, raw command output is stored for all runs, enabling
+        log context display in inspect/event commands.
+
+        Returns:
+            True if keep_raw is enabled (default: False)
+        """
+        self._ensure_storage_config_loaded()
+        return self._storage_config.get("keep_raw", False)  # type: ignore[union-attr]
+
+    def _ensure_storage_config_loaded(self) -> None:
+        """Load storage config if not already loaded."""
+        if self._storage_config is None:
+            if self.config_path.exists():
+                with open(self.config_path) as f:
+                    data = yaml.safe_load(f) or {}
+                self._storage_config = data.get("storage", {})
+            else:
+                self._storage_config = {}
 
     @classmethod
     def find(cls, start_dir: Path | None = None) -> BlqConfig | None:

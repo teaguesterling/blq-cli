@@ -61,7 +61,7 @@ def _execute_command(
     config: BlqConfig,
     format_hint: str = "auto",
     quiet: bool = False,
-    keep_raw: bool = False,
+    keep_raw: bool | None = None,
     error_limit: int = 50,
     session_id: str | None = None,
     capture_env_vars: list[str] | None = None,
@@ -79,7 +79,7 @@ def _execute_command(
         config: BlqConfig with project settings
         format_hint: Log format hint for parsing
         quiet: If True, don't stream command output
-        keep_raw: If True, save raw log output
+        keep_raw: If True, save raw log output. If None, uses config.keep_raw setting.
         error_limit: Maximum number of errors to include in result
         session_id: Optional session ID for grouping related runs (watch mode)
         capture_env_vars: Environment variables to capture (default: config.capture_env)
@@ -87,6 +87,9 @@ def _execute_command(
     Returns:
         RunResult with execution details and parsed events
     """
+    # Resolve keep_raw from config if not explicitly set
+    if keep_raw is None:
+        keep_raw = config.keep_raw
     lq_dir = config.lq_dir
 
     if capture_env_vars is None:
@@ -455,7 +458,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         config=config,
         format_hint=format_hint,
         quiet=quiet,
-        keep_raw=args.keep_raw or structured_output,
+        keep_raw=True if (args.keep_raw or structured_output) else None,
         error_limit=args.error_limit,
         capture_env_vars=capture_env_vars,
     )
@@ -536,7 +539,7 @@ def cmd_exec(args: argparse.Namespace) -> None:
         config=config,
         format_hint=args.format,
         quiet=quiet,
-        keep_raw=args.keep_raw or structured_output,
+        keep_raw=True if (args.keep_raw or structured_output) else None,
         error_limit=args.error_limit,
     )
 

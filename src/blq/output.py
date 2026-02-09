@@ -145,6 +145,7 @@ HISTORY_COLUMNS = [
 ERRORS_COLUMNS = [
     Column("source_name", "Source", min_width=6, max_width=12, priority=0),
     Column("ref", "Ref", min_width=10, max_width=18, priority=0, truncate=False),
+    Column("code", "Code", min_width=4, max_width=12, priority=2),
     Column("severity", "Sev", min_width=5, max_width=7, priority=1),
     Column("location", "Location", min_width=15, max_width=30, priority=0, truncate_left=True),
     Column("message", "Message", min_width=15, max_width=50, priority=1),
@@ -485,11 +486,14 @@ def format_errors(
     if output_format == "json":
         return format_json(data)
 
-    # Preprocess: add combined location column
+    # Preprocess: add combined location column and normalize code field
     processed = []
     for row in data:
         new_row = dict(row)
         new_row["location"] = format_file_location(row)
+        # Normalize code field (can come from code, rule, or error_code)
+        code = row.get("code") or row.get("rule") or row.get("error_code")
+        new_row["code"] = code if code else ""
         processed.append(new_row)
 
     if output_format == "markdown":
@@ -507,16 +511,26 @@ def format_status(
     if output_format == "json":
         return format_json(data)
 
-    # Transform data to add computed counts field
+    # Transform data to add computed counts field with unique counts
     processed = []
     for row in data:
         new_row = dict(row)
         errors = row.get("error_count") or row.get("errors") or 0
         warnings = row.get("warning_count") or row.get("warnings") or 0
+        unique_errors = row.get("unique_error_count")
+        unique_warnings = row.get("unique_warning_count")
+
         if errors == 0 and warnings == 0:
             new_row["counts"] = "✓"
         else:
-            new_row["counts"] = f"{errors}/{warnings}"
+            # Show unique count if different from total: "3 (2)" means 3 errors, 2 unique
+            error_str = str(errors)
+            if unique_errors is not None and unique_errors != errors:
+                error_str = f"{errors}({unique_errors})"
+            warning_str = str(warnings)
+            if unique_warnings is not None and unique_warnings != warnings:
+                warning_str = f"{warnings}({unique_warnings})"
+            new_row["counts"] = f"{error_str}/{warning_str}"
         processed.append(new_row)
 
     if output_format == "markdown":
@@ -715,12 +729,67 @@ def print_output(
     print(output, file=file)
 
 
+def read_source_context(
+    ref_file: str,
+    ref_line: int,
+    ref_root: Any = None,
+    context: int = 5,
+) -> str | None:
+    """Read source file and return formatted context lines around ref_line.
+
+    Args:
+        ref_file: Path to source file (relative or absolute)
+        ref_line: 1-indexed line number of interest
+        ref_root: Root path for resolving relative paths (default: current dir)
+        context: Number of context lines before/after
+
+    Returns:
+        Formatted context string with line numbers and markers, or None if file not found
+    """
+    from pathlib import Path
+
+    if ref_root is None:
+        ref_root = Path.cwd()
+    else:
+        ref_root = Path(ref_root)
+
+    # Try to resolve the file path
+    file_path = ref_root / ref_file
+    if not file_path.exists():
+        # Try absolute path
+        abs_path = Path(ref_file)
+        if abs_path.exists():
+            file_path = abs_path
+        else:
+            return None
+
+    try:
+        content = file_path.read_text(errors="replace")
+        lines = content.splitlines()
+
+        if ref_line < 1 or ref_line > len(lines):
+            return None
+
+        # Format context around the line
+        return format_context(
+            lines,
+            ref_line,
+            ref_line,
+            context=context,
+            ref=None,
+            header=f"Source: {ref_file}:{ref_line}",
+        )
+    except (OSError, IOError):
+        return None
+
+
 def format_context(
     lines: list[str],
     log_line_start: int,
     log_line_end: int,
     context: int = 5,
     ref: str | None = None,
+    header: str | None = None,
 ) -> str:
     """Format log context around an event.
 
@@ -729,7 +798,8 @@ def format_context(
         log_line_start: 1-indexed start line of the event
         log_line_end: 1-indexed end line of the event
         context: Number of context lines before/after
-        ref: Optional event reference for header
+        ref: Optional event reference for header (deprecated, use header)
+        header: Optional custom header text
 
     Returns:
         Formatted context string with line numbers and markers
@@ -740,9 +810,13 @@ def format_context(
     output_lines = []
 
     # Header
-    if ref:
+    if header:
+        output_lines.append(header)
+    elif ref:
         output_lines.append(f"Context for event {ref} (lines {start + 1}-{end}):")
-    output_lines.append("-" * 60)
+
+    if output_lines:
+        output_lines.append("-" * 60)
 
     # Context lines with markers
     for i in range(start, end):

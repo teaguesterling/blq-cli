@@ -329,6 +329,8 @@ SELECT
     COUNT(e.id) FILTER (WHERE e.severity = 'error') AS error_count,
     COUNT(e.id) FILTER (WHERE e.severity = 'warning') AS warning_count,
     COUNT(e.id) FILTER (WHERE e.severity = 'info') AS info_count,
+    COUNT(DISTINCT e.fingerprint) FILTER (WHERE e.severity = 'error') AS unique_error_count,
+    COUNT(DISTINCT e.fingerprint) FILTER (WHERE e.severity = 'warning') AS unique_warning_count,
     i.date AS log_date
 FROM invocations i
 LEFT JOIN events e ON e.invocation_id = i.id
@@ -345,6 +347,8 @@ SELECT
     warning_count,
     info_count,
     event_count,
+    unique_error_count,
+    unique_warning_count,
     started_at,
     completed_at,
     exit_code,
@@ -363,6 +367,8 @@ SELECT
     warning_count,
     info_count,
     event_count,
+    unique_error_count,
+    unique_warning_count,
     age(now(), started_at::TIMESTAMP) AS age
 FROM blq_load_source_status()
 ORDER BY

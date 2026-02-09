@@ -66,6 +66,7 @@ from blq.commands import (
     cmd_import,
     cmd_info,
     cmd_init,
+    cmd_inspect,
     cmd_migrate,
     cmd_prune,
     cmd_query,
@@ -122,6 +123,7 @@ __all__ = [
     "cmd_history",
     "cmd_import",
     "cmd_init",
+    "cmd_inspect",
     "cmd_prune",
     "cmd_query",
     "cmd_register",
@@ -462,6 +464,17 @@ def main() -> None:
         "--lines", "-n", type=int, default=3, help="Context lines before/after (default: 3)"
     )
     p_context.set_defaults(func=cmd_context)
+
+    # inspect
+    p_inspect = subparsers.add_parser(
+        "inspect", help="Show comprehensive event details with dual context"
+    )
+    p_inspect.add_argument("ref", help="Event reference (e.g., test:24:1)")
+    p_inspect.add_argument(
+        "--lines", "-n", type=int, default=5, help="Context lines before/after (default: 5)"
+    )
+    p_inspect.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_inspect.set_defaults(func=cmd_inspect)
 
     # commands
     p_commands = subparsers.add_parser("commands", help="List registered commands")

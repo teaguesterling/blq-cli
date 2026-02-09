@@ -760,6 +760,99 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
         return {"error": f"Event not found: {e}"}
 
 
+def _inspect_impl(ref: str, lines: int = 5) -> dict[str, Any]:
+    """Implementation of inspect command.
+
+    Returns comprehensive event details with both log context and source context.
+    Source context is only included when source_lookup is enabled in config.
+
+    Args:
+        ref: Event reference in format "tag:serial:event" or "serial:event"
+        lines: Lines of context before/after (default: 5)
+
+    Returns:
+        Event details with log_context and source_context fields
+    """
+    from blq.cli import BlqConfig
+    from blq.output import read_source_context
+
+    try:
+        tag, run_serial, event_id = _parse_ref(ref)
+        storage = _get_storage()
+
+        # Build query using run_serial and event_id
+        if tag is not None:
+            where = f"tag = '{tag}' AND run_serial = {run_serial} AND event_id = {event_id}"
+        else:
+            where = f"run_serial = {run_serial} AND event_id = {event_id}"
+
+        result = storage.sql(f"SELECT * FROM blq_load_events() WHERE {where}").fetchone()
+
+        if result is None:
+            return {"error": f"Event {ref} not found"}
+
+        columns = storage.sql("SELECT * FROM blq_load_events() LIMIT 0").columns
+        event_data = dict(zip(columns, result))
+
+        # Build response
+        response: dict[str, Any] = {
+            "ref": _to_json_safe(event_data.get("ref")),
+            "run_ref": _to_json_safe(event_data.get("run_ref")),
+            "severity": _to_json_safe(event_data.get("severity")),
+            "ref_file": _to_json_safe(event_data.get("ref_file")),
+            "ref_line": _safe_int(event_data.get("ref_line")),
+            "ref_column": _safe_int(event_data.get("ref_column")),
+            "message": _to_json_safe(event_data.get("message")),
+            "tool_name": _to_json_safe(event_data.get("tool_name")),
+            "category": _to_json_safe(event_data.get("category")),
+            "code": _to_json_safe(event_data.get("code") or event_data.get("rule")),
+            "fingerprint": _to_json_safe(event_data.get("fingerprint")),
+        }
+
+        # Log context
+        log_line_start = event_data.get("log_line_start")
+        log_line_end = event_data.get("log_line_end") or log_line_start
+        log_context = None
+
+        if log_line_start is not None:
+            output_bytes = storage.get_output(run_serial)
+            if output_bytes is not None:
+                try:
+                    content = output_bytes.decode("utf-8", errors="replace")
+                except Exception:
+                    content = output_bytes.decode("latin-1")
+                log_lines = content.splitlines()
+                log_context = format_context(
+                    log_lines,
+                    log_line_start,
+                    log_line_end,
+                    context=lines,
+                    header=f"Line {log_line_start}",
+                )
+
+        response["log_context"] = log_context
+
+        # Source context (if enabled)
+        source_context = None
+        config = BlqConfig.find()
+        if config is not None and config.source_lookup_enabled:
+            ref_file = event_data.get("ref_file")
+            ref_line = event_data.get("ref_line")
+            if ref_file and ref_line:
+                source_context = read_source_context(
+                    ref_file,
+                    ref_line,
+                    ref_root=config.ref_root,
+                    context=lines,
+                )
+
+        response["source_context"] = source_context
+
+        return response
+    except (ValueError, FileNotFoundError) as e:
+        return {"error": f"Event not found: {e}"}
+
+
 def _output_impl(
     run_id: int,
     stream: str | None = None,
@@ -1447,6 +1540,27 @@ def context(ref: str, lines: int = 5) -> dict[str, Any]:
         Context lines around the event
     """
     return _context_impl(ref, lines)
+
+
+@mcp.tool()
+def inspect(ref: str, lines: int = 5) -> dict[str, Any]:
+    """Get comprehensive event details with dual context.
+
+    Returns full event details including both log context (where the error
+    appears in the command output) and source context (where the error is
+    in the source file, when source_lookup is enabled).
+
+    Args:
+        ref: Event reference in format "tag:serial:event" (e.g., "build:1:3")
+             or "serial:event" (e.g., "1:3")
+        lines: Lines of context before/after (default: 5)
+
+    Returns:
+        Event details with ref, severity, ref_file, ref_line, ref_column,
+        message, tool_name, category, code, fingerprint, log_context,
+        and source_context (or null if disabled/unavailable)
+    """
+    return _inspect_impl(ref, lines)
 
 
 @mcp.tool()
