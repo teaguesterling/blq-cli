@@ -32,20 +32,19 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - Report generation (`blq report`) - markdown summaries with baseline comparison
 - Format auto-detection for registered commands (e.g., `mypy` → `mypy_text`)
 - Output stats in run results (lines, bytes, tail) for visibility
+- **Terminal-friendly output formatting** with smart column selection
+- **History filtering** (`blq history test` or `blq history -t test`)
+- **Run details** via `blq status <ref>` with `--details` flag
+- **Flexible event refs** (run_id, run_id:event_id, tag:run_id, tag:run_id:event_id)
+- **Run events** via `blq event <run_ref>` shows all events from a run
+- **Automatic .gitignore** handling in `blq init` (`--gitignore`/`--no-gitignore`)
 - Full mypy type checking compliance
-- 340+ unit tests
+- 370+ unit tests
 - Comprehensive documentation (README, docs/)
 
 ### TODO
 - [ ] Implement sync feature (see `docs/design-sync.md`) - Issue #21
 - [ ] Consider integration with duckdb_mcp for ATTACH/DETACH workflow
-
-### Recently Completed
-- [x] Use duck_hunt_match_command_patterns() for format auto-detection - Issue #19
-- [x] Install scalarfs extension for BIRD-compliant data URL support
-- [x] Add `LogQuery.from_content()` for parsing inline content
-- [x] Add batch tools: `batch_run`, `batch_errors`, `batch_event`
-- [x] Add `output` tool for raw stdout/stderr retrieval
 
 ## Architecture
 

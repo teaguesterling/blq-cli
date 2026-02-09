@@ -21,11 +21,11 @@ the [duck_hunt](https://duckdb.org/community_extensions/extensions/duck_hunt) ex
 pip install blq-cli
 ```
 
-Initialize in your project (installs duck_hunt extension):
+Initialize in your project (installs duck_hunt extension, adds `.lq/` to `.gitignore`):
 ```bash
-blq init                     # Basic init
+blq init                     # Basic init (adds .lq/ to .gitignore)
 blq init --detect --yes      # Auto-detect and register build/test commands
-blq init --project myapp --namespace myorg  # Override project identification
+blq init --no-gitignore      # Skip .gitignore modification
 blq mcp install              # Create .mcp.json for AI agents
 ```
 
@@ -44,12 +44,18 @@ blq f severity=error,warning ref_file~main build.log
 blq run make -j8
 blq run --json make test
 
-# View recent errors
+# View recent errors and history
 blq errors
+blq history                   # Show all runs
+blq history test              # Filter by tag
 
 # Drill into a specific error
-blq event 1:3
-blq context 1:3
+blq event test:5              # All events from run test:5
+blq event test:5:3            # Specific event
+blq context test:5:3          # Log context around event
+
+# Get run details
+blq status test:5             # Details for a specific run
 ```
 
 ## Commands
@@ -78,10 +84,10 @@ blq context 1:3
 |---------|-------------|
 | `blq errors` | Show recent errors |
 | `blq warnings` | Show recent warnings |
-| `blq event <ref>` | Show event details (e.g., `blq event 1:3`) |
+| `blq event <ref>` | Show event details or all events from a run |
 | `blq context <ref>` | Show log context around event |
-| `blq status` | Show status of all sources |
-| `blq history` | Show run history |
+| `blq status [ref]` | Show status overview or run details |
+| `blq history [tag]` | Show run history, optionally filtered |
 
 ### CI Integration
 
@@ -181,11 +187,11 @@ blq run --quiet --json make
 Output includes event references for drill-down:
 ```json
 {
-  "run_id": 1,
+  "run_id": 5,
   "status": "FAIL",
   "errors": [
     {
-      "ref": "1:1",
+      "ref": "build:5:1",
       "ref_file": "src/main.c",
       "ref_line": 15,
       "message": "undefined variable 'foo'"
@@ -193,6 +199,8 @@ Output includes event references for drill-down:
   ]
 }
 ```
+
+References can then be used with `blq event build:5:1` or `blq context build:5:1`.
 
 ## Command Registry
 

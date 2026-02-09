@@ -21,6 +21,9 @@ blq init --detect --yes     # Auto-detect and register build commands
 | `--detect-mode MODE` | | Detection mode: `none`, `simple`, `inspect`, `auto` |
 | `--yes` | `-y` | Non-interactive mode (auto-confirm detected commands) |
 | `--force` | `-f` | Reinitialize config files without deleting data |
+| `--gitignore` | | Add `.lq/` to `.gitignore` (default) |
+| `--no-gitignore` | | Don't modify `.gitignore` |
+| `--parquet` | | Use legacy parquet storage (default is BIRD) |
 
 ## Directory Structure
 
@@ -28,12 +31,16 @@ After initialization, your project will have:
 
 ```
 .lq/
-├── logs/           # Hive-partitioned parquet files
+├── blq.duckdb      # BIRD database (invocations, events)
+├── blobs/          # Content-addressed blob storage
+│   └── content/
 ├── raw/            # Optional raw log files (--keep-raw)
-├── schema.sql      # SQL schema and macros
+├── schema.sql      # SQL schema reference
 ├── config.yaml     # Project configuration
 └── commands.yaml   # Registered commands
 ```
+
+Additionally, `.lq/` is automatically added to `.gitignore` (use `--no-gitignore` to skip).
 
 ## Project Identification
 

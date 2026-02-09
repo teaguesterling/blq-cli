@@ -60,20 +60,35 @@ blq warnings -s test          # Filter by source
 
 ## event - Show Event Details
 
-Display detailed information about a specific event using its reference.
+Display detailed information about a specific event or all events from a run.
 
 ```bash
 blq event 1:3                 # Show event 3 from run 1
+blq event test:5              # Show ALL events from run test:5
+blq event test:5:3            # Show event 3 from run test:5
 blq event 1:3 --json          # Output as JSON
 ```
 
 ### Event References
 
-Event references use the format `run_id:event_id`:
-- `1:3` - Event 3 from run 1
-- `5:12` - Event 12 from run 5
+Event references support multiple formats:
 
-References are shown in error/warning output and structured JSON results.
+| Format | Example | Description |
+|--------|---------|-------------|
+| `run_id` | `5` | Run reference only |
+| `run_id:event_id` | `5:3` | Event 3 from run 5 |
+| `tag:run_id` | `test:5` | Run reference with tag |
+| `tag:run_id:event_id` | `test:5:3` | Full reference with tag |
+
+When given a run reference (no event_id), shows all events from that run:
+
+```bash
+$ blq event test:5
+Source      Ref               Location              Sev      Message
+----------  ----------------  --------------------  -------  -----------------
+test        test:5:1          tests/test_foo.py:20  error    assertion failed
+test        test:5:2          tests/test_bar.py:15  warning  deprecated call
+```
 
 ### Options
 
@@ -83,16 +98,16 @@ References are shown in error/warning output and structured JSON results.
 
 ### Output
 
+For a single event:
+
 ```bash
-$ blq event 1:3
-Run: 1
-Event: 3
-Severity: error
-File: src/main.c
-Line: 42
-Column: 10
-Message: undefined reference to 'foo'
-Error Code: E0001
+$ blq event test:5:1
+Event: test:5:1
+  Source: test
+  Severity: error
+  File: tests/test_foo.py:20
+  Message: assertion failed
+  Fingerprint: abc123...
 ```
 
 ## context - Show Log Context
