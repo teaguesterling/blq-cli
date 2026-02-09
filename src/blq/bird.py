@@ -23,8 +23,9 @@ import duckdb
 # Schema version
 BIRD_SCHEMA_VERSION = "2.0.0"
 
-# Storage thresholds
+# Storage thresholds (per BIRD spec)
 DEFAULT_INLINE_THRESHOLD = 4096  # 4KB - outputs smaller than this are stored inline
+MAX_INLINE_THRESHOLD = 1048576   # 1MB - max recommended for inline storage per spec
 
 
 @dataclass
@@ -174,6 +175,18 @@ class BirdStore:
         self._conn = conn
         self._blob_dir = lq_dir / "blobs" / "content"
         self._inline_threshold = DEFAULT_INLINE_THRESHOLD
+
+    @property
+    def inline_threshold(self) -> int:
+        """Current inline storage threshold in bytes."""
+        return self._inline_threshold
+
+    @inline_threshold.setter
+    def inline_threshold(self, value: int) -> None:
+        """Set inline storage threshold (capped at MAX_INLINE_THRESHOLD)."""
+        if value > MAX_INLINE_THRESHOLD:
+            value = MAX_INLINE_THRESHOLD
+        self._inline_threshold = max(0, value)
 
     @classmethod
     def open(cls, lq_dir: Path | str) -> BirdStore:
