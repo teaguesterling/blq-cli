@@ -42,7 +42,12 @@ mcp = FastMCP(
     "blq",
     instructions=(
         "Build Log Query - capture and query build/test logs. "
-        "Use tools to run builds, query errors, and analyze results."
+        "Use tools to run builds, query errors, and analyze results. "
+        "The database is shared with the CLI - users can run 'blq run build' "
+        "and you can query the results, or vice versa. "
+        "Start with status() or list_commands() to see current state. "
+        "Use errors(), event(ref), and context(ref) to drill down into issues. "
+        "Docs: https://blq-cli.readthedocs.io/en/latest/"
     ),
 )
 
@@ -1193,6 +1198,36 @@ def resource_commands() -> str:
     except Exception:
         pass
     return json.dumps({"commands": []}, indent=2)
+
+
+@mcp.resource("lq://guide")
+def resource_guide() -> str:
+    """Agent usage guide for blq MCP tools."""
+    try:
+        from importlib import resources
+        guide = resources.files("blq").joinpath("SKILL.md").read_text()
+        return guide
+    except Exception:
+        return """# blq Quick Reference
+
+## Key Tools
+- status() - Overview of all sources
+- list_commands() - Registered commands
+- errors(limit, run_id) - Get errors
+- event(ref) - Error details (ref like "build:1:3")
+- context(ref) - Log lines around error
+- diff(run1, run2) - Compare runs
+- run(command) - Run registered command
+- reset(mode, confirm) - Clear data
+
+## Workflow
+1. list_commands() or status() to see current state
+2. errors() to get recent errors
+3. event(ref) and context(ref) to understand issues
+4. After fixes: diff(run1, run2) to verify
+
+Docs: https://blq-cli.readthedocs.io/en/latest/
+"""
 
 
 # ============================================================================
