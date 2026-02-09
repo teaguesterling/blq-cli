@@ -134,8 +134,8 @@ class Column:
 
 # Standard column definitions for different data types
 HISTORY_COLUMNS = [
-    Column("run_ref", "Ref", min_width=8, max_width=18, priority=0, truncate=False),
-    Column("counts", "T E/W/I", min_width=12, max_width=16, align="right", priority=0),
+    Column("run_ref", "Ref", min_width=6, max_width=12, priority=0),
+    Column("counts", "E/W", min_width=3, max_width=7, align="right", priority=0),
     Column("when", "When", min_width=6, max_width=10, priority=1),
     Column("git_branch", "Branch", min_width=6, max_width=15, priority=2),
     Column("git_commit", "Commit", min_width=7, max_width=8, priority=2),
@@ -153,7 +153,7 @@ ERRORS_COLUMNS = [
 STATUS_COLUMNS = [
     Column("badge", "Status", min_width=6, max_width=8, priority=0),
     Column("source_name", "Source", min_width=8, max_width=25, priority=0),
-    Column("counts", "T E/W/I", min_width=12, max_width=16, align="right", priority=0),
+    Column("counts", "E/W", min_width=3, max_width=7, align="right", priority=0),
     Column("age", "Age", min_width=4, max_width=8, priority=1, format_fn=format_age),
 ]
 
@@ -458,12 +458,13 @@ def format_history(
         else:
             new_row["run_ref"] = str(run_id)
 
-        # Create combined counts: T E/W/I (total errors/warnings/info)
+        # Create sparse counts: ✓ if clean, else errors/warnings
         errors = row.get("error_count") or 0
         warnings = row.get("warning_count") or 0
-        info = row.get("info_count") or 0
-        total = row.get("event_count") or (errors + warnings + info)
-        new_row["counts"] = f"{total} {errors}/{warnings}/{info}"
+        if errors == 0 and warnings == 0:
+            new_row["counts"] = "✓"
+        else:
+            new_row["counts"] = f"{errors}/{warnings}"
 
         # Create relative time
         new_row["when"] = format_relative_time(row.get("started_at", ""))
@@ -512,9 +513,10 @@ def format_status(
         new_row = dict(row)
         errors = row.get("error_count") or row.get("errors") or 0
         warnings = row.get("warning_count") or row.get("warnings") or 0
-        info = row.get("info_count") or 0
-        total = row.get("event_count") or (errors + warnings + info)
-        new_row["counts"] = f"{total} {errors}/{warnings}/{info}"
+        if errors == 0 and warnings == 0:
+            new_row["counts"] = "✓"
+        else:
+            new_row["counts"] = f"{errors}/{warnings}"
         processed.append(new_row)
 
     if output_format == "markdown":
