@@ -194,6 +194,24 @@ Runtime override: `blq run --no-capture <cmd>` or `blq run --capture <cmd>`
 9. **Content-addressed blobs**: Output deduplication with BLAKE2b hashing
 10. **JSON for variable data**: Environment and CI stored as JSON in BIRD mode
 
+## Reference Naming Scheme
+
+Events and runs use a human-friendly reference format:
+
+| Field | Format | Example | Description |
+|-------|--------|---------|-------------|
+| `run_ref` | `tag:serial` or `serial` | `build:1`, `3` | Human-friendly run identifier |
+| `ref` | `tag:serial:event` or `serial:event` | `build:1:2`, `3:5` | Full event reference |
+| `run_serial` | integer | `1`, `2`, `3` | Sequential run number |
+| `event_id` | integer | `1`, `2` | Event index within run |
+
+The `tag` is set from the command's `source_name` (e.g., "build", "test").
+
+Examples:
+- `build:1` - First run of the "build" command
+- `build:1:3` - Third error in the first build run
+- `5:2` - Second error in run 5 (no tag)
+
 ## MCP Server Tools
 
 The MCP server (`blq serve`) provides these tools for AI agents:
@@ -205,7 +223,7 @@ The MCP server (`blq serve`) provides these tools for AI agents:
 | `query` | Query stored events with SQL |
 | `errors` | Get recent errors |
 | `warnings` | Get recent warnings |
-| `event` | Get details for a specific event |
+| `event` | Get details for a specific event by ref |
 | `context` | Get log context around an event |
 | `status` | Get status summary |
 | `history` | Get run history |
@@ -213,6 +231,7 @@ The MCP server (`blq serve`) provides these tools for AI agents:
 | `register_command` | Register a new command (with format auto-detection) |
 | `unregister_command` | Remove a registered command |
 | `list_commands` | List all registered commands |
+| `reset` | Reset database (modes: data, schema, full) |
 
 ## Integration Points
 

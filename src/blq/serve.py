@@ -52,17 +52,25 @@ def _get_storage() -> BlqStorage:
     return BlqStorage.open()
 
 
-def _format_ref(run_id: int, event_id: int) -> str:
-    """Format event reference."""
-    return f"{run_id}:{event_id}"
+def _parse_ref(ref: str) -> tuple[str | None, int, int]:
+    """Parse event reference into (tag, run_serial, event_id).
 
+    Formats:
+    - "tag:serial:event" -> (tag, serial, event)
+    - "serial:event" -> (None, serial, event)
 
-def _parse_ref(ref: str) -> tuple[int, int]:
-    """Parse event reference into (run_id, event_id)."""
+    Returns:
+        Tuple of (tag or None, run_serial, event_id)
+    """
     parts = ref.split(":")
-    if len(parts) != 2:
-        raise ValueError(f"Invalid ref format: {ref}")
-    return int(parts[0]), int(parts[1])
+    if len(parts) == 2:
+        # Format: "serial:event"
+        return None, int(parts[0]), int(parts[1])
+    elif len(parts) == 3:
+        # Format: "tag:serial:event"
+        return parts[0], int(parts[1]), int(parts[2])
+    else:
+        raise ValueError(f"Invalid ref format: {ref}. Expected 'serial:event' or 'tag:serial:event'")
 
 
 # ============================================================================
@@ -260,7 +268,7 @@ def _errors_impl(
         # Build WHERE conditions
         conditions = ["severity = 'error'"]
         if run_id is not None:
-            conditions.append(f"run_id = {run_id}")
+            conditions.append(f"run_serial = {run_id}")
         if source:
             conditions.append(f"source_name = '{source}'")
         if file_pattern:
@@ -274,11 +282,11 @@ def _errors_impl(
         ).fetchone()
         total_count = count_result[0] if count_result else 0
 
-        # Get errors
+        # Get errors - use ref column from view
         df = storage.sql(f"""
             SELECT * FROM blq_load_events()
             WHERE {where}
-            ORDER BY run_id DESC, event_id
+            ORDER BY run_serial DESC, event_id
             LIMIT {limit}
         """).df()
 
@@ -286,10 +294,8 @@ def _errors_impl(
         for _, row in df.iterrows():
             error_list.append(
                 {
-                    "ref": _format_ref(
-                        _safe_int(row.get("run_id")) or 0,
-                        _safe_int(row.get("event_id")) or 0,
-                    ),
+                    "ref": _to_json_safe(row.get("ref")),
+                    "run_ref": _to_json_safe(row.get("run_ref")),
                     "ref_file": _to_json_safe(row.get("ref_file")),
                     "ref_line": _safe_int(row.get("ref_line")),
                     "ref_column": _safe_int(row.get("ref_column")),
@@ -318,7 +324,7 @@ def _warnings_impl(
         # Build WHERE conditions
         conditions = ["severity = 'warning'"]
         if run_id is not None:
-            conditions.append(f"run_id = {run_id}")
+            conditions.append(f"run_serial = {run_id}")
         if source:
             conditions.append(f"source_name = '{source}'")
 
@@ -330,11 +336,11 @@ def _warnings_impl(
         ).fetchone()
         total_count = count_result[0] if count_result else 0
 
-        # Get warnings
+        # Get warnings - use ref column from view
         df = storage.sql(f"""
             SELECT * FROM blq_load_events()
             WHERE {where}
-            ORDER BY run_id DESC, event_id
+            ORDER BY run_serial DESC, event_id
             LIMIT {limit}
         """).df()
 
@@ -342,10 +348,8 @@ def _warnings_impl(
         for _, row in df.iterrows():
             warning_list.append(
                 {
-                    "ref": _format_ref(
-                        _safe_int(row.get("run_id")) or 0,
-                        _safe_int(row.get("event_id")) or 0,
-                    ),
+                    "ref": _to_json_safe(row.get("ref")),
+                    "run_ref": _to_json_safe(row.get("run_ref")),
                     "ref_file": _to_json_safe(row.get("ref_file")),
                     "ref_line": _safe_int(row.get("ref_line")),
                     "ref_column": _safe_int(row.get("ref_column")),
@@ -363,12 +367,22 @@ def _warnings_impl(
 def _event_impl(ref: str) -> dict[str, Any] | None:
     """Implementation of event command."""
     try:
-        run_id, event_id = _parse_ref(ref)
+        tag, run_serial, event_id = _parse_ref(ref)
         store = _get_storage()
-        event_data = store.event(run_id, event_id)
 
-        if event_data is None:
+        # Build query using run_serial and event_id
+        if tag is not None:
+            where = f"tag = '{tag}' AND run_serial = {run_serial} AND event_id = {event_id}"
+        else:
+            where = f"run_serial = {run_serial} AND event_id = {event_id}"
+
+        result = store.sql(f"SELECT * FROM blq_load_events() WHERE {where}").fetchone()
+
+        if result is None:
             return None
+
+        columns = store.sql("SELECT * FROM blq_load_events() LIMIT 0").columns
+        event_data = dict(zip(columns, result))
 
         # Environment is now stored as MAP, convert to dict if needed
         environment = event_data.get("environment")
@@ -380,8 +394,9 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
                 environment = None
 
         return {
-            "ref": ref,
-            "run_id": run_id,
+            "ref": _to_json_safe(event_data.get("ref")),
+            "run_ref": _to_json_safe(event_data.get("run_ref")),
+            "run_serial": run_serial,
             "event_id": event_id,
             "severity": event_data.get("severity"),
             "ref_file": event_data.get("ref_file"),
@@ -416,12 +431,22 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
 def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
     """Implementation of context command."""
     try:
-        run_id, event_id = _parse_ref(ref)
+        tag, run_serial, event_id = _parse_ref(ref)
         storage = _get_storage()
-        event_data = storage.event(run_id, event_id)
 
-        if event_data is None:
+        # Build query using run_serial and event_id
+        if tag is not None:
+            where = f"tag = '{tag}' AND run_serial = {run_serial} AND event_id = {event_id}"
+        else:
+            where = f"run_serial = {run_serial} AND event_id = {event_id}"
+
+        result = storage.sql(f"SELECT * FROM blq_load_events() WHERE {where}").fetchone()
+
+        if result is None:
             return {"ref": ref, "context_lines": [], "error": "Event not found"}
+
+        columns = storage.sql("SELECT * FROM blq_load_events() LIMIT 0").columns
+        event_data = dict(zip(columns, result))
 
         # Get context from nearby events in the same run
         context_lines = []
@@ -430,11 +455,11 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
         log_line_end = event_data.get("log_line_end")
 
         if log_line_start is not None:
-            # Get events near this log line
+            # Get events near this log line - use run_serial to find same run
             end_condition = f"AND log_line_end <= {log_line_end + lines}" if log_line_end else ""
             nearby = storage.sql(f"""
                 SELECT * FROM blq_load_events()
-                WHERE run_id = {run_id}
+                WHERE run_serial = {run_serial}
                   AND log_line_start >= {log_line_start - lines}
                   {end_condition}
                 ORDER BY log_line_start
@@ -442,12 +467,13 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
             """).df()
 
             for _, row in nearby.iterrows():
-                is_event = row.get("run_id") == run_id and row.get("event_id") == event_id
+                is_event = row.get("run_serial") == run_serial and row.get("event_id") == event_id
                 context_lines.append(
                     {
                         "line": row.get("log_line_start"),
                         "text": row.get("raw_text") or row.get("message", ""),
                         "is_event": is_event,
+                        "ref": _to_json_safe(row.get("ref")),
                     }
                 )
         else:
@@ -457,6 +483,7 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
                     "line": None,
                     "text": event_data.get("raw_text") or event_data.get("message", ""),
                     "is_event": True,
+                    "ref": ref,
                 }
             )
 
@@ -487,6 +514,14 @@ def _status_impl() -> dict[str, Any]:
             else:
                 status_str = "OK"
 
+            # Build run_ref from tag and run_id (serial number from blq_load_runs)
+            tag = _to_json_safe(row.get("tag"))
+            run_serial = _safe_int(row.get("run_id")) or 0
+            if tag:
+                run_ref = f"{tag}:{run_serial}"
+            else:
+                run_ref = str(run_serial)
+
             sources.append(
                 {
                     "name": _to_json_safe(row.get("source_name")) or "unknown",
@@ -494,7 +529,8 @@ def _status_impl() -> dict[str, Any]:
                     "error_count": error_count,
                     "warning_count": warning_count,
                     "last_run": str(row.get("started_at", "")),
-                    "run_id": _safe_int(row.get("run_id")) or 0,
+                    "run_ref": run_ref,
+                    "run_serial": run_serial,
                 }
             )
 
@@ -534,9 +570,18 @@ def _history_impl(limit: int = 20, source: str | None = None) -> dict[str, Any]:
             else:
                 status_str = "OK"
 
+            # Build run_ref from tag and run_id (serial number from blq_load_runs)
+            tag = _to_json_safe(row.get("tag"))
+            run_serial = _safe_int(row.get("run_id")) or 0
+            if tag:
+                run_ref = f"{tag}:{run_serial}"
+            else:
+                run_ref = str(run_serial)
+
             runs.append(
                 {
-                    "run_id": _safe_int(row.get("run_id")) or 0,
+                    "run_ref": run_ref,
+                    "run_serial": run_serial,
                     "source_name": _to_json_safe(row.get("source_name")) or "unknown",
                     "status": status_str,
                     "error_count": error_count,
@@ -561,13 +606,26 @@ def _history_impl(limit: int = 20, source: str | None = None) -> dict[str, Any]:
 
 
 def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
-    """Implementation of diff command."""
+    """Implementation of diff command.
+
+    Args:
+        run1: First run serial number (baseline)
+        run2: Second run serial number (comparison)
+    """
     try:
         storage = _get_storage()
 
-        # Get errors from each run
-        errors1 = storage.errors(run_id=run1, limit=1000).df()
-        errors2 = storage.errors(run_id=run2, limit=1000).df()
+        # Get errors from each run using run_serial
+        errors1 = storage.sql(f"""
+            SELECT * FROM blq_load_events()
+            WHERE severity = 'error' AND run_serial = {run1}
+            LIMIT 1000
+        """).df()
+        errors2 = storage.sql(f"""
+            SELECT * FROM blq_load_events()
+            WHERE severity = 'error' AND run_serial = {run2}
+            LIMIT 1000
+        """).df()
 
         # Use fingerprints for comparison if available, else use file+line+message
         def get_error_key(row):
@@ -599,7 +657,7 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
             if get_error_key(row) in new_keys:
                 new_errors.append(
                     {
-                        "ref": _format_ref(run2, int(row.get("event_id", 0))),
+                        "ref": _to_json_safe(row.get("ref")),
                         "ref_file": row.get("ref_file"),
                         "ref_line": row.get("ref_line"),
                         "message": row.get("message"),
@@ -802,12 +860,13 @@ def errors(
 
     Args:
         limit: Max errors to return (default: 20)
-        run_id: Filter to specific run
+        run_id: Filter to specific run (by serial number, e.g., 1, 2, 3)
         source: Filter to specific source name
         file_pattern: Filter by file path pattern (SQL LIKE)
 
     Returns:
-        Errors list with total count
+        Errors list with total count. Each error includes a 'ref' field
+        in format "tag:serial:event" or "serial:event".
     """
     return _errors_impl(limit, run_id, source, file_pattern)
 
@@ -822,11 +881,12 @@ def warnings(
 
     Args:
         limit: Max warnings to return (default: 20)
-        run_id: Filter to specific run
+        run_id: Filter to specific run (by serial number, e.g., 1, 2, 3)
         source: Filter to specific source name
 
     Returns:
-        Warnings list with total count
+        Warnings list with total count. Each warning includes a 'ref' field
+        in format "tag:serial:event" or "serial:event".
     """
     return _warnings_impl(limit, run_id, source)
 
@@ -836,7 +896,8 @@ def event(ref: str) -> dict[str, Any] | None:
     """Get details for a specific event by reference.
 
     Args:
-        ref: Event reference (e.g., "1:3")
+        ref: Event reference in format "tag:serial:event" (e.g., "build:1:3")
+             or "serial:event" (e.g., "1:3")
 
     Returns:
         Event details or None if not found
@@ -849,7 +910,8 @@ def context(ref: str, lines: int = 5) -> dict[str, Any]:
     """Get log context around a specific event.
 
     Args:
-        ref: Event reference (e.g., "1:3")
+        ref: Event reference in format "tag:serial:event" (e.g., "build:1:3")
+             or "serial:event" (e.g., "1:3")
         lines: Lines of context before/after (default: 5)
 
     Returns:
@@ -887,8 +949,8 @@ def diff(run1: int, run2: int) -> dict[str, Any]:
     """Compare errors between two runs.
 
     Args:
-        run1: First run ID (baseline)
-        run2: Second run ID (comparison)
+        run1: First run serial number (baseline)
+        run2: Second run serial number (comparison)
 
     Returns:
         Diff summary with fixed and new errors
@@ -944,6 +1006,145 @@ def list_commands() -> dict[str, Any]:
         List of registered commands with their configuration
     """
     return _list_commands_impl()
+
+
+def _reset_impl(
+    mode: str = "data",
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Implementation of reset command."""
+    import shutil
+    from pathlib import Path
+
+    valid_modes = ["data", "full", "schema"]
+
+    if mode not in valid_modes:
+        return {
+            "success": False,
+            "error": f"Invalid mode '{mode}'. Valid modes: {', '.join(valid_modes)}",
+        }
+
+    if not confirm:
+        return {
+            "success": False,
+            "error": "Reset requires confirm=true to proceed. This is a destructive operation.",
+            "mode": mode,
+            "description": {
+                "data": "Clear all run data (invocations, events, outputs) but keep config and commands",
+                "schema": "Recreate database schema (clears data, keeps config files)",
+                "full": "Delete and recreate entire .lq directory (loses everything including commands)",
+            }.get(mode, "Unknown mode"),
+        }
+
+    try:
+        # Find .lq directory
+        lq_dir = None
+        current = Path.cwd()
+        while current != current.parent:
+            if (current / ".lq").exists():
+                lq_dir = current / ".lq"
+                break
+            current = current.parent
+
+        if lq_dir is None:
+            return {"success": False, "error": "No .lq directory found"}
+
+        if mode == "data":
+            # Clear data tables but keep schema and config
+            db_path = lq_dir / "blq.duckdb"
+            if db_path.exists():
+                import duckdb
+                conn = duckdb.connect(str(db_path))
+                conn.execute("DELETE FROM events")
+                conn.execute("DELETE FROM outputs")
+                conn.execute("DELETE FROM invocations")
+                conn.execute("DELETE FROM sessions")
+                conn.close()
+
+            # Clear blobs
+            blobs_dir = lq_dir / "blobs"
+            if blobs_dir.exists():
+                shutil.rmtree(blobs_dir)
+                blobs_dir.mkdir()
+                (blobs_dir / "content").mkdir()
+
+            return {
+                "success": True,
+                "message": "Cleared all run data. Config and commands preserved.",
+                "mode": mode,
+            }
+
+        elif mode == "schema":
+            # Recreate database with fresh schema
+            db_path = lq_dir / "blq.duckdb"
+            if db_path.exists():
+                db_path.unlink()
+
+            # Clear blobs
+            blobs_dir = lq_dir / "blobs"
+            if blobs_dir.exists():
+                shutil.rmtree(blobs_dir)
+                blobs_dir.mkdir()
+                (blobs_dir / "content").mkdir()
+
+            # Recreate database with schema
+            from blq.bird import BirdStore
+            store = BirdStore.open(lq_dir)
+            store.close()
+
+            return {
+                "success": True,
+                "message": "Recreated database schema. Config files preserved.",
+                "mode": mode,
+            }
+
+        elif mode == "full":
+            # Full reinitialize
+            shutil.rmtree(lq_dir)
+
+            # Run init
+            result = subprocess.run(
+                ["blq", "init"],
+                capture_output=True,
+                text=True,
+                cwd=lq_dir.parent,
+            )
+
+            if result.returncode == 0:
+                return {
+                    "success": True,
+                    "message": "Fully reinitialized .lq directory.",
+                    "mode": mode,
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Init failed: {result.stderr}",
+                    "mode": mode,
+                }
+
+    except Exception as e:
+        return {"success": False, "error": str(e), "mode": mode}
+
+
+@mcp.tool()
+def reset(
+    mode: str = "data",
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Reset or reinitialize the blq database.
+
+    Args:
+        mode: Reset level:
+            - "data": Clear all run data but keep config and commands
+            - "schema": Recreate database schema (clears data, keeps config files)
+            - "full": Delete and recreate entire .lq directory
+        confirm: Must be true to proceed (safety check)
+
+    Returns:
+        Success status and message
+    """
+    return _reset_impl(mode, confirm)
 
 
 # ============================================================================
@@ -1064,12 +1265,12 @@ def analyze_regression(good_run: int | None = None, bad_run: int | None = None) 
         return 'No runs found. Run a build first with `run(command="...")`.'
 
     if bad_run is None:
-        bad_run = runs[0]["run_id"] if runs else 1
+        bad_run = runs[0]["run_serial"] if runs else 1
     if good_run is None:
         # Find last passing run
         for r in runs[1:]:
             if r["status"] == "OK":
-                good_run = r["run_id"]
+                good_run = r["run_serial"]
                 break
         if good_run is None:
             good_run = bad_run - 1 if bad_run > 1 else 1
@@ -1117,12 +1318,12 @@ def summarize_run(run_id: int | None = None, format: str = "brief") -> str:
         return 'No runs found. Run a build first with `run(command="...")`.'
 
     if run_id is None:
-        run_id = runs[0]["run_id"]
+        run_id = runs[0]["run_serial"]
 
     # Get run info
     run_info = None
     for r in runs:
-        if r["run_id"] == run_id:
+        if r["run_serial"] == run_id:
             run_info = r
             break
 
@@ -1142,7 +1343,7 @@ def summarize_run(run_id: int | None = None, format: str = "brief") -> str:
 
 ## Run Details
 
-- **Run ID:** {run_info["run_id"]}
+- **Run:** {run_info["run_ref"]}
 - **Status:** {run_info["status"]}
 - **Errors:** {run_info.get("error_count", 0)}
 - **Warnings:** {run_info.get("warning_count", 0)}
@@ -1172,7 +1373,7 @@ def investigate_flaky(test_pattern: str | None = None, lookback: int = 10) -> st
     # Build history table
     history_lines = ["| Run | Status | Errors |", "|-----|--------|--------|"]
     for r in runs:
-        history_lines.append(f"| {r['run_id']} | {r['status']} | {r.get('error_count', 0)} |")
+        history_lines.append(f"| {r['run_ref']} | {r['status']} | {r.get('error_count', 0)} |")
     history_table = "\n".join(history_lines)
 
     return f"""You are investigating flaky (intermittently failing) tests.

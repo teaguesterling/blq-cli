@@ -334,7 +334,8 @@ class TestHistoryTool:
 
             if result["runs"]:
                 run = result["runs"][0]
-                assert "run_id" in run
+                assert "run_serial" in run
+                assert "run_ref" in run
                 assert "status" in run
 
 
@@ -480,7 +481,53 @@ class TestIntegration:
 
             # 3. Query specific run if available
             if hist["runs"]:
-                run_id = hist["runs"][0]["run_id"]
-                errors_raw = await client.call_tool("errors", {"run_id": run_id})
+                run_serial = hist["runs"][0]["run_serial"]
+                errors_raw = await client.call_tool("errors", {"run_id": run_serial})
                 errors = get_data(errors_raw)
                 assert "errors" in errors
+
+
+class TestResetTool:
+    """Tests for the reset tool."""
+
+    @pytest.mark.asyncio
+    async def test_reset_requires_confirm(self, mcp_server):
+        """Reset requires confirm=true."""
+        async with Client(mcp_server) as client:
+            raw = await client.call_tool("reset", {"mode": "data"})
+            result = get_data(raw)
+
+            assert result["success"] is False
+            assert "confirm" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_reset_invalid_mode(self, mcp_server):
+        """Invalid reset mode returns error."""
+        async with Client(mcp_server) as client:
+            raw = await client.call_tool("reset", {"mode": "invalid", "confirm": True})
+            result = get_data(raw)
+
+            assert result["success"] is False
+            assert "invalid" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_reset_data_clears_runs(self, mcp_server_empty, sample_build_script):
+        """Reset data clears run data."""
+        async with Client(mcp_server_empty) as client:
+            # Create some data
+            await client.call_tool("exec", {"command": str(sample_build_script)})
+
+            # Verify data exists
+            history_raw = await client.call_tool("history", {})
+            history = get_data(history_raw)
+            assert len(history["runs"]) > 0
+
+            # Reset data
+            reset_raw = await client.call_tool("reset", {"mode": "data", "confirm": True})
+            reset = get_data(reset_raw)
+            assert reset["success"] is True
+
+            # Verify data is cleared
+            history_raw = await client.call_tool("history", {})
+            history = get_data(history_raw)
+            assert len(history["runs"]) == 0

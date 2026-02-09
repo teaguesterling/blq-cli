@@ -309,7 +309,9 @@ class TestLogStore:
         warnings = store.warnings().df()
         assert all(warnings["severity"] == "warning")
 
-    def test_latest_run(self, initialized_project, sample_build_script, run_adhoc_command):
+    def test_latest_run(
+        self, initialized_project_parquet, sample_build_script, run_adhoc_command
+    ):
         """latest_run() returns the latest run ID."""
         run_adhoc_command([str(sample_build_script)])
 
@@ -317,7 +319,9 @@ class TestLogStore:
         run_id = store.latest_run()
         assert run_id == 1
 
-    def test_run_filter(self, initialized_project, sample_build_script, run_adhoc_command):
+    def test_run_filter(
+        self, initialized_project_parquet, sample_build_script, run_adhoc_command
+    ):
         """run() filters by run_id."""
         run_adhoc_command([str(sample_build_script)])
 
@@ -325,7 +329,9 @@ class TestLogStore:
         events = store.run(1).df()
         assert all(events["run_id"] == 1)
 
-    def test_has_data(self, initialized_project, sample_build_script, run_adhoc_command):
+    def test_has_data(
+        self, initialized_project_parquet, sample_build_script, run_adhoc_command
+    ):
         """has_data() checks for parquet files."""
         store = LogStore.open()
         assert store.has_data() is False

@@ -19,7 +19,8 @@ from blq.commands.core import (
     BlqConfig,
     get_store_for_args,
 )
-from blq.query import LogQuery, LogStore
+from blq.query import LogQuery
+from blq.storage import BlqStorage
 
 
 def format_query_output(
@@ -60,8 +61,6 @@ def query_source(
 ) -> pd.DataFrame:
     """Query a log file directly or stored events via blq_load_events().
 
-    Uses the LogQuery API for cleaner query building.
-
     Args:
         source: Path to log file(s) or None to query stored data
         select: Columns to select (comma-separated) or None for all
@@ -74,7 +73,7 @@ def query_source(
         DataFrame with query results
     """
     if source:
-        # Query file(s) directly using duck_hunt
+        # Query file(s) directly using duck_hunt via LogQuery
         source_path = Path(source)
         if not source_path.exists() and "*" not in str(source_path):
             raise FileNotFoundError(f"File not found: {source}")
@@ -88,22 +87,29 @@ def query_source(
             print("Run 'blq init' to install required extensions.", file=sys.stderr)
             print(f"Or import the file first: blq import {source}", file=sys.stderr)
             raise
+
+        # Apply query modifiers using LogQuery API
+        if where:
+            query = query.filter(where)
+        if order:
+            query = query.order_by(*[col.strip() for col in order.split(",")])
+        if select:
+            query = query.select(*[col.strip() for col in select.split(",")])
+
+        return query.df()
     else:
-        # Query stored data
+        # Query stored data using BlqStorage and SQL
         if lq_dir is None:
             lq_dir = BlqConfig.ensure().lq_dir
-        store = LogStore(lq_dir)
-        query = store.events()
+        store = BlqStorage.open(lq_dir)
 
-    # Apply query modifiers
-    if where:
-        query = query.filter(where)
-    if order:
-        query = query.order_by(*[col.strip() for col in order.split(",")])
-    if select:
-        query = query.select(*[col.strip() for col in select.split(",")])
+        # Build SQL query
+        columns = select if select else "*"
+        where_clause = f"WHERE {where}" if where else ""
+        order_clause = f"ORDER BY {order}" if order else ""
 
-    return query.df()
+        sql = f"SELECT {columns} FROM blq_load_events() {where_clause} {order_clause}"
+        return store.sql(sql).df()
 
 
 def parse_filter_expression(expr: str, ignore_case: bool = False) -> str:

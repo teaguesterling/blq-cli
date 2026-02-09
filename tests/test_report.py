@@ -53,43 +53,41 @@ class TestFindBaselineRun:
 
     def test_find_by_run_id(self, initialized_project):
         """Find baseline by numeric run ID."""
-        from blq.commands.core import BlqConfig
-        from blq.query import LogStore
+        from blq.storage import BlqStorage
 
-        config = BlqConfig.find()
-        store = LogStore(config.lq_dir)
+        store = BlqStorage.open()
 
-        mock_runs = pd.DataFrame({
+        mock_runs_df = pd.DataFrame({
             "run_id": [1, 2, 3],
             "git_branch": ["main", "feature", "main"],
         })
-        with patch.object(store, "runs", return_value=mock_runs):
+        mock_rel = MagicMock()
+        mock_rel.df.return_value = mock_runs_df
+        with patch.object(store, "runs", return_value=mock_rel):
             result = _find_baseline_run(store, "2")
             assert result == 2
 
     def test_find_by_branch(self, initialized_project):
         """Find baseline by branch name."""
-        from blq.commands.core import BlqConfig
-        from blq.query import LogStore
+        from blq.storage import BlqStorage
 
-        config = BlqConfig.find()
-        store = LogStore(config.lq_dir)
+        store = BlqStorage.open()
 
-        mock_runs = pd.DataFrame({
+        mock_runs_df = pd.DataFrame({
             "run_id": [1, 2, 3],
             "git_branch": ["main", "feature", "main"],
         })
-        with patch.object(store, "runs", return_value=mock_runs):
+        mock_rel = MagicMock()
+        mock_rel.df.return_value = mock_runs_df
+        with patch.object(store, "runs", return_value=mock_rel):
             result = _find_baseline_run(store, "feature")
             assert result == 2
 
     def test_no_baseline_returns_none(self, initialized_project):
         """None baseline returns None."""
-        from blq.commands.core import BlqConfig
-        from blq.query import LogStore
+        from blq.storage import BlqStorage
 
-        config = BlqConfig.find()
-        store = LogStore(config.lq_dir)
+        store = BlqStorage.open()
 
         result = _find_baseline_run(store, None)
         assert result is None
@@ -206,14 +204,12 @@ class TestCollectReportData:
 
     def test_collect_from_latest_run(self, initialized_project):
         """Collect data from latest run."""
-        from blq.commands.core import BlqConfig
-        from blq.query import LogStore
+        from blq.storage import BlqStorage
 
-        config = BlqConfig.find()
-        store = LogStore(config.lq_dir)
+        store = BlqStorage.open()
 
         # Mock runs and events
-        mock_runs = pd.DataFrame({
+        mock_runs_df = pd.DataFrame({
             "run_id": [1],
             "source_name": ["test"],
             "started_at": [None],
@@ -223,33 +219,33 @@ class TestCollectReportData:
             "git_commit": ["abc123"],
         })
 
-        mock_errors = pd.DataFrame({
+        mock_errors_df = pd.DataFrame({
             "ref_file": ["a.py", "a.py", "b.py"],
             "ref_line": [1, 2, 3],
             "message": ["err1", "err2", "err3"],
             "fingerprint": ["fp1", "fp2", "fp3"],
         })
 
-        mock_warnings = pd.DataFrame({
+        mock_warnings_df = pd.DataFrame({
             "ref_file": ["c.py"],
             "ref_line": [1],
             "message": ["warn1"],
         })
 
-        mock_query = MagicMock()
-        mock_query.filter.return_value = mock_query
+        # Create mock relations for runs(), errors(), warnings()
+        mock_runs_rel = MagicMock()
+        mock_runs_rel.df.return_value = mock_runs_df
 
-        # Return different dataframes for errors vs warnings
-        def mock_df_side_effect():
-            if mock_query.filter.call_args[1].get("severity") == "error":
-                return mock_errors
-            return mock_warnings
+        mock_errors_rel = MagicMock()
+        mock_errors_rel.df.return_value = mock_errors_df
 
-        mock_query.df.side_effect = [mock_errors, mock_warnings]
+        mock_warnings_rel = MagicMock()
+        mock_warnings_rel.df.return_value = mock_warnings_df
 
-        with patch.object(store, "runs", return_value=mock_runs):
-            with patch.object(store, "run", return_value=mock_query):
-                data = _collect_report_data(store)
+        with patch.object(store, "runs", return_value=mock_runs_rel):
+            with patch.object(store, "errors", return_value=mock_errors_rel):
+                with patch.object(store, "warnings", return_value=mock_warnings_rel):
+                    data = _collect_report_data(store)
 
         assert data.run_id == 1
         assert data.source_name == "test"
@@ -274,7 +270,7 @@ class TestCmdReport:
             database=None,
         )
 
-        mock_runs = pd.DataFrame({
+        mock_runs_df = pd.DataFrame({
             "run_id": [1],
             "source_name": ["test"],
             "started_at": [None],
@@ -284,17 +280,24 @@ class TestCmdReport:
             "git_commit": ["abc123"],
         })
 
-        mock_df = pd.DataFrame(columns=["ref_file", "ref_line", "message"])
+        mock_empty_df = pd.DataFrame(columns=["ref_file", "ref_line", "message"])
 
-        mock_query = MagicMock()
-        mock_query.filter.return_value = mock_query
-        mock_query.df.return_value = mock_df
+        # Create mock relations
+        mock_runs_rel = MagicMock()
+        mock_runs_rel.df.return_value = mock_runs_df
 
-        with patch("blq.commands.report_cmd.get_store_for_args") as mock_store:
+        mock_errors_rel = MagicMock()
+        mock_errors_rel.df.return_value = mock_empty_df
+
+        mock_warnings_rel = MagicMock()
+        mock_warnings_rel.df.return_value = mock_empty_df
+
+        with patch("blq.commands.report_cmd.get_store_for_args") as mock_get_store:
             store = MagicMock()
-            store.runs.return_value = mock_runs
-            store.run.return_value = mock_query
-            mock_store.return_value = store
+            store.runs.return_value = mock_runs_rel
+            store.errors.return_value = mock_errors_rel
+            store.warnings.return_value = mock_warnings_rel
+            mock_get_store.return_value = store
 
             cmd_report(args)
 
@@ -316,12 +319,15 @@ class TestCmdReport:
             database=None,
         )
 
-        mock_runs = pd.DataFrame(columns=["run_id"])
+        mock_runs_df = pd.DataFrame(columns=["run_id"])
 
-        with patch("blq.commands.report_cmd.get_store_for_args") as mock_store:
+        mock_runs_rel = MagicMock()
+        mock_runs_rel.df.return_value = mock_runs_df
+
+        with patch("blq.commands.report_cmd.get_store_for_args") as mock_get_store:
             store = MagicMock()
-            store.runs.return_value = mock_runs
-            mock_store.return_value = store
+            store.runs.return_value = mock_runs_rel
+            mock_get_store.return_value = store
 
             with pytest.raises(SystemExit) as exc_info:
                 cmd_report(args)
@@ -347,7 +353,7 @@ class TestCmdReport:
             database=None,
         )
 
-        mock_runs = pd.DataFrame({
+        mock_runs_df = pd.DataFrame({
             "run_id": [1],
             "source_name": ["test"],
             "started_at": [None],
@@ -357,17 +363,24 @@ class TestCmdReport:
             "git_commit": ["abc123"],
         })
 
-        mock_df = pd.DataFrame(columns=["ref_file", "ref_line", "message"])
+        mock_empty_df = pd.DataFrame(columns=["ref_file", "ref_line", "message"])
 
-        mock_query = MagicMock()
-        mock_query.filter.return_value = mock_query
-        mock_query.df.return_value = mock_df
+        # Create mock relations
+        mock_runs_rel = MagicMock()
+        mock_runs_rel.df.return_value = mock_runs_df
 
-        with patch("blq.commands.report_cmd.get_store_for_args") as mock_store:
+        mock_errors_rel = MagicMock()
+        mock_errors_rel.df.return_value = mock_empty_df
+
+        mock_warnings_rel = MagicMock()
+        mock_warnings_rel.df.return_value = mock_empty_df
+
+        with patch("blq.commands.report_cmd.get_store_for_args") as mock_get_store:
             store = MagicMock()
-            store.runs.return_value = mock_runs
-            store.run.return_value = mock_query
-            mock_store.return_value = store
+            store.runs.return_value = mock_runs_rel
+            store.errors.return_value = mock_errors_rel
+            store.warnings.return_value = mock_warnings_rel
+            mock_get_store.return_value = store
 
             cmd_report(args)
 
@@ -389,7 +402,7 @@ class TestCmdReport:
             database=None,
         )
 
-        mock_runs = pd.DataFrame({
+        mock_runs_df = pd.DataFrame({
             "run_id": [1],
             "source_name": ["test"],
             "started_at": [None],
@@ -399,17 +412,24 @@ class TestCmdReport:
             "git_commit": ["abc123"],
         })
 
-        mock_df = pd.DataFrame(columns=["ref_file", "ref_line", "message"])
+        mock_empty_df = pd.DataFrame(columns=["ref_file", "ref_line", "message"])
 
-        mock_query = MagicMock()
-        mock_query.filter.return_value = mock_query
-        mock_query.df.return_value = mock_df
+        # Create mock relations
+        mock_runs_rel = MagicMock()
+        mock_runs_rel.df.return_value = mock_runs_df
 
-        with patch("blq.commands.report_cmd.get_store_for_args") as mock_store:
+        mock_errors_rel = MagicMock()
+        mock_errors_rel.df.return_value = mock_empty_df
+
+        mock_warnings_rel = MagicMock()
+        mock_warnings_rel.df.return_value = mock_empty_df
+
+        with patch("blq.commands.report_cmd.get_store_for_args") as mock_get_store:
             store = MagicMock()
-            store.runs.return_value = mock_runs
-            store.run.return_value = mock_query
-            mock_store.return_value = store
+            store.runs.return_value = mock_runs_rel
+            store.errors.return_value = mock_errors_rel
+            store.warnings.return_value = mock_warnings_rel
+            mock_get_store.return_value = store
 
             cmd_report(args)
 

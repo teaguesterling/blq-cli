@@ -264,7 +264,7 @@ class BlqStorage:
         """Get events with optional filtering.
 
         Args:
-            run_id: Filter to specific run
+            run_id: Filter to specific run (by serial number)
             severity: Filter by severity ('error', 'warning', or list)
             limit: Maximum events to return
 
@@ -274,7 +274,7 @@ class BlqStorage:
         """
         conditions = []
         if run_id is not None:
-            conditions.append(f"run_id = {run_id}")
+            conditions.append(f"run_serial = {run_id}")
         if severity is not None:
             if isinstance(severity, list):
                 sev_list = ", ".join(f"'{s}'" for s in severity)
@@ -286,7 +286,7 @@ class BlqStorage:
         sql = f"""
             SELECT * FROM blq_load_events()
             WHERE {where}
-            ORDER BY run_id DESC, event_id
+            ORDER BY run_serial DESC, event_id
         """
         if limit:
             sql += f" LIMIT {limit}"
@@ -299,7 +299,7 @@ class BlqStorage:
         """Get error events.
 
         Args:
-            run_id: Filter to specific run
+            run_id: Filter to specific run (by serial number)
             limit: Maximum errors to return
 
         Returns:
@@ -313,7 +313,7 @@ class BlqStorage:
         """Get warning events.
 
         Args:
-            run_id: Filter to specific run
+            run_id: Filter to specific run (by serial number)
             limit: Maximum warnings to return
 
         Returns:
@@ -321,11 +321,11 @@ class BlqStorage:
         """
         return self.events(run_id=run_id, severity="warning", limit=limit)
 
-    def event(self, run_id: int, event_id: int) -> dict[str, Any] | None:
+    def event(self, run_serial: int, event_id: int) -> dict[str, Any] | None:
         """Get a specific event by reference.
 
         Args:
-            run_id: Run ID
+            run_serial: Run serial number
             event_id: Event ID within the run
 
         Returns:
@@ -333,7 +333,7 @@ class BlqStorage:
         """
         result = self._conn.sql(f"""
             SELECT * FROM blq_load_events()
-            WHERE run_id = {run_id} AND event_id = {event_id}
+            WHERE run_serial = {run_serial} AND event_id = {event_id}
         """).fetchone()
 
         if result is None:
@@ -346,12 +346,12 @@ class BlqStorage:
         """Count error events.
 
         Args:
-            run_id: Filter to specific run (None for all runs)
+            run_id: Filter to specific run serial (None for all runs)
 
         Returns:
             Number of error events
         """
-        where = f"run_id = {run_id} AND " if run_id else ""
+        where = f"run_serial = {run_id} AND " if run_id else ""
         result = self._conn.sql(f"""
             SELECT COUNT(*) FROM blq_load_events()
             WHERE {where}severity = 'error'
@@ -362,12 +362,12 @@ class BlqStorage:
         """Count warning events.
 
         Args:
-            run_id: Filter to specific run (None for all runs)
+            run_id: Filter to specific run serial (None for all runs)
 
         Returns:
             Number of warning events
         """
-        where = f"run_id = {run_id} AND " if run_id else ""
+        where = f"run_serial = {run_id} AND " if run_id else ""
         result = self._conn.sql(f"""
             SELECT COUNT(*) FROM blq_load_events()
             WHERE {where}severity = 'warning'

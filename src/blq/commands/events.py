@@ -16,7 +16,7 @@ from blq.commands.core import (
     BlqConfig,
     EventRef,
 )
-from blq.query import LogStore
+from blq.storage import BlqStorage
 
 
 def cmd_event(args: argparse.Namespace) -> None:
@@ -30,7 +30,7 @@ def cmd_event(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     try:
-        store = LogStore(config.lq_dir)
+        store = BlqStorage.open(config.lq_dir)
         event = store.event(ref.run_id, ref.event_id)
 
         if event is None:
@@ -67,7 +67,7 @@ def cmd_context(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     try:
-        store = LogStore(config.lq_dir)
+        store = BlqStorage.open(config.lq_dir)
         event = store.event(ref.run_id, ref.event_id)
 
         if event is None:
