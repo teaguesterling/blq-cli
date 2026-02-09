@@ -237,6 +237,21 @@ def main() -> None:
         action="store_true",
         help="Use legacy parquet storage mode (instead of default BIRD)",
     )
+    # Gitignore handling: --gitignore (default) / --no-gitignore
+    gitignore_group = p_init.add_mutually_exclusive_group()
+    gitignore_group.add_argument(
+        "--gitignore",
+        action="store_true",
+        dest="gitignore",
+        default=True,
+        help="Add .lq/ to .gitignore (default)",
+    )
+    gitignore_group.add_argument(
+        "--no-gitignore",
+        action="store_false",
+        dest="gitignore",
+        help="Don't modify .gitignore",
+    )
     p_init.set_defaults(func=cmd_init)
 
     # run

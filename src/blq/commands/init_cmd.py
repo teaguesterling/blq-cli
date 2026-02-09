@@ -37,6 +37,8 @@ DETECT_INSPECT = "inspect"
 DETECT_AUTO = "auto"
 
 MCP_CONFIG_FILE = ".mcp.json"
+GITIGNORE_FILE = ".gitignore"
+GITIGNORE_ENTRY = ".lq/"
 
 MCP_CONFIG_TEMPLATE = """{
   "mcpServers": {
@@ -462,6 +464,42 @@ def _write_mcp_config(path: Path) -> None:
     print(f"  {path.name}   - MCP server configuration")
 
 
+def _add_to_gitignore(cwd: Path) -> bool:
+    """Add .lq/ to .gitignore if not already present.
+
+    Args:
+        cwd: Current working directory
+
+    Returns:
+        True if .gitignore was modified, False otherwise
+    """
+    gitignore_path = cwd / GITIGNORE_FILE
+
+    # Check if .gitignore exists and already has .lq
+    if gitignore_path.exists():
+        content = gitignore_path.read_text()
+        lines = content.splitlines()
+
+        # Check for existing .lq entry (with or without trailing slash)
+        for line in lines:
+            stripped = line.strip()
+            if stripped in (".lq", ".lq/", "/.lq", "/.lq/"):
+                return False  # Already present
+
+        # Add .lq/ to the end
+        if content and not content.endswith("\n"):
+            content += "\n"
+        content += f"{GITIGNORE_ENTRY}\n"
+        gitignore_path.write_text(content)
+        print(f"  Added {GITIGNORE_ENTRY} to {GITIGNORE_FILE}")
+        return True
+    else:
+        # Create new .gitignore with .lq/
+        gitignore_path.write_text(f"{GITIGNORE_ENTRY}\n")
+        print(f"  Created {GITIGNORE_FILE} with {GITIGNORE_ENTRY}")
+        return True
+
+
 def _install_extensions() -> None:
     """Install required DuckDB extensions."""
     import duckdb
@@ -766,14 +804,16 @@ def _reinit_config_files(lq_dir: Path, args: argparse.Namespace) -> None:
 
 def cmd_init(args: argparse.Namespace) -> None:
     """Initialize .lq directory and install required extensions."""
-    lq_dir = Path.cwd() / LQ_DIR
-    mcp_config_path = Path.cwd() / MCP_CONFIG_FILE
+    cwd = Path.cwd()
+    lq_dir = cwd / LQ_DIR
+    mcp_config_path = cwd / MCP_CONFIG_FILE
     create_mcp = getattr(args, "mcp", False)
     detect_commands = getattr(args, "detect", False)
     detect_mode = getattr(args, "detect_mode", DETECT_AUTO)
     auto_yes = getattr(args, "yes", False)
     force_reinit = getattr(args, "force", False)
     use_parquet = getattr(args, "parquet", False)
+    add_gitignore = getattr(args, "gitignore", True)
 
     if lq_dir.exists():
         if force_reinit:
@@ -867,6 +907,10 @@ def cmd_init(args: argparse.Namespace) -> None:
 
     # Install required extensions
     _install_extensions()
+
+    # Add .lq/ to .gitignore (default behavior)
+    if add_gitignore:
+        _add_to_gitignore(cwd)
 
     # Create MCP config if requested
     if create_mcp:
