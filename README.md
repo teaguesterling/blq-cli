@@ -55,7 +55,7 @@ blq event test:5:3            # Specific event
 blq context test:5:3          # Log context around event
 
 # Get run details
-blq status test:5             # Details for a specific run
+blq info test:5               # Details for a specific run
 ```
 
 ## Commands
@@ -84,9 +84,11 @@ blq status test:5             # Details for a specific run
 |---------|-------------|
 | `blq errors` | Show recent errors |
 | `blq warnings` | Show recent warnings |
+| `blq events` | Show events with severity filter |
 | `blq event <ref>` | Show event details or all events from a run |
 | `blq context <ref>` | Show log context around event |
-| `blq status [ref]` | Show status overview or run details |
+| `blq status` | Show status overview |
+| `blq info <ref>` | Show detailed info for a run (supports UUID) |
 | `blq history [tag]` | Show run history, optionally filtered |
 
 ### CI Integration
@@ -310,7 +312,7 @@ blq mcp serve                # stdio transport (Claude Desktop)
 blq mcp serve --transport sse  # HTTP/SSE transport
 ```
 
-Tools available: `run`, `exec`, `query`, `errors`, `warnings`, `event`, `context`, `status`, `history`, `diff`, `register_command`, `unregister_command`, `list_commands`, `reset`
+Tools available: `run`, `exec`, `query`, `errors`, `warnings`, `events`, `event`, `context`, `output`, `status`, `info`, `history`, `diff`, `register_command`, `unregister_command`, `list_commands`, `reset`
 
 **Security:** Disable sensitive tools via config:
 ```yaml

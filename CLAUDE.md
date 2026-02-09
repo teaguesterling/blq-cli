@@ -34,12 +34,12 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - Output stats in run results (lines, bytes, tail) for visibility
 - **Terminal-friendly output formatting** with smart column selection
 - **History filtering** (`blq history test` or `blq history -t test`)
-- **Run details** via `blq status <ref>` with `--details` flag
+- **Run details** via `blq info <ref>` (supports run refs and UUIDs)
 - **Flexible event refs** (run_id, run_id:event_id, tag:run_id, tag:run_id:event_id)
 - **Run events** via `blq event <run_ref>` shows all events from a run
 - **Automatic .gitignore** handling in `blq init` (`--gitignore`/`--no-gitignore`)
 - Full mypy type checking compliance
-- 370+ unit tests
+- 400+ unit tests
 - Comprehensive documentation (README, docs/)
 
 ### TODO
@@ -238,9 +238,12 @@ blq mcp serve --transport sse  # SSE transport
 | `query` | Query stored events with SQL |
 | `errors` | Get recent errors |
 | `warnings` | Get recent warnings |
+| `events` | Get events with optional severity filter |
 | `event` | Get details for a specific event by ref |
 | `context` | Get log context around an event |
+| `output` | Get raw output for a run |
 | `status` | Get status summary |
+| `info` | Get detailed info for a specific run |
 | `history` | Get run history |
 | `diff` | Compare errors between runs |
 | `register_command` | Register a command (idempotent, with run_now option) |
