@@ -190,10 +190,18 @@ def _execute_command(
 
     # Build output stats for visibility when no events are parsed
     tail_lines = 5
+    max_line_length = 120  # Truncate long lines to conserve context
+
+    def _truncate_line(ln: str) -> str:
+        stripped = ln.rstrip("\n\r")
+        if len(stripped) > max_line_length:
+            return stripped[:max_line_length] + "..."
+        return stripped
+
     output_stats: dict[str, int | list[str]] = {
         "lines": len(output_lines),
         "bytes": len(output),
-        "tail": [ln.rstrip("\n\r") for ln in output_lines[-tail_lines:]],
+        "tail": [_truncate_line(ln) for ln in output_lines[-tail_lines:]],
     }
 
     return RunResult(

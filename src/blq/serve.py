@@ -626,6 +626,76 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
         return {"ref": ref, "context_lines": [], "error": "Event not found"}
 
 
+def _output_impl(
+    run_id: int,
+    stream: str | None = None,
+    tail: int | None = None,
+    head: int | None = None,
+) -> dict[str, Any]:
+    """Implementation of output command - get raw output for a run.
+
+    Args:
+        run_id: Run serial number
+        stream: Stream name ('stdout', 'stderr', 'combined') or None for any
+        tail: Return only last N lines
+        head: Return only first N lines
+
+    Returns:
+        Output content and metadata
+    """
+    try:
+        storage = _get_storage()
+
+        # Get output info first
+        info = storage.get_output_info(run_id)
+        if not info:
+            return {
+                "run_id": run_id,
+                "error": "No output found for this run",
+                "streams": [],
+            }
+
+        # Get the raw output
+        output_bytes = storage.get_output(run_id, stream)
+        if output_bytes is None:
+            return {
+                "run_id": run_id,
+                "error": "Output content not available",
+                "streams": [s["stream"] for s in info],
+            }
+
+        # Decode and optionally truncate
+        try:
+            content = output_bytes.decode("utf-8", errors="replace")
+        except Exception:
+            content = output_bytes.decode("latin-1")
+
+        lines = content.splitlines(keepends=True)
+        total_lines = len(lines)
+
+        # Apply head/tail
+        if tail is not None and tail > 0:
+            lines = lines[-tail:]
+        elif head is not None and head > 0:
+            lines = lines[:head]
+
+        content = "".join(lines)
+
+        return {
+            "run_id": run_id,
+            "stream": stream or info[0]["stream"] if info else "combined",
+            "byte_length": len(output_bytes),
+            "total_lines": total_lines,
+            "returned_lines": len(lines),
+            "content": content,
+            "streams": [s["stream"] for s in info],
+        }
+    except FileNotFoundError:
+        return {"run_id": run_id, "error": "No lq repository found", "streams": []}
+    except Exception as e:
+        return {"run_id": run_id, "error": str(e), "streams": []}
+
+
 def _status_impl() -> dict[str, Any]:
     """Implementation of status command."""
     try:
@@ -1127,6 +1197,30 @@ def context(ref: str, lines: int = 5) -> dict[str, Any]:
         Context lines around the event
     """
     return _context_impl(ref, lines)
+
+
+@mcp.tool()
+def output(
+    run_id: int,
+    stream: str | None = None,
+    tail: int | None = None,
+    head: int | None = None,
+) -> dict[str, Any]:
+    """Get raw output for a run.
+
+    Retrieves the captured stdout/stderr from a command execution.
+    Use tail or head to limit output size for large logs.
+
+    Args:
+        run_id: Run serial number (e.g., 1, 2, 3)
+        stream: Stream name ('stdout', 'stderr', 'combined') or None for default
+        tail: Return only last N lines
+        head: Return only first N lines
+
+    Returns:
+        Output content and metadata including byte_length, total_lines, etc.
+    """
+    return _output_impl(run_id, stream, tail, head)
 
 
 @mcp.tool()

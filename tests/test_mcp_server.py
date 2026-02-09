@@ -276,6 +276,56 @@ class TestContextTool:
                 assert "context_lines" in result
 
 
+class TestOutputTool:
+    """Tests for the output tool."""
+
+    @pytest.mark.asyncio
+    async def test_output_basic(self, mcp_server):
+        """Get raw output for a run."""
+        async with Client(mcp_server) as client:
+            # Get history to find a run
+            history_raw = await client.call_tool("history", {"limit": 1})
+            history = get_data(history_raw)
+
+            if history["runs"]:
+                run_id = history["runs"][0]["run_serial"]
+
+                raw = await client.call_tool("output", {"run_id": run_id})
+                result = get_data(raw)
+
+                assert "run_id" in result
+                assert result["run_id"] == run_id
+                # May have content or error depending on storage
+                assert "streams" in result
+
+    @pytest.mark.asyncio
+    async def test_output_with_tail(self, mcp_server):
+        """Get last N lines of output."""
+        async with Client(mcp_server) as client:
+            history_raw = await client.call_tool("history", {"limit": 1})
+            history = get_data(history_raw)
+
+            if history["runs"]:
+                run_id = history["runs"][0]["run_serial"]
+
+                raw = await client.call_tool("output", {"run_id": run_id, "tail": 5})
+                result = get_data(raw)
+
+                assert "run_id" in result
+                if "content" in result:
+                    # If we got content, returned_lines should be <= 5
+                    assert result.get("returned_lines", 0) <= 5
+
+    @pytest.mark.asyncio
+    async def test_output_not_found(self, mcp_server_empty):
+        """Output for non-existent run."""
+        async with Client(mcp_server_empty) as client:
+            raw = await client.call_tool("output", {"run_id": 9999})
+            result = get_data(raw)
+
+            assert "error" in result
+
+
 class TestStatusTool:
     """Tests for the status tool."""
 

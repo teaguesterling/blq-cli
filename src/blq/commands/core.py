@@ -719,7 +719,8 @@ def detect_format_from_command(cmd: str) -> str:
     """Detect the best format hint based on the command string.
 
     Analyzes the command to identify known tools and returns the
-    appropriate format for parsing their output.
+    appropriate format for parsing their output. Uses duck_hunt's
+    pattern matching when available, falls back to built-in hints.
 
     Args:
         cmd: The command string to analyze
@@ -735,6 +736,22 @@ def detect_format_from_command(cmd: str) -> str:
         >>> detect_format_from_command("unknown-tool")
         'auto'
     """
+    # Try duck_hunt's pattern matching first (more comprehensive)
+    try:
+        import duckdb
+
+        conn = duckdb.connect()
+        conn.execute("LOAD duck_hunt")
+        result = conn.execute(
+            "SELECT format FROM duck_hunt_match_command_patterns(?) ORDER BY priority DESC LIMIT 1",
+            [cmd],
+        ).fetchone()
+        if result and result[0]:
+            return result[0]
+    except Exception:
+        pass  # Fall through to built-in hints
+
+    # Fall back to built-in hints
     cmd_lower = cmd.lower()
 
     # Check for specific patterns (longer patterns first for specificity)

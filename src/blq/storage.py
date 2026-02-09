@@ -506,6 +506,57 @@ class BlqStorage:
         """
         return self._store.get_next_run_number()
 
+    def get_output(
+        self,
+        run_id: str | int,
+        stream: str | None = None,
+    ) -> bytes | None:
+        """Get raw output for a run.
+
+        Args:
+            run_id: Run serial number or invocation ID
+            stream: Stream name ('stdout', 'stderr', 'combined') or None for any
+
+        Returns:
+            Raw output bytes, or None if not found
+        """
+        # Convert serial number to invocation ID if needed
+        if isinstance(run_id, int):
+            result = self._conn.execute(
+                "SELECT id FROM invocations ORDER BY started_at LIMIT 1 OFFSET ?",
+                [run_id - 1],
+            ).fetchone()
+            if not result:
+                return None
+            invocation_id = result[0]
+        else:
+            invocation_id = run_id
+
+        return self._store.read_output(invocation_id, stream)
+
+    def get_output_info(self, run_id: str | int) -> list[dict[str, Any]]:
+        """Get output metadata for a run.
+
+        Args:
+            run_id: Run serial number or invocation ID
+
+        Returns:
+            List of output records with stream, byte_length, etc.
+        """
+        # Convert serial number to invocation ID if needed
+        if isinstance(run_id, int):
+            result = self._conn.execute(
+                "SELECT id FROM invocations ORDER BY started_at LIMIT 1 OFFSET ?",
+                [run_id - 1],
+            ).fetchone()
+            if not result:
+                return []
+            invocation_id = result[0]
+        else:
+            invocation_id = run_id
+
+        return self._store.get_output_info(invocation_id)
+
     # =========================================================================
     # SQL Queries
     # =========================================================================

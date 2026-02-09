@@ -87,6 +87,7 @@ All tools are namespaced under the `blq` server, so `run` becomes `blq.run` when
 | `warnings` | Get recent warnings |
 | `event` | Get event details |
 | `context` | Get log context around event |
+| `output` | Get raw stdout/stderr for a run |
 | `status` | Get status summary |
 | `history` | Get run history |
 | `diff` | Compare errors between runs |
@@ -363,6 +364,47 @@ Get log context around a specific event.
     {"line": 43, "text": "     int x = foo + 1;"},
     {"line": 44, "text": "             ^~~"}
   ]
+}
+```
+
+---
+
+### output
+
+Get raw stdout/stderr output for a run. Useful when structured parsing didn't capture the information you need.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `run_id` | number | Yes | Run serial number (e.g., 1, 2, 3) |
+| `stream` | string | No | Stream name: 'stdout', 'stderr', or 'combined' |
+| `tail` | number | No | Return only last N lines |
+| `head` | number | No | Return only first N lines |
+
+**Returns:**
+
+```json
+{
+  "run_id": 1,
+  "stream": "combined",
+  "byte_length": 4523,
+  "total_lines": 156,
+  "returned_lines": 10,
+  "content": "...",
+  "streams": ["combined"]
+}
+```
+
+**Example:**
+
+```json
+{
+  "tool": "output",
+  "arguments": {
+    "run_id": 1,
+    "tail": 20
+  }
 }
 ```
 

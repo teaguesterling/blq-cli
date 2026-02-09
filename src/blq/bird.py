@@ -479,6 +479,88 @@ class BirdStore:
 
         return record
 
+    def read_output(
+        self,
+        invocation_id: str,
+        stream: str | None = None,
+    ) -> bytes | None:
+        """Read output content for an invocation.
+
+        Args:
+            invocation_id: ID of the invocation
+            stream: Stream name ('stdout', 'stderr', 'combined') or None for any
+
+        Returns:
+            Raw output bytes, or None if not found
+        """
+        if stream:
+            result = self._conn.execute(
+                "SELECT storage_type, storage_ref FROM outputs WHERE invocation_id = ? AND stream = ?",
+                [invocation_id, stream],
+            ).fetchone()
+        else:
+            result = self._conn.execute(
+                "SELECT storage_type, storage_ref FROM outputs WHERE invocation_id = ? LIMIT 1",
+                [invocation_id],
+            ).fetchone()
+
+        if not result:
+            return None
+
+        storage_type, storage_ref = result
+
+        if storage_type == "inline":
+            # Parse data: URI
+            import base64
+
+            # Format: data:application/octet-stream;base64,<data>
+            if storage_ref.startswith("data:") and ";base64," in storage_ref:
+                b64_data = storage_ref.split(";base64,", 1)[1]
+                return base64.b64decode(b64_data)
+            return None
+        elif storage_type == "blob":
+            # Read from file
+            if storage_ref.startswith("file:"):
+                rel_path = storage_ref[5:]  # Remove "file:" prefix
+                blob_path = self._blob_dir / rel_path
+                if blob_path.exists():
+                    return blob_path.read_bytes()
+            return None
+        else:
+            return None
+
+    def get_output_info(
+        self,
+        invocation_id: str,
+    ) -> list[dict[str, Any]]:
+        """Get output metadata for an invocation.
+
+        Args:
+            invocation_id: ID of the invocation
+
+        Returns:
+            List of output records with stream, byte_length, etc.
+        """
+        result = self._conn.execute(
+            """
+            SELECT stream, byte_length, storage_type, content_type
+            FROM outputs
+            WHERE invocation_id = ?
+            ORDER BY stream
+            """,
+            [invocation_id],
+        ).fetchall()
+
+        return [
+            {
+                "stream": row[0],
+                "byte_length": row[1],
+                "storage_type": row[2],
+                "content_type": row[3],
+            }
+            for row in result
+        ]
+
     def _write_blob(self, content_hash: str, content: bytes) -> str:
         """Write content to blob storage.
 
