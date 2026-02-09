@@ -16,6 +16,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from blq.bird import write_bird_invocation
 from blq.commands.core import (
     RAW_DIR,
     BlqConfig,
@@ -31,7 +32,6 @@ from blq.commands.core import (
     parse_log_content,
     write_run_parquet,
 )
-from blq.bird import write_bird_invocation
 
 # Logger for lq status messages
 logger = logging.getLogger("blq-cli")

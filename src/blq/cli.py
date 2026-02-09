@@ -64,6 +64,7 @@ from blq.commands import (
     cmd_hooks_run,
     cmd_hooks_status,
     cmd_import,
+    cmd_info,
     cmd_init,
     cmd_migrate,
     cmd_prune,
@@ -74,14 +75,12 @@ from blq.commands import (
     cmd_shell,
     cmd_sql,
     cmd_status,
-    cmd_info,
     cmd_summary,
     cmd_sync,
     cmd_unregister,
     cmd_warnings,
     cmd_watch,
 )
-from blq.commands.mcp_cmd import cmd_mcp_install, cmd_mcp_serve
 from blq.commands.core import (
     GLOBAL_PROJECTS_PATH,
     # Re-export commonly used items for backward compatibility
@@ -101,6 +100,7 @@ from blq.commands.core import (
     parse_log_content,
     write_run_parquet,
 )
+from blq.commands.mcp_cmd import cmd_mcp_install, cmd_mcp_serve
 from blq.commands.query_cmd import format_query_output, parse_filter_expression, query_source
 
 # Re-export for backward compatibility
@@ -482,7 +482,9 @@ def main() -> None:
         "--no-capture", "-N", action="store_true", help="Don't capture logs by default"
     )
     p_register.add_argument("--force", action="store_true", help="Overwrite existing command")
-    p_register.add_argument("--run", "-r", action="store_true", help="Run the command immediately after registering")
+    p_register.add_argument(
+        "--run", "-r", action="store_true", help="Run command immediately after registering"
+    )
     p_register.set_defaults(func=cmd_register)
 
     # unregister

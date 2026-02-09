@@ -23,7 +23,7 @@ import pandas as pd  # type: ignore[import-untyped]
 import yaml  # type: ignore[import-untyped]
 
 if TYPE_CHECKING:
-    from blq.query import LogStore
+    pass
 
 # ============================================================================
 # Configuration
@@ -1319,6 +1319,7 @@ def get_store_for_args(args):
     if is_raw and data_root is not None:
         # Raw parquet directory - deprecated, use LogStore for backward compat
         import warnings
+
         from blq.query import LogStore
         warnings.warn(
             "Raw parquet mode is deprecated. Use 'blq migrate --to-bird' to convert.",

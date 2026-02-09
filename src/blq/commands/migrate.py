@@ -10,12 +10,11 @@ import argparse
 import sys
 import uuid
 from datetime import datetime
-from pathlib import Path
 
 import duckdb
 
 from blq.bird import BirdStore, InvocationRecord
-from blq.commands.core import BlqConfig, LOGS_DIR
+from blq.commands.core import LOGS_DIR, BlqConfig
 
 
 def _parse_timestamp(ts_str: str | None) -> datetime:

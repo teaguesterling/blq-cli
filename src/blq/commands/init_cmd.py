@@ -15,6 +15,7 @@ from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]
 
+from blq.bird import BirdStore
 from blq.commands.core import (
     COMMANDS_FILE,
     DB_FILE,
@@ -28,7 +29,6 @@ from blq.commands.core import (
     RegisteredCommand,
     detect_project_info,
 )
-from blq.bird import BirdStore
 
 # Detection mode constants
 DETECT_NONE = "none"
@@ -923,9 +923,9 @@ def cmd_init(args: argparse.Namespace) -> None:
     if namespace and project:
         print(f"  project       - {namespace}/{project}")
     if use_bird:
-        print(f"  storage       - BIRD (DuckDB tables)")
+        print("  storage       - BIRD (DuckDB tables)")
     else:
-        print(f"  storage       - Parquet (legacy)")
+        print("  storage       - Parquet (legacy)")
 
     # Install required extensions
     _install_extensions()

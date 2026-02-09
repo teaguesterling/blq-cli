@@ -29,12 +29,10 @@ import subprocess
 from typing import Any
 
 import pandas as pd  # type: ignore[import-untyped]
-
-from blq.output import format_context
 from fastmcp import FastMCP
 
+from blq.output import format_context
 from blq.storage import BlqStorage
-
 
 # ============================================================================
 # Security Configuration
@@ -151,7 +149,9 @@ def _parse_ref(ref: str) -> tuple[str | None, int, int]:
         # Format: "tag:serial:event"
         return parts[0], int(parts[1]), int(parts[2])
     else:
-        raise ValueError(f"Invalid ref format: {ref}. Expected 'serial:event' or 'tag:serial:event'")
+        raise ValueError(
+            f"Invalid ref format: {ref}. Expected 'serial:event' or 'tag:serial:event'"
+        )
 
 
 # ============================================================================
@@ -1610,9 +1610,9 @@ def _reset_impl(
             "error": "Reset requires confirm=true to proceed. This is a destructive operation.",
             "mode": mode,
             "description": {
-                "data": "Clear all run data (invocations, events, outputs) but keep config and commands",
-                "schema": "Recreate database schema (clears data, keeps config files)",
-                "full": "Delete and recreate entire .lq directory (loses everything including commands)",
+                "data": "Clear run data but keep config and commands",
+                "schema": "Recreate database schema (clears data, keeps config)",
+                "full": "Delete and recreate entire .lq directory",
             }.get(mode, "Unknown mode"),
         }
 

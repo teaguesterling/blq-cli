@@ -20,20 +20,16 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-import duckdb
 import pytest
 
 from blq.bird import (
     BirdStore,
-    EventRecord,
     InvocationRecord,
-    OutputRecord,
-    SessionRecord,
     write_bird_invocation,
 )
-from blq.commands.core import BlqConfig, RegisteredCommand, write_run_parquet
+from blq.commands.core import BlqConfig, write_run_parquet
 from blq.commands.init_cmd import cmd_init
-from blq.commands.migrate import cmd_migrate, _migrate_parquet_to_bird
+from blq.commands.migrate import _migrate_parquet_to_bird, cmd_migrate
 
 
 @pytest.fixture

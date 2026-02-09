@@ -42,7 +42,7 @@ def cmd_mcp_install(args: argparse.Namespace) -> None:
                 print(f"blq server already configured in {mcp_file}")
                 return
             else:
-                print(f"blq server exists with different config. Use --force to overwrite.")
+                print("blq server exists with different config. Use --force to overwrite.")
                 print(f"  Current: {json.dumps(existing)}")
                 print(f"  New:     {json.dumps(blq_config)}")
                 return
@@ -66,8 +66,8 @@ def cmd_mcp_install(args: argparse.Namespace) -> None:
 
         print(f"Created {mcp_file} with blq server")
 
-    print(f"\nblq MCP server configured:")
-    print(f"  command: blq mcp serve")
+    print("\nblq MCP server configured:")
+    print("  command: blq mcp serve")
 
 
 def cmd_mcp_serve(args: argparse.Namespace) -> None:

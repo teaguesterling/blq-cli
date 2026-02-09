@@ -11,9 +11,10 @@ import json
 import re
 import shutil
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, Sequence
+from datetime import datetime
+from typing import Any
 
 
 def format_age(age_str: str) -> str:
@@ -611,15 +612,15 @@ def format_run_details(
 
     # Build key-value pairs
     data = []
-    for field in fields_to_show:
-        if field in run and run[field] is not None:
-            value = run[field]
+    for field_name in fields_to_show:
+        if field_name in run and run[field_name] is not None:
+            value = run[field_name]
             # Format special fields
-            if field == "started_at":
+            if field_name == "started_at":
                 value = f"{value} ({format_relative_time(str(value))})"
-            elif field == "git_dirty":
+            elif field_name == "git_dirty":
                 value = "Yes" if value else "No"
-            elif field == "duration":
+            elif field_name == "duration":
                 # Format duration nicely
                 if isinstance(value, (int, float)):
                     if value < 1:
@@ -630,7 +631,10 @@ def format_run_details(
                         mins = int(value // 60)
                         secs = value % 60
                         value = f"{mins}m {secs:.0f}s"
-            data.append({"field": field.replace("_", " ").title(), "value": str(value)})
+            data.append({
+                "field": field_name.replace("_", " ").title(),
+                "value": str(value),
+            })
 
     # Add output streams info (always show if available)
     if run.get("outputs"):

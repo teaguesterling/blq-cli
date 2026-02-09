@@ -15,9 +15,9 @@ import duckdb
 
 from blq.commands.core import (
     BlqConfig,
+    EventRef,
     get_store_for_args,
 )
-from blq.commands.core import EventRef
 from blq.output import (
     format_errors,
     format_history,

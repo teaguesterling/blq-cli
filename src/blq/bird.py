@@ -517,7 +517,8 @@ class BirdStore:
         """
         if stream:
             result = self._conn.execute(
-                "SELECT storage_type, storage_ref FROM outputs WHERE invocation_id = ? AND stream = ?",
+                "SELECT storage_type, storage_ref FROM outputs "
+                "WHERE invocation_id = ? AND stream = ?",
                 [invocation_id, stream],
             ).fetchone()
         else:
