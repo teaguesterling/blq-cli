@@ -38,13 +38,17 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **Flexible event refs** (run_id, run_id:event_id, tag:run_id, tag:run_id:event_id)
 - **Run events** via `blq event <run_ref>` shows all events from a run
 - **Automatic .gitignore** handling in `blq init` (`--gitignore`/`--no-gitignore`)
+- **Inspect command** with dual context (log + source)
+- **Consolidated MCP tools** (reduced from 22 to 12 tools)
+- **CLI command subgroups** (`blq commands list/register/unregister`)
 - Full mypy type checking compliance
-- 400+ unit tests
+- 430+ unit tests
 - Comprehensive documentation (README, docs/)
 
 ### TODO
 - [ ] Implement sync feature (see `docs/design-sync.md`) - Issue #21
 - [ ] Consider integration with duckdb_mcp for ATTACH/DETACH workflow
+- [ ] Auto-prune config option for storage cleanup
 
 ## Architecture
 
@@ -229,26 +233,22 @@ blq mcp serve                # Start MCP server (stdio)
 blq mcp serve --transport sse  # SSE transport
 ```
 
-### MCP Tools
+### MCP Tools (Consolidated API)
 
 | Tool | Description |
 |------|-------------|
-| `run` | Run a registered command |
-| `exec` | Execute ad-hoc command (auto-detects registered prefixes) |
+| `run` | Run registered command(s) - supports batch mode via `commands` param |
 | `query` | Query stored events with SQL |
-| `errors` | Get recent errors |
-| `warnings` | Get recent warnings |
-| `events` | Get events with optional severity filter |
-| `event` | Get details for a specific event by ref |
-| `context` | Get log context around an event |
+| `events` | Get events with severity/run filters - supports batch mode via `run_ids` param |
+| `inspect` | Get comprehensive event details with context - supports batch mode via `refs` param |
 | `output` | Get raw output for a run |
 | `status` | Get status summary |
-| `info` | Get detailed info for a specific run |
+| `info` | Get detailed run info (omit `ref` for most recent, `context=N` for log context around errors) |
 | `history` | Get run history |
 | `diff` | Compare errors between runs |
+| `commands` | List all registered commands |
 | `register_command` | Register a command (idempotent, with run_now option) |
 | `unregister_command` | Remove a registered command |
-| `list_commands` | List all registered commands |
 | `reset` | Reset database (modes: data, schema, full) |
 
 ### MCP Security
@@ -257,13 +257,12 @@ Disable sensitive tools via `.lq/config.yaml`:
 ```yaml
 mcp:
   disabled_tools:
-    - exec
     - reset
     - register_command
     - unregister_command
 ```
 
-Or via environment: `BLQ_MCP_DISABLED_TOOLS=exec,reset`
+Or via environment: `BLQ_MCP_DISABLED_TOOLS=reset`
 
 ### MCP Resources
 
@@ -276,6 +275,59 @@ Or via environment: `BLQ_MCP_DISABLED_TOOLS=exec,reset`
 | `blq://context/{ref}` | Log context around event |
 | `blq://commands` | Registered commands |
 
+## CLI Commands
+
+### Command Subgroups
+
+Several commands now use subgroups for better organization:
+
+```bash
+# Commands management
+blq commands list              # List registered commands
+blq commands register NAME CMD # Register a new command
+blq commands unregister NAME   # Remove a command
+blq commands                   # Alias for 'list'
+
+# MCP server
+blq mcp install                # Create .mcp.json
+blq mcp serve                  # Start MCP server
+
+# Git hooks
+blq hooks install              # Install pre-commit hook
+blq hooks remove               # Remove hook
+blq hooks status               # Show hook status
+blq hooks add CMD              # Add command to hook
+blq hooks list                 # List commands in hook
+
+# CI integration
+blq ci check                   # Check for new errors
+blq ci comment                 # Post PR comment
+```
+
+### Quick Reference
+
+```bash
+# Initialize
+blq init [--detect] [--mcp]
+
+# Run commands
+blq run <command>              # Run registered command
+blq run <command> -j           # JSON output
+
+# Query results
+blq status                     # Overview
+blq errors                     # Recent errors
+blq events --severity error    # Same as errors
+blq history                    # Run history
+blq info <ref>                 # Run details
+blq last                       # Most recent run
+blq inspect <ref>              # Event with context
+
+# Direct query
+blq sql "SELECT * FROM blq_load_events() LIMIT 10"
+blq query -f "severity='error'" build.log
+```
+
 ## Integration Points
 
 - **duck_hunt extension**: For enhanced log parsing (60+ formats)
@@ -285,3 +337,42 @@ Or via environment: `BLQ_MCP_DISABLED_TOOLS=exec,reset`
 
 - `../duck_hunt/` - DuckDB extension for log parsing
 - `../duckdb_mcp/` - MCP server extension for DuckDB
+
+## Development
+
+### Running Tests
+
+```bash
+blq run test-all               # Run all tests via blq
+pytest tests/                  # Run directly
+pytest tests/test_mcp_server.py -v  # Specific test file
+```
+
+### Type Checking
+
+```bash
+mypy src/blq/
+```
+
+### Linting
+
+```bash
+ruff check src/blq/
+ruff format src/blq/
+```
+
+### Config Options
+
+Key `.lq/config.yaml` options:
+```yaml
+storage:
+  keep_raw: true              # Always keep raw output
+
+source_lookup:
+  enabled: true               # Enable source context in inspect
+  ref_root: "."               # Root for resolving file paths
+
+mcp:
+  disabled_tools:             # Security: disable sensitive tools
+    - reset
+```
