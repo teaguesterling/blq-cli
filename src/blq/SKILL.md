@@ -119,8 +119,23 @@ blq.history()                  # Past runs
 ### Step 3: Drill Down
 
 ```python
-blq.events(severity="error", limit=10)  # Get error list
-blq.inspect(ref="build:3:2")            # Full details with log context
+# Quick view with log context around each error
+blq.info(ref="build:3", context=5)
+# Returns compact format:
+# {
+#   "run_ref": "build:3",
+#   "status": "FAIL",
+#   "error_count": 2,
+#   "errors_by_category": {"lint": 1, "test": 1},
+#   "events": [
+#     {"ref": "3:1", "location": "src/main.py:42", "context": "...>>> 42 | error line..."},
+#     {"ref": "3:2", "location": "tests/test_main.py:15", "context": "..."}
+#   ]
+# }
+
+# Or get full event details for deeper investigation
+blq.events(severity="error", limit=10)  # Get error list with all fields
+blq.inspect(ref="build:3:2")            # Full details with log + source context
 blq.output(run_id=3, tail=50)           # Raw output if parsing missed something
 ```
 
@@ -150,8 +165,32 @@ blq.diff(run1=3, run2=4)  # What changed between runs?
 | `run(command, ...)` | Run a registered command (supports batch mode with `commands` param) |
 | `status()` | Quick overview of all sources |
 | `commands()` | List registered commands |
-| `info(ref, context)` | Detailed info for a run (omit `ref` for most recent, `context=N` shows log lines around errors) |
+| `info(ref, context)` | Detailed info for a run (omit `ref` for most recent) |
 | `history(limit, source)` | Run history |
+
+#### The `info` Tool with `context=N`
+
+When you pass `context=N` to `info`, you get a compact event format optimized for quick understanding:
+
+```python
+blq.info(ref="test:47", context=3)
+# Returns:
+{
+  "run_ref": "test:47",
+  "status": "FAIL",
+  "error_count": 2,
+  "errors_by_category": {"test": 2},
+  "events": [
+    {
+      "ref": "47:242",                        # Short format (no tag prefix)
+      "location": "tests/test_main.py:251",   # Combined file:line
+      "context": "     248 | ...PASSED...\n>>>  251 | ...FAILED...\n     252 | ..."
+    }
+  ]
+}
+```
+
+This is the recommended starting point - you can see errors with their surrounding log context in one call. Use `inspect(ref)` only when you need additional details like source code context or error codes.
 
 ### Event Tools
 
@@ -246,15 +285,16 @@ This is the recommended pattern for agents - it ensures clean refs while being e
 
 ### Do:
 - Start with `status()` or `commands()` to understand current state
+- Use `info(context=5)` to see errors with surrounding log context in one call
 - Use `diff()` after fixes to verify no regressions
-- Use `inspect()` for full error context including log lines
+- Use `inspect()` only when you need additional details (source context, error codes)
 - Register commands the user will run repeatedly
-- Use `info()` (no args) to quickly check the most recent run
 
 ### Don't:
 - Use Bash to run builds when blq tools are available
 - Assume you can read source files - use blq's stored error context
 - Skip checking existing results - the user may have already run the build
+- Call `events()` then `inspect()` for each error - use `info(context=N)` instead
 
 ## Resetting State
 
@@ -270,19 +310,24 @@ blq.reset(mode="full", confirm=True)    # Full reinitialize
 # User ran: blq run build (from terminal)
 # Agent is asked to help with the errors
 
-# 1. See what happened
-blq.status()
-# → build: FAIL, 3 errors
+# 1. See what happened with context around each error
+blq.info(ref="build:5", context=3)
+# → {
+#     "run_ref": "build:5",
+#     "status": "FAIL",
+#     "error_count": 3,
+#     "errors_by_category": {"compile": 3},
+#     "events": [
+#       {"ref": "5:1", "location": "src/main.c:42", "context": "...>>> 42 | error..."},
+#       ...
+#     ]
+#   }
 
-# 2. Get the errors
-blq.events(severity="error")
-# → {"events": [{"ref": "build:5:1", "ref_file": "src/main.c", ...}, ...]}
-
-# 3. Inspect the first error with context
+# 2. If you need more details on a specific error
 blq.inspect(ref="build:5:1")
 # → Full error details including message, code, log_context, source_context
 
-# 4. After user fixes the code, they run: blq run build
+# 3. After user fixes the code, they run: blq run build
 # Agent verifies the fix:
 blq.diff(run1=5, run2=6)
 # → {"fixed": 3, "new": 0} - Success!

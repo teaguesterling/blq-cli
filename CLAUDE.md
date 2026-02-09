@@ -42,13 +42,15 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **Consolidated MCP tools** (reduced from 22 to 12 tools)
 - **CLI command subgroups** (`blq commands list/register/unregister`)
 - Full mypy type checking compliance
-- 430+ unit tests
+- 431 unit tests
 - Comprehensive documentation (README, docs/)
 
 ### TODO
 - [ ] Implement sync feature (see `docs/design-sync.md`) - Issue #21
 - [ ] Consider integration with duckdb_mcp for ATTACH/DETACH workflow
-- [ ] Auto-prune config option for storage cleanup
+- [ ] Rename `reset` to `clean` with modes: archive, prune, reset
+- [ ] Handle command timeouts properly (create invocation record before execution)
+- [ ] Running process tracking (pending BIRD spec)
 
 ## Architecture
 
@@ -320,7 +322,7 @@ blq errors                     # Recent errors
 blq events --severity error    # Same as errors
 blq history                    # Run history
 blq info <ref>                 # Run details
-blq last                       # Most recent run
+blq info                       # Most recent run (no ref)
 blq inspect <ref>              # Event with context
 
 # Direct query
