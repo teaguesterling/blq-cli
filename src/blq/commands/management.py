@@ -33,7 +33,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     except duckdb.Error:
         # Fallback if macros aren't working
         store = get_store_for_args(args)
-        result = store.events().limit(10).df()
+        result = store.events(limit=10).df()
         print(result.to_string(index=False))
 
 
@@ -41,20 +41,25 @@ def cmd_errors(args: argparse.Namespace) -> None:
     """Show recent errors."""
     try:
         store = get_store_for_args(args)
-        query = store.errors()
 
-        # Filter by source if specified
+        # Build SQL query with filters
+        conditions = ["severity = 'error'"]
         if args.source:
-            query = query.filter(source_name=args.source)
+            conditions.append(f"source_name = '{args.source}'")
 
-        # Order by run_id desc, event_id
-        query = query.order_by("run_id", desc=True).limit(args.limit)
+        where = " AND ".join(conditions)
 
-        # Select columns based on compact mode
         if args.compact:
-            query = query.select("run_id", "event_id", "ref_file", "ref_line", "message")
+            columns = "run_id, event_id, ref_file, ref_line, message"
+        else:
+            columns = "*"
 
-        result = query.df()
+        result = store.sql(f"""
+            SELECT {columns} FROM blq_load_events()
+            WHERE {where}
+            ORDER BY run_id DESC, event_id
+            LIMIT {args.limit}
+        """).df()
 
         if args.json:
             print(result.to_json(orient="records"))
@@ -69,7 +74,12 @@ def cmd_warnings(args: argparse.Namespace) -> None:
     """Show recent warnings."""
     try:
         store = get_store_for_args(args)
-        result = store.warnings().order_by("run_id", desc=True).limit(args.limit).df()
+        result = store.sql(f"""
+            SELECT * FROM blq_load_events()
+            WHERE severity = 'warning'
+            ORDER BY run_id DESC, event_id
+            LIMIT {args.limit}
+        """).df()
         print(result.to_string(index=False))
     except duckdb.Error as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -94,7 +104,7 @@ def cmd_history(args: argparse.Namespace) -> None:
     """Show run history."""
     try:
         store = get_store_for_args(args)
-        result = store.runs().head(args.limit)
+        result = store.runs(limit=args.limit).df()
         print(result.to_string(index=False))
     except duckdb.Error as e:
         print(f"Error: {e}", file=sys.stderr)

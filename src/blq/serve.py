@@ -4,20 +4,89 @@ MCP server for blq.
 Provides tools, resources, and prompts for AI agent integration.
 
 Usage:
-    blq serve                    # stdio transport (for Claude Desktop)
-    blq serve --transport sse    # SSE transport (for HTTP clients)
+    blq mcp serve                    # stdio transport (for Claude Desktop)
+    blq mcp serve --transport sse    # SSE transport (for HTTP clients)
+
+Security:
+    Tools can be disabled via .lq/config.yaml:
+        mcp:
+          disabled_tools:
+            - exec
+            - reset
+            - register_command
+            - unregister_command
+
+    Or via environment variable:
+        BLQ_MCP_DISABLED_TOOLS=exec,reset,register_command
 """
 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from typing import Any
 
 import pandas as pd  # type: ignore[import-untyped]
 from fastmcp import FastMCP
 
-from blq.query import LogStore
+from blq.storage import BlqStorage
+
+
+# ============================================================================
+# Security Configuration
+# ============================================================================
+
+# Tools that can be disabled for security
+SECURITY_SENSITIVE_TOOLS = {
+    "exec",           # Can run arbitrary commands
+    "reset",          # Can delete data
+    "register_command",   # Can modify command registry
+    "unregister_command", # Can modify command registry
+}
+
+# Cache for disabled tools (loaded once at startup)
+_disabled_tools: set[str] | None = None
+
+
+def _load_disabled_tools() -> set[str]:
+    """Load list of disabled tools from config or environment."""
+    global _disabled_tools
+    if _disabled_tools is not None:
+        return _disabled_tools
+
+    disabled: set[str] = set()
+
+    # Check environment variable first
+    env_disabled = os.environ.get("BLQ_MCP_DISABLED_TOOLS", "")
+    if env_disabled:
+        disabled.update(t.strip() for t in env_disabled.split(",") if t.strip())
+
+    # Check .lq/config.yaml
+    try:
+        from blq.cli import BlqConfig
+        config = BlqConfig.find()
+        if config and hasattr(config, "mcp_config"):
+            mcp_config = config.mcp_config or {}
+            disabled_list = mcp_config.get("disabled_tools", [])
+            if isinstance(disabled_list, list):
+                disabled.update(disabled_list)
+    except Exception:
+        pass
+
+    _disabled_tools = disabled
+    return disabled
+
+
+def _check_tool_enabled(tool_name: str) -> None:
+    """Check if a tool is enabled. Raises error if disabled."""
+    disabled = _load_disabled_tools()
+    if tool_name in disabled:
+        raise PermissionError(
+            f"Tool '{tool_name}' is disabled. "
+            f"Enable it by removing from mcp.disabled_tools in .lq/config.yaml "
+            f"or BLQ_MCP_DISABLED_TOOLS environment variable."
+        )
 
 
 def _to_json_safe(value: Any) -> Any:
@@ -42,27 +111,41 @@ mcp = FastMCP(
     "blq",
     instructions=(
         "Build Log Query - capture and query build/test logs. "
-        "Use tools to run builds, query errors, and analyze results."
+        "Use tools to run builds, query errors, and analyze results. "
+        "Read blq://guide for detailed usage instructions. "
+        "The database is shared with the CLI - users can run 'blq run build' "
+        "and you can query the results, or vice versa. "
+        "Start with status() or list_commands() to see current state. "
+        "Use errors(), event(ref), and context(ref) to drill down into issues. "
+        "Docs: https://blq-cli.readthedocs.io/en/latest/"
     ),
 )
 
 
-def _get_store() -> LogStore:
-    """Get LogStore for current directory."""
-    return LogStore.open()
+def _get_storage() -> BlqStorage:
+    """Get BlqStorage for current directory."""
+    return BlqStorage.open()
 
 
-def _format_ref(run_id: int, event_id: int) -> str:
-    """Format event reference."""
-    return f"{run_id}:{event_id}"
+def _parse_ref(ref: str) -> tuple[str | None, int, int]:
+    """Parse event reference into (tag, run_serial, event_id).
 
+    Formats:
+    - "tag:serial:event" -> (tag, serial, event)
+    - "serial:event" -> (None, serial, event)
 
-def _parse_ref(ref: str) -> tuple[int, int]:
-    """Parse event reference into (run_id, event_id)."""
+    Returns:
+        Tuple of (tag or None, run_serial, event_id)
+    """
     parts = ref.split(":")
-    if len(parts) != 2:
-        raise ValueError(f"Invalid ref format: {ref}")
-    return int(parts[0]), int(parts[1])
+    if len(parts) == 2:
+        # Format: "serial:event"
+        return None, int(parts[0]), int(parts[1])
+    elif len(parts) == 3:
+        # Format: "tag:serial:event"
+        return parts[0], int(parts[1]), int(parts[2])
+    else:
+        raise ValueError(f"Invalid ref format: {ref}. Expected 'serial:event' or 'tag:serial:event'")
 
 
 # ============================================================================
@@ -163,9 +246,68 @@ def _run_impl(
         }
 
 
-def _exec_impl(command: str, args: list[str] | None = None, timeout: int = 300) -> dict[str, Any]:
-    """Implementation of exec command (for ad-hoc shell commands)."""
-    # Build command for blq exec
+def _find_matching_registered_command(full_cmd: str) -> tuple[str, list[str]] | None:
+    """Check if command matches a registered command prefix.
+
+    Args:
+        full_cmd: Full command string to check
+
+    Returns:
+        Tuple of (command_name, extra_args) if match found, None otherwise
+    """
+    try:
+        from blq.cli import BlqConfig
+
+        config = BlqConfig.find()
+        if config is None:
+            return None
+
+        normalized_full = _normalize_cmd(full_cmd)
+
+        for name, cmd in config.commands.items():
+            normalized_registered = _normalize_cmd(cmd.cmd)
+
+            # Check if full command starts with registered command
+            if normalized_full.startswith(normalized_registered):
+                # Extract extra args
+                remainder = normalized_full[len(normalized_registered):].strip()
+                if remainder:
+                    extra_args = remainder.split()
+                else:
+                    extra_args = []
+                return name, extra_args
+
+        return None
+    except Exception:
+        return None
+
+
+def _exec_impl(
+    command: str,
+    args: list[str] | None = None,
+    timeout: int = 300,
+) -> dict[str, Any]:
+    """Implementation of exec command (for ad-hoc shell commands).
+
+    If the command matches a registered command prefix, uses run() instead
+    for cleaner refs.
+    """
+    # Build full command string
+    full_cmd = command
+    if args:
+        full_cmd = f"{command} {' '.join(args)}"
+
+    # Check if this matches a registered command
+    match = _find_matching_registered_command(full_cmd)
+    if match:
+        name, extra_args = match
+        result = _run_impl(name, extra=extra_args if extra_args else None, timeout=timeout)
+        result["matched_command"] = name
+        if extra_args:
+            result["extra_args"] = extra_args
+        return result
+
+    # No match - run as ad-hoc exec
     cmd_parts = ["blq", "exec", "--json", "--quiet"]
     cmd_parts.append(command)
     if args:
@@ -222,7 +364,7 @@ def _exec_impl(command: str, args: list[str] | None = None, timeout: int = 300) 
 def _query_impl(sql: str, limit: int = 100) -> dict[str, Any]:
     """Implementation of query command."""
     try:
-        store = _get_store()
+        store = _get_storage()
         conn = store.connection
 
         # Add LIMIT if not present (basic safety)
@@ -253,31 +395,41 @@ def _errors_impl(
 ) -> dict[str, Any]:
     """Implementation of errors command."""
     try:
-        store = _get_store()
-        if not store.has_data():
+        storage = _get_storage()
+        if not storage.has_data():
             return {"errors": [], "total_count": 0}
 
-        query = store.errors()
-
+        # Build WHERE conditions
+        conditions = ["severity = 'error'"]
         if run_id is not None:
-            query = query.filter(run_id=run_id)
+            conditions.append(f"run_serial = {run_id}")
         if source:
-            query = query.filter(source_name=source)
+            conditions.append(f"source_name = '{source}'")
         if file_pattern:
-            query = query.filter(ref_file=file_pattern)
+            conditions.append(f"ref_file LIKE '{file_pattern}'")
 
-        total_count = query.count()
-        query = query.order_by("run_id", desc=True).limit(limit)
-        df = query.df()
+        where = " AND ".join(conditions)
+
+        # Get total count
+        count_result = storage.sql(
+            f"SELECT COUNT(*) FROM blq_load_events() WHERE {where}"
+        ).fetchone()
+        total_count = count_result[0] if count_result else 0
+
+        # Get errors - use ref column from view
+        df = storage.sql(f"""
+            SELECT * FROM blq_load_events()
+            WHERE {where}
+            ORDER BY run_serial DESC, event_id
+            LIMIT {limit}
+        """).df()
 
         error_list = []
         for _, row in df.iterrows():
             error_list.append(
                 {
-                    "ref": _format_ref(
-                        _safe_int(row.get("run_id")) or 0,
-                        _safe_int(row.get("event_id")) or 0,
-                    ),
+                    "ref": _to_json_safe(row.get("ref")),
+                    "run_ref": _to_json_safe(row.get("run_ref")),
                     "ref_file": _to_json_safe(row.get("ref_file")),
                     "ref_line": _safe_int(row.get("ref_line")),
                     "ref_column": _safe_int(row.get("ref_column")),
@@ -299,29 +451,39 @@ def _warnings_impl(
 ) -> dict[str, Any]:
     """Implementation of warnings command."""
     try:
-        store = _get_store()
-        if not store.has_data():
+        storage = _get_storage()
+        if not storage.has_data():
             return {"warnings": [], "total_count": 0}
 
-        query = store.warnings()
-
+        # Build WHERE conditions
+        conditions = ["severity = 'warning'"]
         if run_id is not None:
-            query = query.filter(run_id=run_id)
+            conditions.append(f"run_serial = {run_id}")
         if source:
-            query = query.filter(source_name=source)
+            conditions.append(f"source_name = '{source}'")
 
-        total_count = query.count()
-        query = query.order_by("run_id", desc=True).limit(limit)
-        df = query.df()
+        where = " AND ".join(conditions)
+
+        # Get total count
+        count_result = storage.sql(
+            f"SELECT COUNT(*) FROM blq_load_events() WHERE {where}"
+        ).fetchone()
+        total_count = count_result[0] if count_result else 0
+
+        # Get warnings - use ref column from view
+        df = storage.sql(f"""
+            SELECT * FROM blq_load_events()
+            WHERE {where}
+            ORDER BY run_serial DESC, event_id
+            LIMIT {limit}
+        """).df()
 
         warning_list = []
         for _, row in df.iterrows():
             warning_list.append(
                 {
-                    "ref": _format_ref(
-                        _safe_int(row.get("run_id")) or 0,
-                        _safe_int(row.get("event_id")) or 0,
-                    ),
+                    "ref": _to_json_safe(row.get("ref")),
+                    "run_ref": _to_json_safe(row.get("run_ref")),
                     "ref_file": _to_json_safe(row.get("ref_file")),
                     "ref_line": _safe_int(row.get("ref_line")),
                     "ref_column": _safe_int(row.get("ref_column")),
@@ -339,12 +501,22 @@ def _warnings_impl(
 def _event_impl(ref: str) -> dict[str, Any] | None:
     """Implementation of event command."""
     try:
-        run_id, event_id = _parse_ref(ref)
-        store = _get_store()
-        event_data = store.event(run_id, event_id)
+        tag, run_serial, event_id = _parse_ref(ref)
+        store = _get_storage()
 
-        if event_data is None:
+        # Build query using run_serial and event_id
+        if tag is not None:
+            where = f"tag = '{tag}' AND run_serial = {run_serial} AND event_id = {event_id}"
+        else:
+            where = f"run_serial = {run_serial} AND event_id = {event_id}"
+
+        result = store.sql(f"SELECT * FROM blq_load_events() WHERE {where}").fetchone()
+
+        if result is None:
             return None
+
+        columns = store.sql("SELECT * FROM blq_load_events() LIMIT 0").columns
+        event_data = dict(zip(columns, result))
 
         # Environment is now stored as MAP, convert to dict if needed
         environment = event_data.get("environment")
@@ -356,8 +528,9 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
                 environment = None
 
         return {
-            "ref": ref,
-            "run_id": run_id,
+            "ref": _to_json_safe(event_data.get("ref")),
+            "run_ref": _to_json_safe(event_data.get("run_ref")),
+            "run_serial": run_serial,
             "event_id": event_id,
             "severity": event_data.get("severity"),
             "ref_file": event_data.get("ref_file"),
@@ -392,12 +565,22 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
 def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
     """Implementation of context command."""
     try:
-        run_id, event_id = _parse_ref(ref)
-        store = _get_store()
-        event_data = store.event(run_id, event_id)
+        tag, run_serial, event_id = _parse_ref(ref)
+        storage = _get_storage()
 
-        if event_data is None:
+        # Build query using run_serial and event_id
+        if tag is not None:
+            where = f"tag = '{tag}' AND run_serial = {run_serial} AND event_id = {event_id}"
+        else:
+            where = f"run_serial = {run_serial} AND event_id = {event_id}"
+
+        result = storage.sql(f"SELECT * FROM blq_load_events() WHERE {where}").fetchone()
+
+        if result is None:
             return {"ref": ref, "context_lines": [], "error": "Event not found"}
+
+        columns = storage.sql("SELECT * FROM blq_load_events() LIMIT 0").columns
+        event_data = dict(zip(columns, result))
 
         # Get context from nearby events in the same run
         context_lines = []
@@ -406,23 +589,25 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
         log_line_end = event_data.get("log_line_end")
 
         if log_line_start is not None:
-            # Get events near this log line
-            nearby = (
-                store.run(run_id)
-                .filter(f"log_line_start >= {log_line_start - lines}")
-                .filter(f"log_line_end <= {log_line_end + lines}" if log_line_end else "TRUE")
-                .order_by("log_line_start")
-                .limit(lines * 2 + 1)
-                .df()
-            )
+            # Get events near this log line - use run_serial to find same run
+            end_condition = f"AND log_line_end <= {log_line_end + lines}" if log_line_end else ""
+            nearby = storage.sql(f"""
+                SELECT * FROM blq_load_events()
+                WHERE run_serial = {run_serial}
+                  AND log_line_start >= {log_line_start - lines}
+                  {end_condition}
+                ORDER BY log_line_start
+                LIMIT {lines * 2 + 1}
+            """).df()
 
             for _, row in nearby.iterrows():
-                is_event = row.get("run_id") == run_id and row.get("event_id") == event_id
+                is_event = row.get("run_serial") == run_serial and row.get("event_id") == event_id
                 context_lines.append(
                     {
                         "line": row.get("log_line_start"),
                         "text": row.get("raw_text") or row.get("message", ""),
                         "is_event": is_event,
+                        "ref": _to_json_safe(row.get("ref")),
                     }
                 )
         else:
@@ -432,6 +617,7 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
                     "line": None,
                     "text": event_data.get("raw_text") or event_data.get("message", ""),
                     "is_event": True,
+                    "ref": ref,
                 }
             )
 
@@ -443,17 +629,17 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
 def _status_impl() -> dict[str, Any]:
     """Implementation of status command."""
     try:
-        store = _get_store()
-        if not store.has_data():
+        storage = _get_storage()
+        if not storage.has_data():
             return {"sources": []}
 
-        # Get status for each source
-        runs_df = store.runs()
+        # Get status for each source (blq_load_runs includes error_count/warning_count)
+        runs_df = storage.runs().df()
         sources = []
 
         for _, row in runs_df.iterrows():
-            error_count = store.run(row["run_id"]).filter(severity="error").count()
-            warning_count = store.run(row["run_id"]).filter(severity="warning").count()
+            error_count = _safe_int(row.get("error_count")) or 0
+            warning_count = _safe_int(row.get("warning_count")) or 0
 
             if error_count > 0:
                 status_str = "FAIL"
@@ -462,6 +648,14 @@ def _status_impl() -> dict[str, Any]:
             else:
                 status_str = "OK"
 
+            # Build run_ref from tag and run_id (serial number from blq_load_runs)
+            tag = _to_json_safe(row.get("tag"))
+            run_serial = _safe_int(row.get("run_id")) or 0
+            if tag:
+                run_ref = f"{tag}:{run_serial}"
+            else:
+                run_ref = str(run_serial)
+
             sources.append(
                 {
                     "name": _to_json_safe(row.get("source_name")) or "unknown",
@@ -469,7 +663,8 @@ def _status_impl() -> dict[str, Any]:
                     "error_count": error_count,
                     "warning_count": warning_count,
                     "last_run": str(row.get("started_at", "")),
-                    "run_id": _safe_int(row.get("run_id")) or 0,
+                    "run_ref": run_ref,
+                    "run_serial": run_serial,
                 }
             )
 
@@ -481,21 +676,26 @@ def _status_impl() -> dict[str, Any]:
 def _history_impl(limit: int = 20, source: str | None = None) -> dict[str, Any]:
     """Implementation of history command."""
     try:
-        store = _get_store()
-        if not store.has_data():
+        storage = _get_storage()
+        if not storage.has_data():
             return {"runs": []}
 
-        runs_df = store.runs()
-
+        # Build query with optional source filter
         if source:
-            runs_df = runs_df[runs_df["source_name"] == source]
+            runs_df = storage.sql(f"""
+                SELECT * FROM blq_load_runs()
+                WHERE source_name = '{source}'
+                ORDER BY run_id DESC
+                LIMIT {limit}
+            """).df()
+        else:
+            runs_df = storage.runs(limit=limit).df()
 
-        runs_df = runs_df.head(limit)
         runs = []
 
         for _, row in runs_df.iterrows():
-            error_count = store.run(row["run_id"]).filter(severity="error").count()
-            warning_count = store.run(row["run_id"]).filter(severity="warning").count()
+            error_count = _safe_int(row.get("error_count")) or 0
+            warning_count = _safe_int(row.get("warning_count")) or 0
 
             if error_count > 0:
                 status_str = "FAIL"
@@ -504,9 +704,18 @@ def _history_impl(limit: int = 20, source: str | None = None) -> dict[str, Any]:
             else:
                 status_str = "OK"
 
+            # Build run_ref from tag and run_id (serial number from blq_load_runs)
+            tag = _to_json_safe(row.get("tag"))
+            run_serial = _safe_int(row.get("run_id")) or 0
+            if tag:
+                run_ref = f"{tag}:{run_serial}"
+            else:
+                run_ref = str(run_serial)
+
             runs.append(
                 {
-                    "run_id": _safe_int(row.get("run_id")) or 0,
+                    "run_ref": run_ref,
+                    "run_serial": run_serial,
                     "source_name": _to_json_safe(row.get("source_name")) or "unknown",
                     "status": status_str,
                     "error_count": error_count,
@@ -531,13 +740,26 @@ def _history_impl(limit: int = 20, source: str | None = None) -> dict[str, Any]:
 
 
 def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
-    """Implementation of diff command."""
-    try:
-        store = _get_store()
+    """Implementation of diff command.
 
-        # Get errors from each run
-        errors1 = store.run(run1).filter(severity="error").df()
-        errors2 = store.run(run2).filter(severity="error").df()
+    Args:
+        run1: First run serial number (baseline)
+        run2: Second run serial number (comparison)
+    """
+    try:
+        storage = _get_storage()
+
+        # Get errors from each run using run_serial
+        errors1 = storage.sql(f"""
+            SELECT * FROM blq_load_events()
+            WHERE severity = 'error' AND run_serial = {run1}
+            LIMIT 1000
+        """).df()
+        errors2 = storage.sql(f"""
+            SELECT * FROM blq_load_events()
+            WHERE severity = 'error' AND run_serial = {run2}
+            LIMIT 1000
+        """).df()
 
         # Use fingerprints for comparison if available, else use file+line+message
         def get_error_key(row):
@@ -569,7 +791,7 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
             if get_error_key(row) in new_keys:
                 new_errors.append(
                     {
-                        "ref": _format_ref(run2, int(row.get("event_id", 0))),
+                        "ref": _to_json_safe(row.get("ref")),
                         "ref_file": row.get("ref_file"),
                         "ref_line": row.get("ref_line"),
                         "message": row.get("message"),
@@ -596,6 +818,11 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
         }
 
 
+def _normalize_cmd(cmd: str) -> str:
+    """Normalize command string for comparison (collapse whitespace)."""
+    return " ".join(cmd.split())
+
+
 def _register_command_impl(
     name: str,
     cmd: str,
@@ -604,6 +831,7 @@ def _register_command_impl(
     capture: bool = True,
     force: bool = False,
     format: str | None = None,
+    run_now: bool = False,
 ) -> dict[str, Any]:
     """Implementation of register_command."""
     try:
@@ -616,12 +844,63 @@ def _register_command_impl(
             return {"success": False, "error": "No lq repository found. Run 'blq init' first."}
 
         commands = config.commands
+        normalized_cmd = _normalize_cmd(cmd)
 
+        # Check for existing command with same name
         if name in commands and not force:
-            return {
-                "success": False,
-                "error": f"Command '{name}' already exists. Use force=true to overwrite.",
-            }
+            existing = commands[name]
+            existing_normalized = _normalize_cmd(existing.cmd)
+
+            if existing_normalized == normalized_cmd:
+                # Same command, just use it
+                result: dict[str, Any] = {
+                    "success": True,
+                    "message": f"Using existing command '{name}' (identical)",
+                    "existing": True,
+                    "command": {
+                        "name": name,
+                        "cmd": existing.cmd,
+                        "description": existing.description,
+                        "timeout": existing.timeout,
+                        "capture": existing.capture,
+                        "format": existing.format,
+                    },
+                }
+                if run_now:
+                    run_result = _run_impl(name, timeout=timeout)
+                    result["run"] = run_result
+                return result
+            else:
+                # Different command with same name
+                return {
+                    "success": False,
+                    "error": (
+                        f"Command '{name}' already exists with different command. "
+                        f"Existing: '{existing.cmd}'. Use force=true to overwrite."
+                    ),
+                }
+
+        # Check for existing command with same cmd but different name
+        for existing_name, existing in commands.items():
+            if _normalize_cmd(existing.cmd) == normalized_cmd and not force:
+                result = {
+                    "success": True,
+                    "message": f"Using existing command '{existing_name}' (same command)",
+                    "existing": True,
+                    "matched_name": existing_name,
+                    "command": {
+                        "name": existing_name,
+                        "cmd": existing.cmd,
+                        "description": existing.description,
+                        "timeout": existing.timeout,
+                        "capture": existing.capture,
+                        "format": existing.format,
+                    },
+                }
+                if run_now:
+                    run_result = _run_impl(existing_name, timeout=timeout)
+                    result["run"] = run_result
+                return result
 
         # Auto-detect format if not specified
         if format is None:
@@ -637,9 +916,10 @@ def _register_command_impl(
         )
         config.save_commands()
 
-        return {
+        result = {
             "success": True,
             "message": f"Registered command '{name}': {cmd}",
+            "existing": False,
             "command": {
                 "name": name,
                 "cmd": cmd,
@@ -649,6 +929,10 @@ def _register_command_impl(
                 "format": format,
             },
         }
+        if run_now:
+            run_result = _run_impl(name, timeout=timeout)
+            result["run"] = run_result
+        return result
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -733,17 +1017,30 @@ def run(
 
 
 @mcp.tool()
-def exec(command: str, args: list[str] | None = None, timeout: int = 300) -> dict[str, Any]:
+def exec(
+    command: str,
+    args: list[str] | None = None,
+    timeout: int = 300,
+) -> dict[str, Any]:
     """Execute an ad-hoc shell command and capture its output.
 
+    If the command matches a registered command prefix, automatically uses
+    run() instead for cleaner refs. For example, if 'test' is registered as
+    'pytest tests/', then exec('pytest tests/ -v') will run as
+    run(command='test', extra=['-v']).
+
+    Note: This tool can be disabled via mcp.disabled_tools config.
+
     Args:
-        command: Shell command to execute
-        args: Additional arguments
+        command: Shell command to run
+        args: Additional arguments to append
         timeout: Timeout in seconds (default: 300)
 
     Returns:
-        Run result with status, errors, and warnings
+        Run result with status, errors, and warnings. If a registered command
+        was matched, includes 'matched_command' and optionally 'extra_args'.
     """
+    _check_tool_enabled("exec")
     return _exec_impl(command, args, timeout)
 
 
@@ -772,12 +1069,13 @@ def errors(
 
     Args:
         limit: Max errors to return (default: 20)
-        run_id: Filter to specific run
+        run_id: Filter to specific run (by serial number, e.g., 1, 2, 3)
         source: Filter to specific source name
         file_pattern: Filter by file path pattern (SQL LIKE)
 
     Returns:
-        Errors list with total count
+        Errors list with total count. Each error includes a 'ref' field
+        in format "tag:serial:event" or "serial:event".
     """
     return _errors_impl(limit, run_id, source, file_pattern)
 
@@ -792,11 +1090,12 @@ def warnings(
 
     Args:
         limit: Max warnings to return (default: 20)
-        run_id: Filter to specific run
+        run_id: Filter to specific run (by serial number, e.g., 1, 2, 3)
         source: Filter to specific source name
 
     Returns:
-        Warnings list with total count
+        Warnings list with total count. Each warning includes a 'ref' field
+        in format "tag:serial:event" or "serial:event".
     """
     return _warnings_impl(limit, run_id, source)
 
@@ -806,7 +1105,8 @@ def event(ref: str) -> dict[str, Any] | None:
     """Get details for a specific event by reference.
 
     Args:
-        ref: Event reference (e.g., "1:3")
+        ref: Event reference in format "tag:serial:event" (e.g., "build:1:3")
+             or "serial:event" (e.g., "1:3")
 
     Returns:
         Event details or None if not found
@@ -819,7 +1119,8 @@ def context(ref: str, lines: int = 5) -> dict[str, Any]:
     """Get log context around a specific event.
 
     Args:
-        ref: Event reference (e.g., "1:3")
+        ref: Event reference in format "tag:serial:event" (e.g., "build:1:3")
+             or "serial:event" (e.g., "1:3")
         lines: Lines of context before/after (default: 5)
 
     Returns:
@@ -857,8 +1158,8 @@ def diff(run1: int, run2: int) -> dict[str, Any]:
     """Compare errors between two runs.
 
     Args:
-        run1: First run ID (baseline)
-        run2: Second run ID (comparison)
+        run1: First run serial number (baseline)
+        run2: Second run serial number (comparison)
 
     Returns:
         Diff summary with fixed and new errors
@@ -875,8 +1176,15 @@ def register_command(
     capture: bool = True,
     force: bool = False,
     format: str | None = None,
+    run_now: bool = False,
 ) -> dict[str, Any]:
     """Register a new command.
+
+    If a command with the same name or same command string already exists,
+    returns the existing command (and runs it if run_now=True) instead of
+    failing. Use force=True to overwrite an existing command.
+
+    Note: This tool can be disabled via mcp.disabled_tools config.
 
     Args:
         name: Command name (e.g., 'build', 'test')
@@ -886,16 +1194,21 @@ def register_command(
         capture: Whether to capture and parse logs (default: true)
         force: Overwrite existing command if it exists
         format: Log format for parsing (auto-detected from command if not specified)
+        run_now: Run the command immediately after registering (default: false)
 
     Returns:
-        Success status and registered command details
+        Success status and registered command details. If run_now=True,
+        also includes 'run' key with the run result.
     """
-    return _register_command_impl(name, cmd, description, timeout, capture, force, format)
+    _check_tool_enabled("register_command")
+    return _register_command_impl(name, cmd, description, timeout, capture, force, format, run_now)
 
 
 @mcp.tool()
 def unregister_command(name: str) -> dict[str, Any]:
     """Remove a registered command.
+
+    Note: This tool can be disabled via mcp.disabled_tools config.
 
     Args:
         name: Command name to remove
@@ -903,6 +1216,7 @@ def unregister_command(name: str) -> dict[str, Any]:
     Returns:
         Success status
     """
+    _check_tool_enabled("unregister_command")
     return _unregister_command_impl(name)
 
 
@@ -916,40 +1230,225 @@ def list_commands() -> dict[str, Any]:
     return _list_commands_impl()
 
 
+def _reset_impl(
+    mode: str = "data",
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Implementation of reset command."""
+    import shutil
+    from pathlib import Path
+
+    valid_modes = ["data", "full", "schema"]
+
+    if mode not in valid_modes:
+        return {
+            "success": False,
+            "error": f"Invalid mode '{mode}'. Valid modes: {', '.join(valid_modes)}",
+        }
+
+    if not confirm:
+        return {
+            "success": False,
+            "error": "Reset requires confirm=true to proceed. This is a destructive operation.",
+            "mode": mode,
+            "description": {
+                "data": "Clear all run data (invocations, events, outputs) but keep config and commands",
+                "schema": "Recreate database schema (clears data, keeps config files)",
+                "full": "Delete and recreate entire .lq directory (loses everything including commands)",
+            }.get(mode, "Unknown mode"),
+        }
+
+    try:
+        # Find .lq directory
+        lq_dir = None
+        current = Path.cwd()
+        while current != current.parent:
+            if (current / ".lq").exists():
+                lq_dir = current / ".lq"
+                break
+            current = current.parent
+
+        if lq_dir is None:
+            return {"success": False, "error": "No .lq directory found"}
+
+        if mode == "data":
+            # Clear data tables but keep schema and config
+            db_path = lq_dir / "blq.duckdb"
+            if db_path.exists():
+                import duckdb
+                conn = duckdb.connect(str(db_path))
+                conn.execute("DELETE FROM events")
+                conn.execute("DELETE FROM outputs")
+                conn.execute("DELETE FROM invocations")
+                conn.execute("DELETE FROM sessions")
+                conn.close()
+
+            # Clear blobs
+            blobs_dir = lq_dir / "blobs"
+            if blobs_dir.exists():
+                shutil.rmtree(blobs_dir)
+                blobs_dir.mkdir()
+                (blobs_dir / "content").mkdir()
+
+            return {
+                "success": True,
+                "message": "Cleared all run data. Config and commands preserved.",
+                "mode": mode,
+            }
+
+        elif mode == "schema":
+            # Recreate database with fresh schema
+            db_path = lq_dir / "blq.duckdb"
+            if db_path.exists():
+                db_path.unlink()
+
+            # Clear blobs
+            blobs_dir = lq_dir / "blobs"
+            if blobs_dir.exists():
+                shutil.rmtree(blobs_dir)
+                blobs_dir.mkdir()
+                (blobs_dir / "content").mkdir()
+
+            # Recreate database with schema
+            from blq.bird import BirdStore
+            store = BirdStore.open(lq_dir)
+            store.close()
+
+            return {
+                "success": True,
+                "message": "Recreated database schema. Config files preserved.",
+                "mode": mode,
+            }
+
+        elif mode == "full":
+            # Full reinitialize
+            shutil.rmtree(lq_dir)
+
+            # Run init
+            result = subprocess.run(
+                ["blq", "init"],
+                capture_output=True,
+                text=True,
+                cwd=lq_dir.parent,
+            )
+
+            if result.returncode == 0:
+                return {
+                    "success": True,
+                    "message": "Fully reinitialized .lq directory.",
+                    "mode": mode,
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Init failed: {result.stderr}",
+                    "mode": mode,
+                }
+
+    except Exception as e:
+        return {"success": False, "error": str(e), "mode": mode}
+
+
+@mcp.tool()
+def reset(
+    mode: str = "data",
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Reset or reinitialize the blq database.
+
+    Note: This tool can be disabled via mcp.disabled_tools config.
+
+    Args:
+        mode: Reset level:
+            - "data": Clear all run data but keep config and commands
+            - "schema": Recreate database schema (clears data, keeps config files)
+            - "full": Delete and recreate entire .lq directory
+        confirm: Must be true to proceed (safety check)
+
+    Returns:
+        Success status and message
+    """
+    _check_tool_enabled("reset")
+    return _reset_impl(mode, confirm)
+
+
 # ============================================================================
 # Resources
 # ============================================================================
 
 
-@mcp.resource("lq://status")
+@mcp.resource("blq://status")
 def resource_status() -> str:
     """Current status of all sources."""
     result = _status_impl()
     return json.dumps(result, indent=2, default=str)
 
 
-@mcp.resource("lq://runs")
+@mcp.resource("blq://runs")
 def resource_runs() -> str:
     """List of all runs."""
     result = _history_impl(limit=100)
     return json.dumps(result, indent=2, default=str)
 
 
-@mcp.resource("lq://events")
+@mcp.resource("blq://events")
 def resource_events() -> str:
     """All stored events."""
     result = _errors_impl(limit=100)
     return json.dumps(result, indent=2, default=str)
 
 
-@mcp.resource("lq://event/{ref}")
+@mcp.resource("blq://event/{ref}")
 def resource_event(ref: str) -> str:
     """Single event details."""
     result = _event_impl(ref)
     return json.dumps(result, indent=2, default=str)
 
 
-@mcp.resource("lq://commands")
+@mcp.resource("blq://errors")
+def resource_errors() -> str:
+    """Recent errors across all runs."""
+    result = _errors_impl(limit=50)
+    return json.dumps(result, indent=2, default=str)
+
+
+@mcp.resource("blq://errors/{run_serial}")
+def resource_errors_for_run(run_serial: str) -> str:
+    """Errors for a specific run."""
+    try:
+        run_id = int(run_serial)
+        result = _errors_impl(limit=100, run_id=run_id)
+    except ValueError:
+        result = {"errors": [], "total_count": 0, "error": f"Invalid run serial: {run_serial}"}
+    return json.dumps(result, indent=2, default=str)
+
+
+@mcp.resource("blq://warnings")
+def resource_warnings() -> str:
+    """Recent warnings across all runs."""
+    result = _warnings_impl(limit=50)
+    return json.dumps(result, indent=2, default=str)
+
+
+@mcp.resource("blq://warnings/{run_serial}")
+def resource_warnings_for_run(run_serial: str) -> str:
+    """Warnings for a specific run."""
+    try:
+        run_id = int(run_serial)
+        result = _warnings_impl(limit=100, run_id=run_id)
+    except ValueError:
+        result = {"warnings": [], "total_count": 0, "error": f"Invalid run serial: {run_serial}"}
+    return json.dumps(result, indent=2, default=str)
+
+
+@mcp.resource("blq://context/{ref}")
+def resource_context(ref: str) -> str:
+    """Log context around a specific event."""
+    result = _context_impl(ref, lines=5)
+    return json.dumps(result, indent=2, default=str)
+
+
+@mcp.resource("blq://commands")
 def resource_commands() -> str:
     """Registered commands."""
     try:
@@ -962,6 +1461,36 @@ def resource_commands() -> str:
     except Exception:
         pass
     return json.dumps({"commands": []}, indent=2)
+
+
+@mcp.resource("blq://guide")
+def resource_guide() -> str:
+    """Agent usage guide for blq MCP tools."""
+    try:
+        from importlib import resources
+        guide = resources.files("blq").joinpath("SKILL.md").read_text()
+        return guide
+    except Exception:
+        return """# blq Quick Reference
+
+## Key Tools
+- status() - Overview of all sources
+- list_commands() - Registered commands
+- errors(limit, run_id) - Get errors
+- event(ref) - Error details (ref like "build:1:3")
+- context(ref) - Log lines around error
+- diff(run1, run2) - Compare runs
+- run(command) - Run registered command
+- reset(mode, confirm) - Clear data
+
+## Workflow
+1. list_commands() or status() to see current state
+2. errors() to get recent errors
+3. event(ref) and context(ref) to understand issues
+4. After fixes: diff(run1, run2) to verify
+
+Docs: https://blq-cli.readthedocs.io/en/latest/
+"""
 
 
 # ============================================================================
@@ -1034,12 +1563,12 @@ def analyze_regression(good_run: int | None = None, bad_run: int | None = None) 
         return 'No runs found. Run a build first with `run(command="...")`.'
 
     if bad_run is None:
-        bad_run = runs[0]["run_id"] if runs else 1
+        bad_run = runs[0]["run_serial"] if runs else 1
     if good_run is None:
         # Find last passing run
         for r in runs[1:]:
             if r["status"] == "OK":
-                good_run = r["run_id"]
+                good_run = r["run_serial"]
                 break
         if good_run is None:
             good_run = bad_run - 1 if bad_run > 1 else 1
@@ -1087,12 +1616,12 @@ def summarize_run(run_id: int | None = None, format: str = "brief") -> str:
         return 'No runs found. Run a build first with `run(command="...")`.'
 
     if run_id is None:
-        run_id = runs[0]["run_id"]
+        run_id = runs[0]["run_serial"]
 
     # Get run info
     run_info = None
     for r in runs:
-        if r["run_id"] == run_id:
+        if r["run_serial"] == run_id:
             run_info = r
             break
 
@@ -1112,7 +1641,7 @@ def summarize_run(run_id: int | None = None, format: str = "brief") -> str:
 
 ## Run Details
 
-- **Run ID:** {run_info["run_id"]}
+- **Run:** {run_info["run_ref"]}
 - **Status:** {run_info["status"]}
 - **Errors:** {run_info.get("error_count", 0)}
 - **Warnings:** {run_info.get("warning_count", 0)}
@@ -1142,7 +1671,7 @@ def investigate_flaky(test_pattern: str | None = None, lookback: int = 10) -> st
     # Build history table
     history_lines = ["| Run | Status | Errors |", "|-----|--------|--------|"]
     for r in runs:
-        history_lines.append(f"| {r['run_id']} | {r['status']} | {r.get('error_count', 0)} |")
+        history_lines.append(f"| {r['run_ref']} | {r['status']} | {r.get('error_count', 0)} |")
     history_table = "\n".join(history_lines)
 
     return f"""You are investigating flaky (intermittently failing) tests.

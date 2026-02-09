@@ -202,12 +202,31 @@ CREATE INDEX IF NOT EXISTS idx_outputs_invocation ON outputs(invocation_id);
 -- blq_load_events() - returns events with invocation metadata joined
 -- This provides backward compatibility with the v1 flat schema
 CREATE OR REPLACE VIEW blq_events_flat AS
+WITH numbered_invocations AS (
+    -- Compute run_serial per invocation (global sequence by timestamp)
+    SELECT
+        id,
+        tag,
+        ROW_NUMBER() OVER (ORDER BY timestamp) AS run_serial
+    FROM invocations
+)
 SELECT
-    -- Event identity (v1 style)
+    -- Event identity
     e.event_index AS event_id,
 
-    -- Invocation as "run" (v1 terminology)
-    ROW_NUMBER() OVER (ORDER BY i.timestamp) AS run_id,
+    -- Run identity
+    i.id AS run_id,                                           -- UUID (internal)
+    ni.run_serial,                                            -- Global sequence number
+    CASE
+        WHEN ni.tag IS NOT NULL THEN ni.tag || ':' || ni.run_serial::VARCHAR
+        ELSE ni.run_serial::VARCHAR
+    END AS run_ref,                                           -- Human-friendly: "build:1" or "3"
+
+    -- Event reference: "tag:serial:event" or "serial:event"
+    CASE
+        WHEN ni.tag IS NOT NULL THEN ni.tag || ':' || ni.run_serial::VARCHAR || ':' || e.event_index::VARCHAR
+        ELSE ni.run_serial::VARCHAR || ':' || e.event_index::VARCHAR
+    END AS ref,
 
     -- Invocation fields (denormalized for v1 compatibility)
     i.source_name,
@@ -252,7 +271,8 @@ SELECT
     i.id AS invocation_id,
     e.id AS event_uuid
 FROM events e
-JOIN invocations i ON e.invocation_id = i.id;
+JOIN invocations i ON e.invocation_id = i.id
+JOIN numbered_invocations ni ON i.id = ni.id;
 
 -- blq_load_events() macro for backward compatibility
 CREATE OR REPLACE MACRO blq_load_events() AS TABLE
@@ -295,13 +315,25 @@ SELECT
     i.timestamp AS started_at,
     i.timestamp + INTERVAL (COALESCE(i.duration_ms, 0) / 1000) SECOND AS completed_at,
     i.exit_code,
+    i.cwd,
+    i.executable AS executable_path,
+    i.hostname,
+    i.platform,
+    i.arch,
+    i.git_commit,
+    i.git_branch,
+    i.git_dirty,
+    i.ci,
+    i.tag,
     COUNT(e.id) AS event_count,
     COUNT(e.id) FILTER (WHERE e.severity = 'error') AS error_count,
     COUNT(e.id) FILTER (WHERE e.severity = 'warning') AS warning_count,
     i.date AS log_date
 FROM invocations i
 LEFT JOIN events e ON e.invocation_id = i.id
-GROUP BY i.id, i.source_name, i.source_type, i.cmd, i.timestamp, i.duration_ms, i.exit_code, i.date;
+GROUP BY i.id, i.source_name, i.source_type, i.cmd, i.timestamp, i.duration_ms,
+         i.exit_code, i.cwd, i.executable, i.hostname, i.platform, i.arch,
+         i.git_commit, i.git_branch, i.git_dirty, i.ci, i.tag, i.date;
 
 -- Load latest run per source with status badge
 CREATE OR REPLACE MACRO blq_load_source_status() AS TABLE

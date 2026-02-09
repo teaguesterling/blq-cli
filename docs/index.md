@@ -1,6 +1,6 @@
-# lq Documentation
+# blq Documentation
 
-**lq** (Log Query) is a command-line tool for capturing, querying, and analyzing build and test logs using DuckDB.
+**blq** (Build Log Query) is a command-line tool for capturing, querying, and analyzing build and test logs from a variety of sources and destinations.
 
 ## Why lq?
 

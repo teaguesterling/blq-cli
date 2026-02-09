@@ -51,13 +51,13 @@ def _find_baseline_run(store, baseline: str | None) -> int | None:
     4. If no baseline: try "main", then "master"
 
     Args:
-        store: LogStore instance
+        store: BlqStorage instance
         baseline: Baseline specifier (run ID, branch, or commit)
 
     Returns:
         Run ID of baseline, or None if not found
     """
-    runs = store.runs()
+    runs = store.runs().df()
     if runs.empty:
         return None
 
@@ -99,12 +99,12 @@ def _find_current_run(store) -> int | None:
     First tries to match the current git commit, then falls back to latest run.
 
     Args:
-        store: LogStore instance
+        store: BlqStorage instance
 
     Returns:
         Run ID of current run, or None if no runs
     """
-    runs = store.runs()
+    runs = store.runs().df()
     if runs.empty:
         return None
 
@@ -137,7 +137,7 @@ def _compute_diff(store, baseline_id: int | None, current_id: int | None) -> Dif
     Errors are matched by fingerprint to determine which are fixed vs new.
 
     Args:
-        store: LogStore instance
+        store: BlqStorage instance
         baseline_id: Baseline run ID (None = no baseline)
         current_id: Current run ID (None = no current run)
 
@@ -147,13 +147,13 @@ def _compute_diff(store, baseline_id: int | None, current_id: int | None) -> Dif
     # Get baseline errors
     baseline_errors: list[dict[str, Any]] = []
     if baseline_id is not None:
-        baseline_df = store.run(baseline_id).filter(severity="error").df()
+        baseline_df = store.errors(run_id=baseline_id, limit=10000).df()
         baseline_errors = baseline_df.to_dict("records") if not baseline_df.empty else []
 
     # Get current errors
     current_errors: list[dict[str, Any]] = []
     if current_id is not None:
-        current_df = store.run(current_id).filter(severity="error").df()
+        current_df = store.errors(run_id=current_id, limit=10000).df()
         current_errors = current_df.to_dict("records") if not current_df.empty else []
 
     # Build fingerprint sets for comparison
@@ -307,7 +307,7 @@ def cmd_ci_check(args: argparse.Namespace) -> None:
 
     # Handle --fail-on-any (no baseline comparison)
     if getattr(args, "fail_on_any", False):
-        current_errors = store.run(current_id).filter(severity="error").count()
+        current_errors = store.error_count(current_id)
 
         if getattr(args, "json", False):
             data = {

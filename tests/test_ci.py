@@ -66,123 +66,123 @@ class TestFindBaselineRun:
 
     def test_find_by_run_id(self, initialized_project):
         """Find baseline by numeric run ID."""
-        from blq.commands.core import BlqConfig
-        from blq.query import LogStore
+        from blq.storage import BlqStorage
 
-        config = BlqConfig.find()
-        store = LogStore(config.lq_dir)
+        store = BlqStorage.open()
 
-        # Create a mock runs DataFrame
+        # Create a mock that returns DataFrame when .df() is called
         import pandas as pd
 
-        mock_runs = pd.DataFrame(
+        mock_runs_df = pd.DataFrame(
             {
                 "run_id": [1, 2, 3],
                 "git_branch": ["main", "feature", "main"],
                 "git_commit": [None, None, None],
             }
         )
-        with patch.object(store, "runs", return_value=mock_runs):
+        mock_relation = MagicMock()
+        mock_relation.df.return_value = mock_runs_df
+        with patch.object(store, "runs", return_value=mock_relation):
             result = _find_baseline_run(store, "2")
             assert result == 2
 
     def test_find_by_branch(self, initialized_project):
         """Find baseline by branch name."""
-        from blq.commands.core import BlqConfig
-        from blq.query import LogStore
+        from blq.storage import BlqStorage
 
-        config = BlqConfig.find()
-        store = LogStore(config.lq_dir)
+        store = BlqStorage.open()
 
         import pandas as pd
 
-        mock_runs = pd.DataFrame(
+        mock_runs_df = pd.DataFrame(
             {
                 "run_id": [1, 2, 3],
                 "git_branch": ["main", "feature", "main"],
                 "git_commit": [None, None, None],
             }
         )
-        with patch.object(store, "runs", return_value=mock_runs):
+        mock_relation = MagicMock()
+        mock_relation.df.return_value = mock_runs_df
+        with patch.object(store, "runs", return_value=mock_relation):
             result = _find_baseline_run(store, "feature")
             assert result == 2
 
     def test_find_by_commit_sha(self, initialized_project):
         """Find baseline by commit SHA prefix."""
-        from blq.commands.core import BlqConfig
-        from blq.query import LogStore
+        from blq.storage import BlqStorage
 
-        config = BlqConfig.find()
-        store = LogStore(config.lq_dir)
+        store = BlqStorage.open()
 
         import pandas as pd
 
-        mock_runs = pd.DataFrame(
+        mock_runs_df = pd.DataFrame(
             {
                 "run_id": [1, 2, 3],
                 "git_branch": ["main", "feature", "main"],
                 "git_commit": ["abc123def456789", "def456abc123789", "789xyz123"],
             }
         )
-        with patch.object(store, "runs", return_value=mock_runs):
+        mock_relation = MagicMock()
+        mock_relation.df.return_value = mock_runs_df
+        with patch.object(store, "runs", return_value=mock_relation):
             # Use 7+ char prefix to match regex
             result = _find_baseline_run(store, "abc123d")
             assert result == 1
 
     def test_default_to_main(self, initialized_project):
         """Default to main branch when no baseline specified."""
-        from blq.commands.core import BlqConfig
-        from blq.query import LogStore
+        from blq.storage import BlqStorage
 
-        config = BlqConfig.find()
-        store = LogStore(config.lq_dir)
+        store = BlqStorage.open()
 
         import pandas as pd
 
-        mock_runs = pd.DataFrame(
+        mock_runs_df = pd.DataFrame(
             {
                 "run_id": [1, 2, 3],
                 "git_branch": ["main", "feature", "develop"],
                 "git_commit": [None, None, None],
             }
         )
-        with patch.object(store, "runs", return_value=mock_runs):
+        mock_relation = MagicMock()
+        mock_relation.df.return_value = mock_runs_df
+        with patch.object(store, "runs", return_value=mock_relation):
             result = _find_baseline_run(store, None)
             assert result == 1
 
     def test_fallback_to_master(self, initialized_project):
         """Fall back to master branch if main not found."""
-        from blq.commands.core import BlqConfig
-        from blq.query import LogStore
+        from blq.storage import BlqStorage
 
-        config = BlqConfig.find()
-        store = LogStore(config.lq_dir)
+        store = BlqStorage.open()
 
         import pandas as pd
 
-        mock_runs = pd.DataFrame(
+        mock_runs_df = pd.DataFrame(
             {
                 "run_id": [1, 2, 3],
                 "git_branch": ["master", "feature", "develop"],
                 "git_commit": [None, None, None],
             }
         )
-        with patch.object(store, "runs", return_value=mock_runs):
+        mock_relation = MagicMock()
+        mock_relation.df.return_value = mock_runs_df
+        with patch.object(store, "runs", return_value=mock_relation):
             result = _find_baseline_run(store, None)
             assert result == 1
 
     def test_no_runs_returns_none(self, initialized_project):
         """Return None when no runs exist."""
-        from blq.commands.core import BlqConfig
-        from blq.query import LogStore
+        from blq.storage import BlqStorage
 
-        config = BlqConfig.find()
-        store = LogStore(config.lq_dir)
+        store = BlqStorage.open()
 
         import pandas as pd
 
-        mock_runs = pd.DataFrame(columns=["run_id", "git_branch", "git_commit"])
-        with patch.object(store, "runs", return_value=mock_runs):
+        mock_runs_df = pd.DataFrame(columns=["run_id", "git_branch", "git_commit"])
+        mock_relation = MagicMock()
+        mock_relation.df.return_value = mock_runs_df
+        with patch.object(store, "runs", return_value=mock_relation):
             result = _find_baseline_run(store, "main")
             assert result is None
 
@@ -192,13 +192,10 @@ class TestComputeDiff:
 
     def test_diff_with_new_errors(self, initialized_project):
         """Compute diff showing new errors."""
-        from blq.commands.core import BlqConfig
-        from blq.query import LogStore
+        from blq.storage import BlqStorage
 
-        config = BlqConfig.find()
-        store = LogStore(config.lq_dir)
+        store = BlqStorage.open()
 
-        # Mock the run queries
         import pandas as pd
 
         baseline_df = pd.DataFrame(
@@ -211,11 +208,16 @@ class TestComputeDiff:
             ]
         )
 
-        mock_query = MagicMock()
-        mock_query.filter.return_value = mock_query
-        mock_query.df.side_effect = [baseline_df, current_df]
+        # Mock errors() to return relation with .df() method
+        def mock_errors(run_id=None, limit=None):
+            mock_rel = MagicMock()
+            if run_id == 1:
+                mock_rel.df.return_value = baseline_df
+            else:
+                mock_rel.df.return_value = current_df
+            return mock_rel
 
-        with patch.object(store, "run", return_value=mock_query):
+        with patch.object(store, "errors", side_effect=mock_errors):
             diff = _compute_diff(store, 1, 2)
 
         assert diff.baseline_errors == 1
@@ -226,11 +228,9 @@ class TestComputeDiff:
 
     def test_diff_with_fixed_errors(self, initialized_project):
         """Compute diff showing fixed errors."""
-        from blq.commands.core import BlqConfig
-        from blq.query import LogStore
+        from blq.storage import BlqStorage
 
-        config = BlqConfig.find()
-        store = LogStore(config.lq_dir)
+        store = BlqStorage.open()
 
         import pandas as pd
 
@@ -244,11 +244,15 @@ class TestComputeDiff:
             [{"fingerprint": "fp1", "ref_file": "a.py", "ref_line": 1, "message": "err1"}]
         )
 
-        mock_query = MagicMock()
-        mock_query.filter.return_value = mock_query
-        mock_query.df.side_effect = [baseline_df, current_df]
+        def mock_errors(run_id=None, limit=None):
+            mock_rel = MagicMock()
+            if run_id == 1:
+                mock_rel.df.return_value = baseline_df
+            else:
+                mock_rel.df.return_value = current_df
+            return mock_rel
 
-        with patch.object(store, "run", return_value=mock_query):
+        with patch.object(store, "errors", side_effect=mock_errors):
             diff = _compute_diff(store, 1, 2)
 
         assert diff.baseline_errors == 2
@@ -460,20 +464,24 @@ class TestCmdCiCheck:
 
         import pandas as pd
 
-        mock_runs = pd.DataFrame(
+        mock_runs_df = pd.DataFrame(
             {"run_id": [1, 2], "git_branch": ["main", "feature"], "git_commit": [None, None]}
         )
-        mock_df = pd.DataFrame([{"fingerprint": "fp1"}])
+        mock_errors_df = pd.DataFrame([{"fingerprint": "fp1"}])
 
-        mock_query = MagicMock()
-        mock_query.filter.return_value = mock_query
-        mock_query.df.return_value = mock_df
+        # Create mock relation for runs()
+        mock_runs_rel = MagicMock()
+        mock_runs_rel.df.return_value = mock_runs_df
 
-        with patch("blq.commands.ci_cmd.get_store_for_args") as mock_store:
+        # Create mock relation for errors() - same errors in both runs = no new errors
+        mock_errors_rel = MagicMock()
+        mock_errors_rel.df.return_value = mock_errors_df
+
+        with patch("blq.commands.ci_cmd.get_store_for_args") as mock_get_store:
             store = MagicMock()
-            store.runs.return_value = mock_runs
-            store.run.return_value = mock_query
-            mock_store.return_value = store
+            store.runs.return_value = mock_runs_rel
+            store.errors.return_value = mock_errors_rel
+            mock_get_store.return_value = store
 
             with pytest.raises(SystemExit) as exc_info:
                 cmd_ci_check(args)
@@ -492,8 +500,9 @@ class TestCmdCiCheck:
 
         import pandas as pd
 
-        mock_runs = pd.DataFrame(
-            {"run_id": [1, 2], "git_branch": ["main", "feature"], "git_commit": [None, None]}
+        # Runs are ordered DESC by run_id, so run 2 (current) is first, run 1 (main/baseline) second
+        mock_runs_df = pd.DataFrame(
+            {"run_id": [2, 1], "git_branch": ["feature", "main"], "git_commit": [None, None]}
         )
         baseline_df = pd.DataFrame([{"fingerprint": "fp1"}])
         current_df = pd.DataFrame(
@@ -503,15 +512,24 @@ class TestCmdCiCheck:
             ]
         )
 
-        mock_query = MagicMock()
-        mock_query.filter.return_value = mock_query
-        mock_query.df.side_effect = [baseline_df, current_df]
+        # Create mock relation for runs()
+        mock_runs_rel = MagicMock()
+        mock_runs_rel.df.return_value = mock_runs_df
 
-        with patch("blq.commands.ci_cmd.get_store_for_args") as mock_store:
+        # Mock errors() to return different data for baseline vs current run
+        def mock_errors(run_id=None, limit=None):
+            mock_rel = MagicMock()
+            if run_id == 1:  # baseline (main branch)
+                mock_rel.df.return_value = baseline_df
+            else:  # current (run_id == 2)
+                mock_rel.df.return_value = current_df
+            return mock_rel
+
+        with patch("blq.commands.ci_cmd.get_store_for_args") as mock_get_store:
             store = MagicMock()
-            store.runs.return_value = mock_runs
-            store.run.return_value = mock_query
-            mock_store.return_value = store
+            store.runs.return_value = mock_runs_rel
+            store.errors.side_effect = mock_errors
+            mock_get_store.return_value = store
 
             with pytest.raises(SystemExit) as exc_info:
                 cmd_ci_check(args)
@@ -530,17 +548,17 @@ class TestCmdCiCheck:
 
         import pandas as pd
 
-        mock_runs = pd.DataFrame({"run_id": [1], "git_branch": ["main"], "git_commit": [None]})
+        mock_runs_df = pd.DataFrame({"run_id": [1], "git_branch": ["main"], "git_commit": [None]})
 
-        mock_query = MagicMock()
-        mock_query.filter.return_value = mock_query
-        mock_query.count.return_value = 5
+        # Create mock relation for runs()
+        mock_runs_rel = MagicMock()
+        mock_runs_rel.df.return_value = mock_runs_df
 
-        with patch("blq.commands.ci_cmd.get_store_for_args") as mock_store:
+        with patch("blq.commands.ci_cmd.get_store_for_args") as mock_get_store:
             store = MagicMock()
-            store.runs.return_value = mock_runs
-            store.run.return_value = mock_query
-            mock_store.return_value = store
+            store.runs.return_value = mock_runs_rel
+            store.error_count.return_value = 5  # 5 errors
+            mock_get_store.return_value = store
 
             with pytest.raises(SystemExit) as exc_info:
                 cmd_ci_check(args)
@@ -560,20 +578,24 @@ class TestCmdCiCheck:
 
         import pandas as pd
 
-        mock_runs = pd.DataFrame(
+        mock_runs_df = pd.DataFrame(
             {"run_id": [1, 2], "git_branch": ["main", "feature"], "git_commit": [None, None]}
         )
-        mock_df = pd.DataFrame([{"fingerprint": "fp1"}])
+        mock_errors_df = pd.DataFrame([{"fingerprint": "fp1"}])
 
-        mock_query = MagicMock()
-        mock_query.filter.return_value = mock_query
-        mock_query.df.return_value = mock_df
+        # Create mock relation for runs()
+        mock_runs_rel = MagicMock()
+        mock_runs_rel.df.return_value = mock_runs_df
 
-        with patch("blq.commands.ci_cmd.get_store_for_args") as mock_store:
+        # Create mock relation for errors()
+        mock_errors_rel = MagicMock()
+        mock_errors_rel.df.return_value = mock_errors_df
+
+        with patch("blq.commands.ci_cmd.get_store_for_args") as mock_get_store:
             store = MagicMock()
-            store.runs.return_value = mock_runs
-            store.run.return_value = mock_query
-            mock_store.return_value = store
+            store.runs.return_value = mock_runs_rel
+            store.errors.return_value = mock_errors_rel
+            mock_get_store.return_value = store
 
             with pytest.raises(SystemExit):
                 cmd_ci_check(args)
@@ -637,14 +659,20 @@ class TestCmdCiComment:
 
         import pandas as pd
 
-        mock_runs = pd.DataFrame({"run_id": [1], "git_branch": ["main"], "git_commit": [None]})
-        mock_df = pd.DataFrame(
+        mock_runs_df = pd.DataFrame(
+            {"run_id": [1], "git_branch": ["main"], "git_commit": [None]}
+        )
+        mock_errors_df = pd.DataFrame(
             [{"fingerprint": "fp1", "ref_file": "a.py", "ref_line": 1, "message": "test"}]
         )
 
-        mock_query = MagicMock()
-        mock_query.filter.return_value = mock_query
-        mock_query.df.return_value = mock_df
+        # Create mock relation for runs()
+        mock_runs_rel = MagicMock()
+        mock_runs_rel.df.return_value = mock_runs_df
+
+        # Create mock relation for errors()
+        mock_errors_rel = MagicMock()
+        mock_errors_rel.df.return_value = mock_errors_df
 
         with patch.dict(
             os.environ,
@@ -654,11 +682,11 @@ class TestCmdCiComment:
                 "GITHUB_REF": "refs/pull/123/merge",
             },
         ):
-            with patch("blq.commands.ci_cmd.get_store_for_args") as mock_store:
+            with patch("blq.commands.ci_cmd.get_store_for_args") as mock_get_store:
                 store = MagicMock()
-                store.runs.return_value = mock_runs
-                store.run.return_value = mock_query
-                mock_store.return_value = store
+                store.runs.return_value = mock_runs_rel
+                store.errors.return_value = mock_errors_rel
+                mock_get_store.return_value = store
 
                 # Patch GitHubClient where it's imported
                 with patch("blq.github.GitHubClient") as mock_client_cls:

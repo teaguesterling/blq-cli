@@ -38,18 +38,74 @@ def cmd_commands(args: argparse.Namespace) -> None:
             print(f"{name:<15} {cmd_display:<40} {capture_str:<8} {cmd.description}")
 
 
+def _normalize_cmd(cmd: str) -> str:
+    """Normalize command string for comparison (collapse whitespace)."""
+    return " ".join(cmd.split())
+
+
 def cmd_register(args: argparse.Namespace) -> None:
-    """Register a new command."""
+    """Register a new command.
+
+    If a command with the same name or same command string already exists,
+    uses the existing command instead of failing. Use --force to overwrite.
+    """
+    from blq.commands.core import cmd_run
+
     config = BlqConfig.ensure()
     commands = config.commands
 
     name = args.name
     cmd_str = " ".join(args.cmd)
+    normalized_cmd = _normalize_cmd(cmd_str)
+    run_now = getattr(args, "run", False)
 
+    # Check for existing command with same name
     if name in commands and not args.force:
-        print(f"Command '{name}' already exists. Use --force to overwrite.", file=sys.stderr)
-        sys.exit(1)
+        existing = commands[name]
+        existing_normalized = _normalize_cmd(existing.cmd)
 
+        if existing_normalized == normalized_cmd:
+            # Same command, just use it
+            print(f"Using existing command '{name}' (identical)")
+            if run_now:
+                # Create a mock args object for cmd_run
+                run_args = argparse.Namespace(
+                    command=name,
+                    args=[],
+                    json=getattr(args, "json", False),
+                    quiet=getattr(args, "quiet", False),
+                    capture=None,
+                    format=None,
+                )
+                cmd_run(run_args)
+            return
+        else:
+            # Different command with same name
+            print(
+                f"Command '{name}' already exists with different command.\n"
+                f"  Existing: '{existing.cmd}'\n"
+                f"  Use --force to overwrite.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    # Check for existing command with same cmd but different name
+    for existing_name, existing in commands.items():
+        if _normalize_cmd(existing.cmd) == normalized_cmd and not args.force:
+            print(f"Using existing command '{existing_name}' (same command)")
+            if run_now:
+                run_args = argparse.Namespace(
+                    command=existing_name,
+                    args=[],
+                    json=getattr(args, "json", False),
+                    quiet=getattr(args, "quiet", False),
+                    capture=None,
+                    format=None,
+                )
+                cmd_run(run_args)
+            return
+
+    # Register new command
     capture = not getattr(args, "no_capture", False)
     commands[name] = RegisteredCommand(
         name=name,
@@ -63,6 +119,17 @@ def cmd_register(args: argparse.Namespace) -> None:
     config.save_commands()
     capture_note = " (no capture)" if not capture else ""
     print(f"Registered command '{name}': {cmd_str}{capture_note}")
+
+    if run_now:
+        run_args = argparse.Namespace(
+            command=name,
+            args=[],
+            json=getattr(args, "json", False),
+            quiet=getattr(args, "quiet", False),
+            capture=None,
+            format=None,
+        )
+        cmd_run(run_args)
 
 
 def cmd_unregister(args: argparse.Namespace) -> None:

@@ -479,10 +479,16 @@ Resources provide data that can be embedded in prompts or read directly:
 
 | Resource URI | Description |
 |--------------|-------------|
+| `blq://guide` | Agent usage guide (Markdown) |
 | `blq://status` | Current status of all sources (JSON) |
 | `blq://runs` | List of all runs (JSON) |
 | `blq://events` | All stored events (JSON) |
 | `blq://event/{ref}` | Single event details by ref (JSON) |
+| `blq://errors` | Recent errors across all runs (JSON) |
+| `blq://errors/{run_serial}` | Errors for a specific run (JSON) |
+| `blq://warnings` | Recent warnings across all runs (JSON) |
+| `blq://warnings/{run_serial}` | Warnings for a specific run (JSON) |
+| `blq://context/{ref}` | Log context around an event (JSON) |
 | `blq://commands` | Registered commands (JSON) |
 
 ### MCP Prompts

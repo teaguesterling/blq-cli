@@ -17,7 +17,8 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - Structured output (JSON, Markdown, CSV)
 - Command registry for reusable build/test commands
 - Query and filter commands for direct log file inspection
-- MCP server (`blq serve`) for AI agent integration
+- MCP server (`blq mcp serve`) for AI agent integration
+- MCP security controls (disable sensitive tools via config)
 - Run metadata capture (environment, git, system, CI context)
 - Project detection from git remote or filesystem path
 - Command auto-detection from build files (`blq init --detect`)
@@ -194,25 +195,77 @@ Runtime override: `blq run --no-capture <cmd>` or `blq run --capture <cmd>`
 9. **Content-addressed blobs**: Output deduplication with BLAKE2b hashing
 10. **JSON for variable data**: Environment and CI stored as JSON in BIRD mode
 
-## MCP Server Tools
+## Reference Naming Scheme
 
-The MCP server (`blq serve`) provides these tools for AI agents:
+Events and runs use a human-friendly reference format:
+
+| Field | Format | Example | Description |
+|-------|--------|---------|-------------|
+| `run_ref` | `tag:serial` or `serial` | `build:1`, `3` | Human-friendly run identifier |
+| `ref` | `tag:serial:event` or `serial:event` | `build:1:2`, `3:5` | Full event reference |
+| `run_serial` | integer | `1`, `2`, `3` | Sequential run number |
+| `event_id` | integer | `1`, `2` | Event index within run |
+
+The `tag` is set from the command's `source_name` (e.g., "build", "test").
+
+Examples:
+- `build:1` - First run of the "build" command
+- `build:1:3` - Third error in the first build run
+- `5:2` - Second error in run 5 (no tag)
+
+## MCP Server
+
+The MCP server (`blq mcp serve`) provides tools for AI agents:
+
+```bash
+blq mcp install              # Create .mcp.json config
+blq mcp serve                # Start MCP server (stdio)
+blq mcp serve --transport sse  # SSE transport
+```
+
+### MCP Tools
 
 | Tool | Description |
 |------|-------------|
 | `run` | Run a registered command |
-| `exec` | Execute an ad-hoc shell command |
+| `exec` | Execute ad-hoc command (auto-detects registered prefixes) |
 | `query` | Query stored events with SQL |
 | `errors` | Get recent errors |
 | `warnings` | Get recent warnings |
-| `event` | Get details for a specific event |
+| `event` | Get details for a specific event by ref |
 | `context` | Get log context around an event |
 | `status` | Get status summary |
 | `history` | Get run history |
 | `diff` | Compare errors between runs |
-| `register_command` | Register a new command (with format auto-detection) |
+| `register_command` | Register a command (idempotent, with run_now option) |
 | `unregister_command` | Remove a registered command |
 | `list_commands` | List all registered commands |
+| `reset` | Reset database (modes: data, schema, full) |
+
+### MCP Security
+
+Disable sensitive tools via `.lq/config.yaml`:
+```yaml
+mcp:
+  disabled_tools:
+    - exec
+    - reset
+    - register_command
+    - unregister_command
+```
+
+Or via environment: `BLQ_MCP_DISABLED_TOOLS=exec,reset`
+
+### MCP Resources
+
+| Resource | Description |
+|----------|-------------|
+| `blq://guide` | Agent usage guide |
+| `blq://status` | Current status (JSON) |
+| `blq://errors` | Recent errors (JSON) |
+| `blq://warnings` | Recent warnings (JSON) |
+| `blq://context/{ref}` | Log context around event |
+| `blq://commands` | Registered commands |
 
 ## Integration Points
 

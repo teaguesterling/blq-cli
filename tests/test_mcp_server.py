@@ -334,7 +334,8 @@ class TestHistoryTool:
 
             if result["runs"]:
                 run = result["runs"][0]
-                assert "run_id" in run
+                assert "run_serial" in run
+                assert "run_ref" in run
                 assert "status" in run
 
 
@@ -384,7 +385,7 @@ class TestResources:
     async def test_read_status_resource(self, mcp_server):
         """Read the status resource."""
         async with Client(mcp_server) as client:
-            content = await client.read_resource("lq://status")
+            content = await client.read_resource("blq://status")
 
             assert content is not None
 
@@ -392,9 +393,292 @@ class TestResources:
     async def test_read_commands_resource(self, mcp_server):
         """Read the commands resource."""
         async with Client(mcp_server) as client:
-            content = await client.read_resource("lq://commands")
+            content = await client.read_resource("blq://commands")
 
             assert content is not None
+
+    @pytest.mark.asyncio
+    async def test_read_guide_resource(self, mcp_server):
+        """Read the guide resource."""
+        async with Client(mcp_server) as client:
+            content = await client.read_resource("blq://guide")
+
+            assert content is not None
+            # Should contain markdown content
+            assert "blq" in str(content).lower()
+
+    @pytest.mark.asyncio
+    async def test_read_errors_resource(self, mcp_server):
+        """Read the errors resource."""
+        async with Client(mcp_server) as client:
+            content = await client.read_resource("blq://errors")
+
+            assert content is not None
+
+    @pytest.mark.asyncio
+    async def test_read_warnings_resource(self, mcp_server):
+        """Read the warnings resource."""
+        async with Client(mcp_server) as client:
+            content = await client.read_resource("blq://warnings")
+
+            assert content is not None
+
+    @pytest.mark.asyncio
+    async def test_read_context_resource(self, mcp_server):
+        """Read the context resource for an existing event."""
+        async with Client(mcp_server) as client:
+            # First get an error to find a valid ref
+            errors_raw = await client.call_tool("errors", {"limit": 1})
+            errors = get_data(errors_raw)
+
+            if errors["errors"]:
+                ref = errors["errors"][0]["ref"]
+
+                # Skip if ref contains path separators (from exec'd scripts)
+                # as those can't be used in resource URIs
+                if "/" not in ref and "\\" not in ref:
+                    content = await client.read_resource(f"blq://context/{ref}")
+                    assert content is not None
+
+    @pytest.mark.asyncio
+    async def test_read_context_resource_registered_command(
+        self, mcp_server_empty, sample_build_script
+    ):
+        """Read the context resource with a registered command (clean refs)."""
+        async with Client(mcp_server_empty) as client:
+            # Register a command to get clean refs
+            await client.call_tool(
+                "register_command",
+                {"name": "build", "cmd": str(sample_build_script)},
+            )
+
+            # Run the command
+            await client.call_tool("run", {"command": "build"})
+
+            # Get errors
+            errors_raw = await client.call_tool("errors", {"limit": 1})
+            errors = get_data(errors_raw)
+
+            if errors["errors"]:
+                ref = errors["errors"][0]["ref"]
+                # Ref should be clean like "build:1:1"
+                assert "/" not in ref
+
+                content = await client.read_resource(f"blq://context/{ref}")
+                assert content is not None
+
+
+# ============================================================================
+# Register Command Tests
+# ============================================================================
+
+
+class TestRegisterCommandTool:
+    """Tests for the register_command tool."""
+
+    @pytest.mark.asyncio
+    async def test_register_new_command(self, mcp_server_empty):
+        """Register a new command."""
+        async with Client(mcp_server_empty) as client:
+            raw = await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello"},
+            )
+            result = get_data(raw)
+
+            assert result["success"] is True
+            assert result["existing"] is False
+            assert result["command"]["name"] == "hello"
+
+    @pytest.mark.asyncio
+    async def test_register_idempotent_same_command(self, mcp_server_empty):
+        """Registering identical command returns existing."""
+        async with Client(mcp_server_empty) as client:
+            # First registration
+            await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello"},
+            )
+
+            # Second registration with same name and command
+            raw = await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello"},
+            )
+            result = get_data(raw)
+
+            assert result["success"] is True
+            assert result["existing"] is True
+            assert "identical" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_register_idempotent_same_cmd_different_name(self, mcp_server_empty):
+        """Registering same command under different name returns existing."""
+        async with Client(mcp_server_empty) as client:
+            # First registration
+            await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello"},
+            )
+
+            # Second registration with different name but same command
+            raw = await client.call_tool(
+                "register_command",
+                {"name": "greet", "cmd": "echo hello"},
+            )
+            result = get_data(raw)
+
+            assert result["success"] is True
+            assert result["existing"] is True
+            assert result["matched_name"] == "hello"
+
+    @pytest.mark.asyncio
+    async def test_register_different_command_same_name_fails(self, mcp_server_empty):
+        """Registering different command with same name fails without force."""
+        async with Client(mcp_server_empty) as client:
+            # First registration
+            await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello"},
+            )
+
+            # Second registration with same name but different command
+            raw = await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo goodbye"},
+            )
+            result = get_data(raw)
+
+            assert result["success"] is False
+            assert "different command" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_register_with_force_overwrites(self, mcp_server_empty):
+        """Registering with force=True overwrites existing."""
+        async with Client(mcp_server_empty) as client:
+            # First registration
+            await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello"},
+            )
+
+            # Overwrite with force
+            raw = await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo goodbye", "force": True},
+            )
+            result = get_data(raw)
+
+            assert result["success"] is True
+            assert result["existing"] is False
+            assert result["command"]["cmd"] == "echo goodbye"
+
+    @pytest.mark.asyncio
+    async def test_register_with_run_now(self, mcp_server_empty):
+        """Register and run immediately with run_now=True."""
+        async with Client(mcp_server_empty) as client:
+            raw = await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello", "run_now": True},
+            )
+            result = get_data(raw)
+
+            assert result["success"] is True
+            assert "run" in result
+            assert result["run"]["status"] == "OK"
+
+    @pytest.mark.asyncio
+    async def test_register_idempotent_with_run_now(self, mcp_server_empty):
+        """Idempotent registration also runs with run_now=True."""
+        async with Client(mcp_server_empty) as client:
+            # First registration
+            await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello"},
+            )
+
+            # Second registration with run_now
+            raw = await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello", "run_now": True},
+            )
+            result = get_data(raw)
+
+            assert result["success"] is True
+            assert result["existing"] is True
+            assert "run" in result
+            assert result["run"]["status"] == "OK"
+
+
+# ============================================================================
+# Exec Tool Registered Command Detection Tests
+# ============================================================================
+
+
+class TestExecRegisteredCommandDetection:
+    """Tests for exec tool detecting registered command prefixes."""
+
+    @pytest.mark.asyncio
+    async def test_exec_matches_registered_command(self, mcp_server_empty):
+        """Exec with registered command prefix uses run() instead."""
+        async with Client(mcp_server_empty) as client:
+            # Register a base command
+            await client.call_tool(
+                "register_command",
+                {"name": "greet", "cmd": "echo hello"},
+            )
+
+            # Exec with extra args - should match registered command
+            raw = await client.call_tool(
+                "exec",
+                {"command": "echo hello world"},
+            )
+            result = get_data(raw)
+
+            assert result["status"] == "OK"
+            assert result.get("matched_command") == "greet"
+            assert result.get("extra_args") == ["world"]
+
+    @pytest.mark.asyncio
+    async def test_exec_no_match_runs_adhoc(self, mcp_server_empty):
+        """Exec without matching registered command runs ad-hoc."""
+        async with Client(mcp_server_empty) as client:
+            # Register a command
+            await client.call_tool(
+                "register_command",
+                {"name": "greet", "cmd": "echo hello"},
+            )
+
+            # Exec a different command - should not match
+            raw = await client.call_tool(
+                "exec",
+                {"command": "echo goodbye"},
+            )
+            result = get_data(raw)
+
+            assert result["status"] == "OK"
+            assert "matched_command" not in result
+
+    @pytest.mark.asyncio
+    async def test_exec_exact_match_no_extra(self, mcp_server_empty):
+        """Exec with exact registered command match (no extra args)."""
+        async with Client(mcp_server_empty) as client:
+            # Register a command
+            await client.call_tool(
+                "register_command",
+                {"name": "greet", "cmd": "echo hello"},
+            )
+
+            # Exec exact same command
+            raw = await client.call_tool(
+                "exec",
+                {"command": "echo hello"},
+            )
+            result = get_data(raw)
+
+            assert result["status"] == "OK"
+            assert result.get("matched_command") == "greet"
+            assert result.get("extra_args") is None or result.get("extra_args") == []
 
 
 # ============================================================================
@@ -480,7 +764,53 @@ class TestIntegration:
 
             # 3. Query specific run if available
             if hist["runs"]:
-                run_id = hist["runs"][0]["run_id"]
-                errors_raw = await client.call_tool("errors", {"run_id": run_id})
+                run_serial = hist["runs"][0]["run_serial"]
+                errors_raw = await client.call_tool("errors", {"run_id": run_serial})
                 errors = get_data(errors_raw)
                 assert "errors" in errors
+
+
+class TestResetTool:
+    """Tests for the reset tool."""
+
+    @pytest.mark.asyncio
+    async def test_reset_requires_confirm(self, mcp_server):
+        """Reset requires confirm=true."""
+        async with Client(mcp_server) as client:
+            raw = await client.call_tool("reset", {"mode": "data"})
+            result = get_data(raw)
+
+            assert result["success"] is False
+            assert "confirm" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_reset_invalid_mode(self, mcp_server):
+        """Invalid reset mode returns error."""
+        async with Client(mcp_server) as client:
+            raw = await client.call_tool("reset", {"mode": "invalid", "confirm": True})
+            result = get_data(raw)
+
+            assert result["success"] is False
+            assert "invalid" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_reset_data_clears_runs(self, mcp_server_empty, sample_build_script):
+        """Reset data clears run data."""
+        async with Client(mcp_server_empty) as client:
+            # Create some data
+            await client.call_tool("exec", {"command": str(sample_build_script)})
+
+            # Verify data exists
+            history_raw = await client.call_tool("history", {})
+            history = get_data(history_raw)
+            assert len(history["runs"]) > 0
+
+            # Reset data
+            reset_raw = await client.call_tool("reset", {"mode": "data", "confirm": True})
+            reset = get_data(reset_raw)
+            assert reset["success"] is True
+
+            # Verify data is cleared
+            history_raw = await client.call_tool("history", {})
+            history = get_data(history_raw)
+            assert len(history["runs"]) == 0

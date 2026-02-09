@@ -49,7 +49,7 @@ def _collect_report_data(
     """Collect data for report generation.
 
     Args:
-        store: LogStore instance
+        store: BlqStorage instance
         run_id: Specific run ID (None = latest)
         baseline_id: Baseline run ID for comparison
         error_limit: Max errors to include
@@ -61,7 +61,7 @@ def _collect_report_data(
     data = ReportData()
 
     # Get run metadata
-    runs_df = store.runs()
+    runs_df = store.runs().df()
     if runs_df.empty:
         return data
 
@@ -83,8 +83,8 @@ def _collect_report_data(
     data.git_commit = run_row.get("git_commit")
 
     # Get error/warning counts
-    errors_df = store.run(run_id).filter(severity="error").df()
-    warnings_df = store.run(run_id).filter(severity="warning").df()
+    errors_df = store.errors(run_id=run_id, limit=10000).df()
+    warnings_df = store.warnings(run_id=run_id, limit=10000).df()
 
     data.total_errors = len(errors_df)
     data.total_warnings = len(warnings_df)
@@ -116,9 +116,9 @@ def _collect_report_data(
     # Baseline comparison
     if baseline_id is not None:
         data.baseline_run_id = baseline_id
-        baseline_errors_df = store.run(baseline_id).filter(severity="error").df()
+        baseline_errors_df = store.errors(run_id=baseline_id, limit=10000).df()
         data.baseline_errors = len(baseline_errors_df)
-        baseline_warnings_df = store.run(baseline_id).filter(severity="warning").df()
+        baseline_warnings_df = store.warnings(run_id=baseline_id, limit=10000).df()
         data.baseline_warnings = len(baseline_warnings_df)
 
         # Compare fingerprints
@@ -334,7 +334,7 @@ def _find_baseline_run(store, baseline: str | None) -> int | None:
     """Find baseline run by run ID or branch name.
 
     Args:
-        store: LogStore instance
+        store: BlqStorage instance
         baseline: Baseline specifier (run ID or branch name)
 
     Returns:
@@ -343,7 +343,7 @@ def _find_baseline_run(store, baseline: str | None) -> int | None:
     if baseline is None:
         return None
 
-    runs = store.runs()
+    runs = store.runs().df()
     if runs.empty:
         return None
 

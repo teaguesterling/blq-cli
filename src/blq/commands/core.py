@@ -413,6 +413,9 @@ class BlqConfig:
     # Watch configuration (private, access via watch_config property)
     _watch_config: WatchConfig | None = field(default=None, repr=False)
 
+    # MCP configuration (private, access via mcp_config property)
+    _mcp_config: dict | None = field(default=None, repr=False)
+
     # Computed paths
     @property
     def logs_dir(self) -> Path:
@@ -515,6 +518,24 @@ class BlqConfig:
             else:
                 self._watch_config = WatchConfig()
         return self._watch_config
+
+    @property
+    def mcp_config(self) -> dict:
+        """Get MCP server configuration.
+
+        Returns:
+            Dict with MCP configuration, including:
+            - disabled_tools: List of tool names to disable
+        """
+        if self._mcp_config is None:
+            # Load from config.yaml
+            if self.config_path.exists():
+                with open(self.config_path) as f:
+                    data = yaml.safe_load(f) or {}
+                self._mcp_config = data.get("mcp", {})
+            else:
+                self._mcp_config = {}
+        return self._mcp_config
 
     @classmethod
     def find(cls, start_dir: Path | None = None) -> BlqConfig | None:
@@ -1141,8 +1162,8 @@ def get_data_root(args) -> tuple[Path | None, bool]:
     return None, False
 
 
-def get_store_for_args(args) -> LogStore:
-    """Get a LogStore appropriate for the given args.
+def get_store_for_args(args):
+    """Get a BlqStorage appropriate for the given args.
 
     Handles --global and --database flags.
 
@@ -1150,36 +1171,63 @@ def get_store_for_args(args) -> LogStore:
         args: Parsed arguments
 
     Returns:
-        LogStore instance configured for the appropriate data source
+        BlqStorage instance configured for the appropriate data source
     """
-    # Lazy import to avoid circular imports
-    from blq.query import LogStore
+    from blq.storage import BlqStorage
 
     data_root, is_raw = get_data_root(args)
 
     if is_raw and data_root is not None:
-        # Raw parquet directory - use LogStore.from_parquet_root()
+        # Raw parquet directory - deprecated, use LogStore for backward compat
+        import warnings
+        from blq.query import LogStore
+        warnings.warn(
+            "Raw parquet mode is deprecated. Use 'blq migrate --to-bird' to convert.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return LogStore.from_parquet_root(data_root)
     else:
-        # Standard .lq directory
+        # Standard .lq directory - use BlqStorage
         config = BlqConfig.ensure()
-        return LogStore(config.lq_dir)
+        return BlqStorage.open(config.lq_dir)
 
 
 def get_next_run_id(lq_dir: Path) -> int:
-    """Get next run ID by scanning existing files."""
-    logs_dir = lq_dir / LOGS_DIR
-    if not logs_dir.exists():
-        return 1
-
+    """Get next run ID by checking BIRD storage or parquet files."""
     max_id = 0
-    for f in logs_dir.rglob("*.parquet"):
+
+    # First check BIRD storage (primary)
+    db_path = lq_dir / DB_FILE
+    if db_path.exists():
         try:
-            run_id = int(f.stem.split("_")[0])
-            max_id = max(max_id, run_id)
-        except (ValueError, IndexError):
-            pass
-    return max_id + 1
+            import duckdb
+
+            conn = duckdb.connect(str(db_path), read_only=True)
+            # Check if invocations table exists
+            result = conn.execute("""
+                SELECT MAX(run_id) FROM (
+                    SELECT ROW_NUMBER() OVER (ORDER BY timestamp) as run_id
+                    FROM invocations
+                )
+            """).fetchone()
+            if result and result[0]:
+                max_id = max(max_id, result[0])
+            conn.close()
+        except Exception:
+            pass  # Fall through to parquet check
+
+    # Also check parquet files (for backward compatibility)
+    logs_dir = lq_dir / LOGS_DIR
+    if logs_dir.exists():
+        for f in logs_dir.rglob("*.parquet"):
+            try:
+                run_id = int(f.stem.split("_")[0])
+                max_id = max(max_id, run_id)
+            except (ValueError, IndexError):
+                pass
+
+    return max_id + 1 if max_id > 0 else 1
 
 
 # ============================================================================

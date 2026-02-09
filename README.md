@@ -24,9 +24,9 @@ pip install blq-cli
 Initialize in your project (installs duck_hunt extension):
 ```bash
 blq init                     # Basic init
-blq init --mcp               # Also create .mcp.json for AI agents
 blq init --detect --yes      # Auto-detect and register build/test commands
 blq init --project myapp --namespace myorg  # Override project identification
+blq mcp install              # Create .mcp.json for AI agents
 ```
 
 ## Quick Start
@@ -103,6 +103,18 @@ blq context 1:3
 | `blq prune` | Remove old logs |
 | `blq formats` | List available log formats |
 | `blq completions` | Generate shell completions (bash/zsh/fish) |
+
+### MCP & Hooks
+
+| Command | Description |
+|---------|-------------|
+| `blq mcp install` | Create/update .mcp.json for AI agents |
+| `blq mcp serve` | Start MCP server |
+| `blq hooks install` | Install git pre-commit hook |
+| `blq hooks remove` | Remove git pre-commit hook |
+| `blq hooks status` | Show hook status |
+| `blq hooks add <cmd>` | Add command to pre-commit hook |
+| `blq hooks list` | List commands in pre-commit hook |
 
 ## Query Examples
 
@@ -285,11 +297,21 @@ blq sql "SELECT hostname, git_branch, environment['VIRTUAL_ENV'] FROM blq_load_e
 blq includes an MCP server for AI agent integration:
 
 ```bash
-blq serve                    # stdio transport (Claude Desktop)
-blq serve --transport sse    # HTTP/SSE transport
+blq mcp install              # Create .mcp.json config
+blq mcp serve                # stdio transport (Claude Desktop)
+blq mcp serve --transport sse  # HTTP/SSE transport
 ```
 
-Tools available: `run`, `exec`, `query`, `errors`, `warnings`, `event`, `context`, `status`, `history`, `diff`, `register_command`, `unregister_command`, `list_commands`
+Tools available: `run`, `exec`, `query`, `errors`, `warnings`, `event`, `context`, `status`, `history`, `diff`, `register_command`, `unregister_command`, `list_commands`, `reset`
+
+**Security:** Disable sensitive tools via config:
+```yaml
+# .lq/config.yaml
+mcp:
+  disabled_tools:
+    - exec
+    - reset
+```
 
 See [MCP Guide](docs/mcp.md) for details.
 
@@ -302,59 +324,64 @@ See [MCP Guide](docs/mcp.md) for details.
 
 ## Python API
 
-blq provides a fluent Python API for programmatic access:
+blq provides a Python API for programmatic access:
 
 ```python
-from blq import LogStore, LogQuery
+from blq.storage import BlqStorage
 
 # Open the repository
-store = LogStore.open()
+storage = BlqStorage.open()
 
-# Query errors with chaining
-errors = (
-    store.errors()
-    .filter(ref_file="%main%")
-    .select("ref_file", "ref_line", "message")
-    .order_by("ref_line")
-    .limit(10)
-    .df()
+# Query runs and events (returns DuckDB relations)
+runs = storage.runs().df()              # Get as DataFrame
+errors = storage.errors(limit=10).df()  # Recent errors
+
+# Filter events
+storage.events(severity="error")              # By severity
+storage.events(run_id=1)                      # By run
+storage.events(severity=["error", "warning"]) # Multiple severities
+
+# Check for data
+if storage.has_data():
+    latest = storage.latest_run_id()
+    print(f"Latest run: {latest}")
+
+# Write a new run
+run_id = storage.write_run(
+    {"command": "make", "source_name": "build", "source_type": "run", "exit_code": 0},
+    events=[{"severity": "error", "message": "undefined reference"}],
 )
 
-# Filter patterns
-store.events().filter(severity="error")              # exact match
-store.events().filter(severity=["error", "warning"]) # IN clause
-store.events().filter(ref_file="%test%")            # LIKE pattern
-store.events().filter("ref_line > 100")           # raw SQL
-
-# Query a log file directly (without storing)
-events = (
-    LogQuery.from_file("build.log")
-    .filter(severity="error")
-    .df()
-)
-
-# Aggregations
-store.events().group_by("ref_file").count()
-store.events().value_counts("severity")
+# Raw SQL queries
+result = storage.sql("SELECT * FROM blq_status()").fetchall()
 ```
 
 See [Python API Guide](docs/python-api.md) for full documentation.
 
 ## Storage
 
-Logs are stored as Hive-partitioned parquet files (zstd compressed):
+blq uses [BIRD](https://magic-bird-shq.readthedocs.io/en/latest/bird_spec/) (Buffer and Invocation Record Database) for storage. Data is stored in DuckDB tables with content-addressed blob storage for outputs:
 
 ```
 .lq/
-├── blq.duckdb     # Database with pre-loaded SQL macros
-├── logs/
-│   └── date=2024-01-15/
-│       └── source=build/
-│           └── 001_make_103000.parquet
+├── blq.duckdb     # Database with tables and SQL macros
+├── blobs/         # Content-addressed output storage
+│   └── content/
+│       └── ab/
+│           └── {hash}.bin
 ├── raw/           # Optional raw logs (--keep-raw)
 ├── commands.yaml  # Registered commands
 └── schema.sql     # SQL schema reference
 ```
+
+### Tables
+
+| Table | Description |
+|-------|-------------|
+| `invocations` | Command executions (runs) with metadata |
+| `events` | Parsed diagnostics (errors, warnings) |
+| `outputs` | Captured stdout/stderr references |
+| `sessions` | CLI/MCP session tracking |
 
 ### SQL Macros (blq_ prefix)
 
@@ -369,8 +396,8 @@ duckdb .lq/blq.duckdb "SELECT * FROM blq_load_events() WHERE severity='error'"
 
 | Macro | Description |
 |-------|-------------|
-| `blq_load_events()` | All events from parquet files |
-| `blq_load_runs()` | Aggregated run statistics |
+| `blq_load_events()` | All events with run metadata |
+| `blq_load_runs()` | Runs with aggregated event counts |
 | `blq_status()` | Quick status overview |
 | `blq_errors(n)` | Recent errors (default: 10) |
 | `blq_warnings(n)` | Recent warnings (default: 10) |

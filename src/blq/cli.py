@@ -70,7 +70,6 @@ from blq.commands import (
     cmd_register,
     cmd_report,
     cmd_run,
-    cmd_serve,
     cmd_shell,
     cmd_sql,
     cmd_status,
@@ -80,6 +79,7 @@ from blq.commands import (
     cmd_warnings,
     cmd_watch,
 )
+from blq.commands.mcp_cmd import cmd_mcp_install, cmd_mcp_serve
 from blq.commands.core import (
     GLOBAL_PROJECTS_PATH,
     # Re-export commonly used items for backward compatibility
@@ -124,7 +124,8 @@ __all__ = [
     "cmd_query",
     "cmd_register",
     "cmd_run",
-    "cmd_serve",
+    "cmd_mcp_install",
+    "cmd_mcp_serve",
     "cmd_shell",
     "cmd_sql",
     "cmd_status",
@@ -427,6 +428,7 @@ def main() -> None:
         "--no-capture", "-N", action="store_true", help="Don't capture logs by default"
     )
     p_register.add_argument("--force", action="store_true", help="Overwrite existing command")
+    p_register.add_argument("--run", "-r", action="store_true", help="Run the command immediately after registering")
     p_register.set_defaults(func=cmd_register)
 
     # unregister
@@ -512,55 +514,79 @@ def main() -> None:
     )
     p_filter.set_defaults(func=cmd_filter)
 
-    # serve (MCP server)
-    p_serve = subparsers.add_parser("serve", help="Start MCP server for AI agent integration")
-    p_serve.add_argument(
+    # mcp (MCP server commands)
+    p_mcp = subparsers.add_parser("mcp", help="MCP server commands")
+    mcp_subparsers = p_mcp.add_subparsers(dest="mcp_command", help="MCP subcommands")
+
+    # mcp install
+    p_mcp_install = mcp_subparsers.add_parser(
+        "install", help="Create or update .mcp.json configuration"
+    )
+    p_mcp_install.add_argument(
+        "--force", "-f", action="store_true", help="Overwrite existing blq config"
+    )
+    p_mcp_install.set_defaults(func=cmd_mcp_install)
+
+    # mcp serve
+    p_mcp_serve = mcp_subparsers.add_parser(
+        "serve", help="Start MCP server for AI agent integration"
+    )
+    p_mcp_serve.add_argument(
         "--transport",
         "-t",
         choices=["stdio", "sse"],
         default="stdio",
         help="Transport type (default: stdio)",
     )
-    p_serve.add_argument(
+    p_mcp_serve.add_argument(
         "--port", "-p", type=int, default=8080, help="Port for SSE transport (default: 8080)"
     )
-    p_serve.set_defaults(func=cmd_serve)
+    p_mcp_serve.set_defaults(func=cmd_mcp_serve)
 
     # =========================================================================
     # Hooks commands
     # =========================================================================
 
-    p_hooks_install = subparsers.add_parser(
-        "hooks-install", help="Install git pre-commit hook"
+    p_hooks = subparsers.add_parser("hooks", help="Git hooks commands")
+    hooks_subparsers = p_hooks.add_subparsers(dest="hooks_command", help="Hooks subcommands")
+
+    # hooks install
+    p_hooks_install = hooks_subparsers.add_parser(
+        "install", help="Install git pre-commit hook"
     )
     p_hooks_install.add_argument(
         "--force", "-f", action="store_true", help="Overwrite existing hook"
     )
     p_hooks_install.set_defaults(func=cmd_hooks_install)
 
-    p_hooks_remove = subparsers.add_parser(
-        "hooks-remove", help="Remove git pre-commit hook"
+    # hooks remove
+    p_hooks_remove = hooks_subparsers.add_parser(
+        "remove", help="Remove git pre-commit hook"
     )
     p_hooks_remove.set_defaults(func=cmd_hooks_remove)
 
-    p_hooks_status = subparsers.add_parser(
-        "hooks-status", help="Show git hook status"
+    # hooks status
+    p_hooks_status = hooks_subparsers.add_parser(
+        "status", help="Show git hook status"
     )
     p_hooks_status.set_defaults(func=cmd_hooks_status)
 
-    p_hooks_run = subparsers.add_parser(
-        "hooks-run", help="Run pre-commit hook commands (called by git hook)"
+    # hooks run
+    p_hooks_run = hooks_subparsers.add_parser(
+        "run", help="Run pre-commit hook commands (called by git hook)"
     )
     p_hooks_run.set_defaults(func=cmd_hooks_run)
 
-    p_hooks_add = subparsers.add_parser(
-        "hooks-add", help="Add a command to pre-commit hook"
+    # hooks add
+    p_hooks_add = hooks_subparsers.add_parser(
+        "add", help="Add a command to pre-commit hook"
     )
     p_hooks_add.add_argument("command", help="Command name to add")
     p_hooks_add.set_defaults(func=cmd_hooks_add)
 
-    p_hooks_list = subparsers.add_parser(
-        "hooks-list", help="List commands in pre-commit hook"
+    # hooks list
+    p_hooks_list = hooks_subparsers.add_parser(
+        "list", help="List commands in pre-commit hook"
     )
     p_hooks_list.set_defaults(func=cmd_hooks_list)
 
