@@ -20,8 +20,10 @@ from blq.commands.migrate import cmd_migrate
 from blq.commands.management import (
     cmd_completions,
     cmd_errors,
+    cmd_events,
     cmd_formats,
     cmd_history,
+    cmd_info,
     cmd_prune,
     cmd_status,
     cmd_summary,
@@ -65,6 +67,8 @@ __all__ = [
     "cmd_shell",
     # Management
     "cmd_status",
+    "cmd_info",
+    "cmd_events",
     "cmd_errors",
     "cmd_warnings",
     "cmd_summary",

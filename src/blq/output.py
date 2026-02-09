@@ -134,7 +134,7 @@ class Column:
 # Standard column definitions for different data types
 HISTORY_COLUMNS = [
     Column("run_ref", "Ref", min_width=8, max_width=18, priority=0, truncate=False),
-    Column("counts", "E/W/T", min_width=9, max_width=12, align="right", priority=0),
+    Column("counts", "T E/W/I", min_width=12, max_width=16, align="right", priority=0),
     Column("when", "When", min_width=6, max_width=10, priority=1),
     Column("git_branch", "Branch", min_width=6, max_width=15, priority=2),
     Column("git_commit", "Commit", min_width=7, max_width=8, priority=2),
@@ -150,9 +150,9 @@ ERRORS_COLUMNS = [
 ]
 
 STATUS_COLUMNS = [
-    Column("status", "Source", min_width=10, max_width=30, priority=0),
-    Column("errors", "Err", min_width=3, max_width=6, align="right", priority=0),
-    Column("warnings", "Warn", min_width=4, max_width=6, align="right", priority=1),
+    Column("badge", "Status", min_width=6, max_width=8, priority=0),
+    Column("source_name", "Source", min_width=8, max_width=25, priority=0),
+    Column("counts", "T E/W/I", min_width=12, max_width=16, align="right", priority=0),
     Column("age", "Age", min_width=4, max_width=8, priority=1, format_fn=format_age),
 ]
 
@@ -457,11 +457,12 @@ def format_history(
         else:
             new_row["run_ref"] = str(run_id)
 
-        # Create combined counts: E/W/T (errors/warnings/total)
+        # Create combined counts: T E/W/I (total errors/warnings/info)
         errors = row.get("error_count") or 0
         warnings = row.get("warning_count") or 0
-        total = errors + warnings
-        new_row["counts"] = f"{errors}/{warnings}/{total}"
+        info = row.get("info_count") or 0
+        total = row.get("event_count") or (errors + warnings + info)
+        new_row["counts"] = f"{total} {errors}/{warnings}/{info}"
 
         # Create relative time
         new_row["when"] = format_relative_time(row.get("started_at", ""))
@@ -503,10 +504,22 @@ def format_status(
     """Format status data."""
     if output_format == "json":
         return format_json(data)
-    elif output_format == "markdown":
-        return format_markdown(data, STATUS_COLUMNS)
+
+    # Transform data to add computed counts field
+    processed = []
+    for row in data:
+        new_row = dict(row)
+        errors = row.get("error_count") or row.get("errors") or 0
+        warnings = row.get("warning_count") or row.get("warnings") or 0
+        info = row.get("info_count") or 0
+        total = row.get("event_count") or (errors + warnings + info)
+        new_row["counts"] = f"{total} {errors}/{warnings}/{info}"
+        processed.append(new_row)
+
+    if output_format == "markdown":
+        return format_markdown(processed, STATUS_COLUMNS)
     else:
-        return format_table(data, STATUS_COLUMNS, max_width)
+        return format_table(processed, STATUS_COLUMNS, max_width)
 
 
 def format_commands(
@@ -560,9 +573,10 @@ def format_run_details(
         "exit_code",
         "git_branch",
         "git_commit",
+        "invocation_id",  # UUID at the end
     ]
 
-    # Additional fields for detailed view
+    # Additional fields for detailed view (all remaining fields)
     extra_fields = [
         "git_dirty",
         "cwd",
@@ -573,6 +587,12 @@ def format_run_details(
         "run_id",
         "run_serial",
         "session_id",
+        "info_count",
+        "event_count",
+        "completed_at",
+        "log_date",
+        "tag",
+        "source_type",
     ]
 
     # Build run_ref if not present
@@ -611,6 +631,21 @@ def format_run_details(
                         secs = value % 60
                         value = f"{mins}m {secs:.0f}s"
             data.append({"field": field.replace("_", " ").title(), "value": str(value)})
+
+    # Add output streams info (always show if available)
+    if run.get("outputs"):
+        outputs = run["outputs"]
+        for out in outputs:
+            stream = out.get("stream", "?")
+            byte_len = out.get("bytes", 0)
+            # Format bytes nicely
+            if byte_len < 1024:
+                size_str = f"{byte_len} bytes"
+            elif byte_len < 1024 * 1024:
+                size_str = f"{byte_len / 1024:.1f} KB"
+            else:
+                size_str = f"{byte_len / (1024 * 1024):.1f} MB"
+            data.append({"field": f"Output ({stream})", "value": size_str})
 
     # Add environment and CI info if detailed
     if detailed:

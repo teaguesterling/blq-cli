@@ -61,7 +61,7 @@ class TestExecTool:
             raw = await client.call_tool("exec", {"command": str(sample_build_script)})
             result = get_data(raw)
 
-            assert "run_id" in result
+            assert "run_ref" in result
             assert "status" in result
             assert result["status"] in ["OK", "FAIL"]
 
@@ -784,7 +784,7 @@ class TestIntegration:
             # 1. Run build using exec (ad-hoc execution)
             run_raw = await client.call_tool("exec", {"command": str(sample_build_script)})
             run_result = get_data(run_raw)
-            assert "run_id" in run_result
+            assert "run_ref" in run_result
 
             # 2. Get errors
             errors_raw = await client.call_tool("errors", {})

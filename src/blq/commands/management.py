@@ -28,44 +28,7 @@ from blq.output import (
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    """Show status of all sources, or details for a specific run.
-
-    If a ref is provided (e.g., 'test:24'), shows detailed info for that run.
-    Otherwise shows status summary for all sources.
-    """
-    ref_arg = getattr(args, "ref", None)
-
-    # If a ref is provided, show run details
-    if ref_arg:
-        try:
-            ref = EventRef.parse(ref_arg)
-        except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(1)
-
-        try:
-            store = get_store_for_args(args)
-            # Get full run details
-            result = store.sql(f"""
-                SELECT * FROM blq_load_runs()
-                WHERE run_id = {ref.run_id}
-            """).df()
-
-            if result.empty:
-                print(f"Run {ref_arg} not found", file=sys.stderr)
-                sys.exit(1)
-
-            run_data = result.to_dict(orient="records")[0]
-            output_format = get_output_format(args)
-            detailed = getattr(args, "details", False) or getattr(args, "verbose", False)
-            print(format_run_details(run_data, output_format, detailed=detailed))
-
-        except duckdb.Error as e:
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(1)
-        return
-
-    # No ref provided - show overall status
+    """Show status of all sources."""
     try:
         store = get_store_for_args(args)
         conn = store.connection
@@ -87,17 +50,96 @@ def cmd_status(args: argparse.Namespace) -> None:
         print(format_errors(data, output_format))
 
 
-def cmd_errors(args: argparse.Namespace) -> None:
-    """Show recent errors."""
+def cmd_info(args: argparse.Namespace) -> None:
+    """Show detailed information about a specific run.
+
+    Accepts a run ref (e.g., 'test:5') or invocation_id (UUID).
+    """
+    ref_arg = args.ref
+
+    try:
+        store = get_store_for_args(args)
+
+        # Check if it's a UUID (invocation_id) or a run ref
+        is_uuid = len(ref_arg) == 36 and ref_arg.count("-") == 4
+
+        if is_uuid:
+            # Query by invocation_id
+            result = store.sql(f"""
+                SELECT * FROM blq_load_runs()
+                WHERE invocation_id = '{ref_arg}'
+            """).df()
+        else:
+            # Parse as run ref
+            try:
+                ref = EventRef.parse(ref_arg)
+            except ValueError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                sys.exit(1)
+
+            result = store.sql(f"""
+                SELECT * FROM blq_load_runs()
+                WHERE run_id = {ref.run_id}
+            """).df()
+
+        if result.empty:
+            print(f"Run {ref_arg} not found", file=sys.stderr)
+            sys.exit(1)
+
+        run_data = result.to_dict(orient="records")[0]
+
+        # Get output details for this run
+        invocation_id = run_data.get("invocation_id")
+        if invocation_id:
+            outputs_result = store.sql(f"""
+                SELECT stream, byte_length
+                FROM outputs
+                WHERE invocation_id = '{invocation_id}'
+                ORDER BY stream
+            """).fetchall()
+            if outputs_result:
+                run_data["outputs"] = [
+                    {"stream": row[0], "bytes": row[1]}
+                    for row in outputs_result
+                ]
+
+        output_format = get_output_format(args)
+        detailed = getattr(args, "details", False) or getattr(args, "verbose", False)
+        print(format_run_details(run_data, output_format, detailed=detailed))
+
+    except duckdb.Error as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_events(args: argparse.Namespace) -> None:
+    """Show events with optional severity filter.
+
+    This is the main event viewing command. `blq errors` and `blq warnings`
+    are aliases that set --severity appropriately.
+    """
     try:
         store = get_store_for_args(args)
 
         # Build SQL query with filters
-        conditions = ["severity = 'error'"]
-        if args.source:
+        conditions = []
+
+        # Severity filter (can be single value or comma-separated list)
+        severity = getattr(args, "severity", None)
+        if severity:
+            if "," in severity:
+                # Multiple severities
+                severities = [s.strip() for s in severity.split(",")]
+                severity_list = ", ".join(f"'{s}'" for s in severities)
+                conditions.append(f"severity IN ({severity_list})")
+            else:
+                conditions.append(f"severity = '{severity}'")
+
+        # Source filter
+        if getattr(args, "source", None):
             conditions.append(f"source_name = '{args.source}'")
 
-        where = " AND ".join(conditions)
+        where = " AND ".join(conditions) if conditions else "1=1"
 
         # Always get full columns for formatting, select happens in formatter
         result = store.sql(f"""
@@ -115,30 +157,16 @@ def cmd_errors(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_errors(args: argparse.Namespace) -> None:
+    """Show recent errors (alias for `blq events --severity error`)."""
+    args.severity = "error"
+    cmd_events(args)
+
+
 def cmd_warnings(args: argparse.Namespace) -> None:
-    """Show recent warnings."""
-    try:
-        store = get_store_for_args(args)
-
-        # Build SQL query with filters
-        conditions = ["severity = 'warning'"]
-        if getattr(args, "source", None):
-            conditions.append(f"source_name = '{args.source}'")
-
-        where = " AND ".join(conditions)
-
-        result = store.sql(f"""
-            SELECT * FROM blq_load_events()
-            WHERE {where}
-            ORDER BY run_id DESC, event_id
-            LIMIT {args.limit}
-        """).df()
-
-        data = result.to_dict(orient="records")
-        output_format = get_output_format(args)
-        print(format_errors(data, output_format))  # Same format as errors
-    except duckdb.Error as e:
-        print(f"Error: {e}", file=sys.stderr)
+    """Show recent warnings (alias for `blq events --severity warning`)."""
+    args.severity = "warning"
+    cmd_events(args)
 
 
 def cmd_summary(args: argparse.Namespace) -> None:
