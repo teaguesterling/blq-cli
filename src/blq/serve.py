@@ -1611,6 +1611,141 @@ def info(ref: str) -> dict[str, Any]:
     return _info_impl(ref)
 
 
+def _last_impl(
+    head: int | None = None,
+    tail: int | None = None,
+    errors: bool = False,
+    warnings: bool = False,
+    severity: str | None = None,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Implementation of last command - get info about most recent run."""
+    try:
+        storage = _get_storage()
+        if not storage.has_data():
+            return {"error": "No data available"}
+
+        # Get most recent run
+        df = storage.sql("""
+            SELECT * FROM blq_load_runs()
+            ORDER BY run_id DESC
+            LIMIT 1
+        """).df()
+
+        if df.empty:
+            return {"error": "No runs found"}
+
+        row = df.iloc[0]
+        run_serial = _safe_int(row.get("run_id")) or 0
+        invocation_id = _to_json_safe(row.get("invocation_id"))
+
+        # Build run_ref
+        tag = _to_json_safe(row.get("tag"))
+        if tag:
+            run_ref = f"{tag}:{run_serial}"
+        else:
+            run_ref = str(run_serial)
+
+        result: dict[str, Any] = {
+            "run_ref": run_ref,
+            "run_serial": run_serial,
+            "invocation_id": invocation_id,
+            "source_name": _to_json_safe(row.get("source_name")),
+            "command": _to_json_safe(row.get("command")),
+            "status": _to_json_safe(row.get("status")),
+            "exit_code": _safe_int(row.get("exit_code")),
+            "error_count": _safe_int(row.get("error_count")) or 0,
+            "warning_count": _safe_int(row.get("warning_count")) or 0,
+            "started_at": _to_json_safe(row.get("started_at")),
+            "git_branch": _to_json_safe(row.get("git_branch")),
+            "git_commit": _to_json_safe(row.get("git_commit")),
+        }
+
+        # Get output if requested
+        if head is not None or tail is not None:
+            output_bytes = storage.get_output(run_serial)
+            if output_bytes:
+                try:
+                    content = output_bytes.decode("utf-8", errors="replace")
+                except Exception:
+                    content = output_bytes.decode("latin-1")
+                lines = content.splitlines()
+
+                if head is not None:
+                    result["head"] = lines[:head]
+                if tail is not None:
+                    result["tail"] = lines[-tail:] if tail else lines
+
+        # Get events if requested
+        if errors or warnings or severity:
+            # Determine severity filter
+            if errors and warnings:
+                sev_filter = "error,warning"
+            elif errors:
+                sev_filter = "error"
+            elif warnings:
+                sev_filter = "warning"
+            else:
+                sev_filter = severity
+
+            conditions = [f"run_serial = {run_serial}"]
+            if sev_filter and "," in sev_filter:
+                severities = [s.strip() for s in sev_filter.split(",")]
+                severity_list = ", ".join(f"'{s}'" for s in severities)
+                conditions.append(f"severity IN ({severity_list})")
+            elif sev_filter:
+                conditions.append(f"severity = '{sev_filter}'")
+
+            where = " AND ".join(conditions)
+            events_df = storage.sql(f"""
+                SELECT * FROM blq_load_events()
+                WHERE {where}
+                ORDER BY event_id
+                LIMIT {limit}
+            """).df()
+
+            events_list = []
+            for _, erow in events_df.iterrows():
+                events_list.append({
+                    "ref": _to_json_safe(erow.get("ref")),
+                    "severity": _to_json_safe(erow.get("severity")),
+                    "ref_file": _to_json_safe(erow.get("ref_file")),
+                    "ref_line": _safe_int(erow.get("ref_line")),
+                    "message": _to_json_safe(erow.get("message")),
+                })
+            result["events"] = events_list
+
+        return result
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
+def last(
+    head: int | None = None,
+    tail: int | None = None,
+    errors: bool = False,
+    warnings: bool = False,
+    severity: str | None = None,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Get information about the most recent run.
+
+    Args:
+        head: Return first N lines of output
+        tail: Return last N lines of output
+        errors: Include error events
+        warnings: Include warning events
+        severity: Filter events by severity (e.g., 'error', 'error,warning')
+        limit: Max events to return (default: 20)
+
+    Returns:
+        Run info with optional output and events
+    """
+    return _last_impl(head, tail, errors, warnings, severity, limit)
+
+
 @mcp.tool()
 def history(limit: int = 20, source: str | None = None) -> dict[str, Any]:
     """Get run history.

@@ -67,6 +67,7 @@ from blq.commands import (
     cmd_info,
     cmd_init,
     cmd_inspect,
+    cmd_last,
     cmd_migrate,
     cmd_prune,
     cmd_query,
@@ -375,6 +376,19 @@ def main() -> None:
     p_info.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_info.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
     p_info.set_defaults(func=cmd_info)
+
+    # last - quick view of the most recent run
+    p_last = subparsers.add_parser("last", help="Show info about the most recent run")
+    p_last.add_argument("--head", type=int, metavar="N", help="Show first N lines of output")
+    p_last.add_argument("--tail", type=int, metavar="N", help="Show last N lines of output")
+    p_last.add_argument("--output", "-o", action="store_true", help="Show output (default: tail 20)")
+    p_last.add_argument("--errors", "-e", action="store_true", help="Show errors")
+    p_last.add_argument("--warnings", "-w", action="store_true", help="Show warnings")
+    p_last.add_argument("--severity", "-S", help="Filter events by severity")
+    p_last.add_argument("--limit", "-n", type=int, default=20, help="Max events to show")
+    p_last.add_argument("--quiet", "-q", action="store_true", help="Don't show run info")
+    p_last.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_last.set_defaults(func=cmd_last)
 
     # events (main command for viewing events with severity filter)
     p_events = subparsers.add_parser("events", help="Show events (errors, warnings, info)")

@@ -19,6 +19,7 @@ from blq.commands.core import (
     get_store_for_args,
 )
 from blq.output import (
+    format_context,
     format_errors,
     format_history,
     format_run_details,
@@ -106,6 +107,157 @@ def cmd_info(args: argparse.Namespace) -> None:
         output_format = get_output_format(args)
         detailed = getattr(args, "details", False) or getattr(args, "verbose", False)
         print(format_run_details(run_data, output_format, detailed=detailed))
+
+    except duckdb.Error as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_last(args: argparse.Namespace) -> None:
+    """Show information about the most recent run.
+
+    Provides a quick way to see what happened in the last command execution,
+    with options to show output and/or events.
+    """
+    import json as json_module
+
+    config = BlqConfig.ensure()
+
+    try:
+        store = get_store_for_args(args)
+
+        # Get the most recent run
+        result = store.sql("""
+            SELECT * FROM blq_load_runs()
+            ORDER BY run_id DESC
+            LIMIT 1
+        """).df()
+
+        if result.empty:
+            print("No runs found", file=sys.stderr)
+            sys.exit(1)
+
+        run_data = result.to_dict(orient="records")[0]
+        run_id = run_data.get("run_id")
+        invocation_id = run_data.get("invocation_id")
+
+        # Collect output data for JSON mode
+        json_output = {}
+        if getattr(args, "json", False):
+            json_output["run"] = run_data
+
+        # Get output details
+        if invocation_id:
+            outputs_result = store.sql(f"""
+                SELECT stream, byte_length
+                FROM outputs
+                WHERE invocation_id = '{invocation_id}'
+                ORDER BY stream
+            """).fetchall()
+            if outputs_result:
+                run_data["outputs"] = [
+                    {"stream": row[0], "bytes": row[1]}
+                    for row in outputs_result
+                ]
+
+        # Show run info (unless --quiet)
+        if not getattr(args, "quiet", False):
+            if getattr(args, "json", False):
+                pass  # Will output at end
+            else:
+                output_format = get_output_format(args)
+                print(format_run_details(run_data, output_format))
+                print()
+
+        # Show output if requested
+        show_output = getattr(args, "output", False)
+        head_lines = getattr(args, "head", None)
+        tail_lines = getattr(args, "tail", None)
+
+        # Default to showing tail if --output but no head/tail specified
+        if show_output and head_lines is None and tail_lines is None:
+            tail_lines = 20
+
+        if head_lines is not None or tail_lines is not None:
+            output_bytes = store.get_output(run_id)
+            if output_bytes:
+                try:
+                    content = output_bytes.decode("utf-8", errors="replace")
+                except Exception:
+                    content = output_bytes.decode("latin-1")
+
+                lines = content.splitlines()
+
+                if getattr(args, "json", False):
+                    if head_lines is not None:
+                        json_output["head"] = lines[:head_lines]
+                    if tail_lines is not None:
+                        json_output["tail"] = lines[-tail_lines:] if tail_lines else lines
+                else:
+                    if head_lines is not None:
+                        print("== Output (first {} lines) ==".format(head_lines))
+                        for line in lines[:head_lines]:
+                            print(line)
+                        print()
+
+                    if tail_lines is not None:
+                        print("== Output (last {} lines) ==".format(tail_lines))
+                        for line in lines[-tail_lines:]:
+                            print(line)
+                        print()
+            elif not getattr(args, "json", False):
+                print("(no output captured - enable with storage.keep_raw config)")
+                print()
+
+        # Show events if requested
+        severity = getattr(args, "severity", None)
+        show_errors = getattr(args, "errors", False)
+        show_warnings = getattr(args, "warnings", False)
+        event_limit = getattr(args, "limit", 20)
+
+        # Determine severity filter
+        if show_errors and show_warnings:
+            severity = "error,warning"
+        elif show_errors:
+            severity = "error"
+        elif show_warnings:
+            severity = "warning"
+
+        if severity:
+            conditions = [f"run_serial = {run_id}"]
+
+            if "," in severity:
+                severities = [s.strip() for s in severity.split(",")]
+                severity_list = ", ".join(f"'{s}'" for s in severities)
+                conditions.append(f"severity IN ({severity_list})")
+            else:
+                conditions.append(f"severity = '{severity}'")
+
+            where = " AND ".join(conditions)
+
+            events_result = store.sql(f"""
+                SELECT * FROM blq_load_events()
+                WHERE {where}
+                ORDER BY event_id
+                LIMIT {event_limit}
+            """).df()
+
+            events_data = events_result.to_dict(orient="records")
+
+            if getattr(args, "json", False):
+                json_output["events"] = events_data
+            else:
+                if events_data:
+                    label = severity.replace(",", "/").title() + "s"
+                    print(f"== {label} ==")
+                    output_format = get_output_format(args)
+                    print(format_errors(events_data, output_format))
+                else:
+                    print(f"No {severity} events in this run")
+
+        # Output JSON if requested
+        if getattr(args, "json", False):
+            print(json_module.dumps(json_output, indent=2, default=str))
 
     except duckdb.Error as e:
         print(f"Error: {e}", file=sys.stderr)

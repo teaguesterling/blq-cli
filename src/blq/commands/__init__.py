@@ -23,6 +23,7 @@ from blq.commands.management import (
     cmd_formats,
     cmd_history,
     cmd_info,
+    cmd_last,
     cmd_prune,
     cmd_status,
     cmd_summary,
@@ -67,6 +68,7 @@ __all__ = [
     "cmd_shell",
     # Management
     "cmd_status",
+    "cmd_last",
     "cmd_info",
     "cmd_events",
     "cmd_errors",
