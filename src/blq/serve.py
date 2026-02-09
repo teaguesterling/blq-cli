@@ -177,13 +177,20 @@ def _run_impl(
         }
 
 
-def _exec_impl(command: str, args: list[str] | None = None, timeout: int = 300) -> dict[str, Any]:
+def _exec_impl(
+    command: str,
+    args: list[str] | None = None,
+    extra: list[str] | None = None,
+    timeout: int = 300,
+) -> dict[str, Any]:
     """Implementation of exec command (for ad-hoc shell commands)."""
     # Build command for blq exec
     cmd_parts = ["blq", "exec", "--json", "--quiet"]
     cmd_parts.append(command)
     if args:
         cmd_parts.extend(args)
+    if extra:
+        cmd_parts.extend(extra)
 
     try:
         result = subprocess.run(
@@ -889,18 +896,24 @@ def run(
 
 
 @mcp.tool()
-def exec(command: str, args: list[str] | None = None, timeout: int = 300) -> dict[str, Any]:
+def exec(
+    command: str,
+    args: list[str] | None = None,
+    extra: list[str] | None = None,
+    timeout: int = 300,
+) -> dict[str, Any]:
     """Execute an ad-hoc shell command and capture its output.
 
     Args:
-        command: Shell command to execute
-        args: Additional arguments
+        command: Shell command to run
+        args: Additional arguments (backwards compatible alias for extra)
+        extra: Extra arguments to append to the command
         timeout: Timeout in seconds (default: 300)
 
     Returns:
         Run result with status, errors, and warnings
     """
-    return _exec_impl(command, args, timeout)
+    return _exec_impl(command, args, extra, timeout)
 
 
 @mcp.tool()

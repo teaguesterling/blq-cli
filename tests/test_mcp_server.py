@@ -469,6 +469,170 @@ class TestResources:
 
 
 # ============================================================================
+# Register Command Tests
+# ============================================================================
+
+
+class TestRegisterCommandTool:
+    """Tests for the register_command tool."""
+
+    @pytest.mark.asyncio
+    async def test_register_new_command(self, mcp_server_empty):
+        """Register a new command."""
+        async with Client(mcp_server_empty) as client:
+            raw = await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello"},
+            )
+            result = get_data(raw)
+
+            assert result["success"] is True
+            assert result["existing"] is False
+            assert result["command"]["name"] == "hello"
+
+    @pytest.mark.asyncio
+    async def test_register_idempotent_same_command(self, mcp_server_empty):
+        """Registering identical command returns existing."""
+        async with Client(mcp_server_empty) as client:
+            # First registration
+            await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello"},
+            )
+
+            # Second registration with same name and command
+            raw = await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello"},
+            )
+            result = get_data(raw)
+
+            assert result["success"] is True
+            assert result["existing"] is True
+            assert "identical" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_register_idempotent_same_cmd_different_name(self, mcp_server_empty):
+        """Registering same command under different name returns existing."""
+        async with Client(mcp_server_empty) as client:
+            # First registration
+            await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello"},
+            )
+
+            # Second registration with different name but same command
+            raw = await client.call_tool(
+                "register_command",
+                {"name": "greet", "cmd": "echo hello"},
+            )
+            result = get_data(raw)
+
+            assert result["success"] is True
+            assert result["existing"] is True
+            assert result["matched_name"] == "hello"
+
+    @pytest.mark.asyncio
+    async def test_register_different_command_same_name_fails(self, mcp_server_empty):
+        """Registering different command with same name fails without force."""
+        async with Client(mcp_server_empty) as client:
+            # First registration
+            await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello"},
+            )
+
+            # Second registration with same name but different command
+            raw = await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo goodbye"},
+            )
+            result = get_data(raw)
+
+            assert result["success"] is False
+            assert "different command" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_register_with_force_overwrites(self, mcp_server_empty):
+        """Registering with force=True overwrites existing."""
+        async with Client(mcp_server_empty) as client:
+            # First registration
+            await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello"},
+            )
+
+            # Overwrite with force
+            raw = await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo goodbye", "force": True},
+            )
+            result = get_data(raw)
+
+            assert result["success"] is True
+            assert result["existing"] is False
+            assert result["command"]["cmd"] == "echo goodbye"
+
+    @pytest.mark.asyncio
+    async def test_register_with_run_now(self, mcp_server_empty):
+        """Register and run immediately with run_now=True."""
+        async with Client(mcp_server_empty) as client:
+            raw = await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello", "run_now": True},
+            )
+            result = get_data(raw)
+
+            assert result["success"] is True
+            assert "run" in result
+            assert result["run"]["status"] == "OK"
+
+    @pytest.mark.asyncio
+    async def test_register_idempotent_with_run_now(self, mcp_server_empty):
+        """Idempotent registration also runs with run_now=True."""
+        async with Client(mcp_server_empty) as client:
+            # First registration
+            await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello"},
+            )
+
+            # Second registration with run_now
+            raw = await client.call_tool(
+                "register_command",
+                {"name": "hello", "cmd": "echo hello", "run_now": True},
+            )
+            result = get_data(raw)
+
+            assert result["success"] is True
+            assert result["existing"] is True
+            assert "run" in result
+            assert result["run"]["status"] == "OK"
+
+
+# ============================================================================
+# Exec Tool Extra Args Tests
+# ============================================================================
+
+
+class TestExecToolExtra:
+    """Tests for exec tool with extra arguments."""
+
+    @pytest.mark.asyncio
+    async def test_exec_with_extra_args(self, mcp_server_empty):
+        """Execute a command with extra arguments."""
+        async with Client(mcp_server_empty) as client:
+            raw = await client.call_tool(
+                "exec",
+                {"command": "echo", "extra": ["hello", "world"]},
+            )
+            result = get_data(raw)
+
+            assert result["status"] == "OK"
+            assert result["exit_code"] == 0
+
+
+# ============================================================================
 # Prompt Tests
 # ============================================================================
 
