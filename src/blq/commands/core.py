@@ -1002,11 +1002,13 @@ class ConnectionFactory:
 
     Handles:
     - duck_hunt extension loading/installation
+    - scalarfs extension for data: URL support
     - Schema loading for stored data queries
     - Future: persistent database support
     """
 
     _duck_hunt_available: bool | None = None
+    _scalarfs_available: bool | None = None
 
     @classmethod
     def check_duck_hunt(cls, conn: duckdb.DuckDBPyConnection) -> bool:
@@ -1018,6 +1020,17 @@ class ConnectionFactory:
             except duckdb.Error:
                 cls._duck_hunt_available = False
         return cls._duck_hunt_available
+
+    @classmethod
+    def check_scalarfs(cls, conn: duckdb.DuckDBPyConnection) -> bool:
+        """Check if scalarfs is available (cached)."""
+        if cls._scalarfs_available is None:
+            try:
+                conn.execute("LOAD scalarfs")
+                cls._scalarfs_available = True
+            except duckdb.Error:
+                cls._scalarfs_available = False
+        return cls._scalarfs_available
 
     @classmethod
     def install_duck_hunt(cls, conn: duckdb.DuckDBPyConnection) -> bool:
@@ -1033,6 +1046,56 @@ class ConnectionFactory:
         except duckdb.Error:
             cls._duck_hunt_available = False
             return False
+
+    @classmethod
+    def install_scalarfs(cls, conn: duckdb.DuckDBPyConnection) -> bool:
+        """Install scalarfs extension from community repo.
+
+        Returns True if successful, False otherwise.
+        """
+        try:
+            conn.execute("INSTALL scalarfs FROM community")
+            conn.execute("LOAD scalarfs")
+            cls._scalarfs_available = True
+            return True
+        except duckdb.Error:
+            cls._scalarfs_available = False
+            return False
+
+    @classmethod
+    def load_extensions(
+        cls,
+        conn: duckdb.DuckDBPyConnection,
+        install_missing: bool = False,
+    ) -> dict[str, bool]:
+        """Load all blq extensions (duck_hunt, scalarfs).
+
+        Args:
+            conn: DuckDB connection
+            install_missing: If True, attempt to install missing extensions
+
+        Returns:
+            Dict of extension name -> availability
+        """
+        results = {}
+
+        # duck_hunt
+        if cls.check_duck_hunt(conn):
+            results["duck_hunt"] = True
+        elif install_missing and cls.install_duck_hunt(conn):
+            results["duck_hunt"] = True
+        else:
+            results["duck_hunt"] = False
+
+        # scalarfs
+        if cls.check_scalarfs(conn):
+            results["scalarfs"] = True
+        elif install_missing and cls.install_scalarfs(conn):
+            results["scalarfs"] = True
+        else:
+            results["scalarfs"] = False
+
+        return results
 
     @classmethod
     def create(

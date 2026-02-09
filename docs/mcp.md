@@ -95,6 +95,9 @@ All tools are namespaced under the `blq` server, so `run` becomes `blq.run` when
 | `unregister_command` | Remove a registered command |
 | `list_commands` | List all registered commands |
 | `reset` | Reset or reinitialize the database |
+| `batch_run` | Run multiple commands in sequence |
+| `batch_errors` | Get errors from multiple runs |
+| `batch_event` | Get details for multiple events |
 
 ---
 

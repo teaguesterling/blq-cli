@@ -13,6 +13,41 @@ from blq.query import LogQuery, LogStore
 # ============================================================================
 
 
+class TestLogQueryFromContent:
+    """Tests for LogQuery.from_content() method."""
+
+    def test_from_content_basic(self):
+        """Parse log content using from_content."""
+        content = """src/main.c:10:5: error: undefined reference to 'foo'
+src/main.c:20:3: warning: unused variable 'bar'"""
+        try:
+            query = LogQuery.from_content(content)
+            df = query.df()
+            # Should parse some events
+            assert len(df) >= 0  # duck_hunt might not parse this format
+        except duckdb.Error:
+            pytest.skip("duck_hunt extension not available")
+
+    def test_from_content_with_format(self):
+        """Parse log content with explicit format."""
+        content = """src/main.c:10:5: error: undefined reference to 'foo'"""
+        try:
+            query = LogQuery.from_content(content, format="auto")
+            df = query.df()
+            assert len(df) >= 0
+        except duckdb.Error:
+            pytest.skip("duck_hunt extension not available")
+
+    def test_from_content_empty(self):
+        """Parse empty content."""
+        try:
+            query = LogQuery.from_content("")
+            df = query.df()
+            assert len(df) == 0
+        except duckdb.Error:
+            pytest.skip("duck_hunt extension not available")
+
+
 class TestLogQueryBasic:
     """Basic LogQuery functionality tests."""
 

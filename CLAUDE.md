@@ -38,10 +38,14 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 
 ### TODO
 - [ ] Implement sync feature (see `docs/design-sync.md`) - Issue #21
-- [ ] Use duck_hunt_match_command_patterns() for format auto-detection - Issue #19
-- [ ] Install scalarfs extension for BIRD-compliant data URL support (parse inline content without temp files)
-- [ ] Update duck_hunt integration (extension has been updated)
 - [ ] Consider integration with duckdb_mcp for ATTACH/DETACH workflow
+
+### Recently Completed
+- [x] Use duck_hunt_match_command_patterns() for format auto-detection - Issue #19
+- [x] Install scalarfs extension for BIRD-compliant data URL support
+- [x] Add `LogQuery.from_content()` for parsing inline content
+- [x] Add batch tools: `batch_run`, `batch_errors`, `batch_event`
+- [x] Add `output` tool for raw stdout/stderr retrieval
 
 ## Architecture
 

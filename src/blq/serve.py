@@ -1467,6 +1467,119 @@ def reset(
 
 
 # ============================================================================
+# Batch Tools
+# ============================================================================
+
+
+@mcp.tool()
+def batch_run(
+    commands: list[str],
+    stop_on_failure: bool = True,
+    timeout: int = 300,
+) -> dict[str, Any]:
+    """Run multiple registered commands in sequence.
+
+    Useful for running build -> test -> lint pipelines.
+
+    Args:
+        commands: List of registered command names to run
+        stop_on_failure: Stop after first failure (default: true)
+        timeout: Timeout per command in seconds (default: 300)
+
+    Returns:
+        Results for each command with overall status
+    """
+    results = []
+    overall_status = "OK"
+
+    for cmd in commands:
+        result = _run_impl(cmd, timeout=timeout)
+        results.append({"command": cmd, "result": result})
+
+        if result.get("status") == "FAIL":
+            overall_status = "FAIL"
+            if stop_on_failure:
+                break
+        elif result.get("status") == "WARN" and overall_status == "OK":
+            overall_status = "WARN"
+
+    return {
+        "status": overall_status,
+        "results": results,
+        "completed": len(results),
+        "total": len(commands),
+    }
+
+
+@mcp.tool()
+def batch_errors(
+    run_ids: list[int],
+    limit_per_run: int = 10,
+) -> dict[str, Any]:
+    """Get errors from multiple runs.
+
+    Useful for comparing errors across a series of runs.
+
+    Args:
+        run_ids: List of run serial numbers
+        limit_per_run: Max errors per run (default: 10)
+
+    Returns:
+        Errors grouped by run_id
+    """
+    runs = []
+    total_errors = 0
+
+    for run_id in run_ids:
+        result = _errors_impl(limit=limit_per_run, run_id=run_id)
+        error_count = len(result.get("errors", []))
+        total_errors += error_count
+        runs.append({
+            "run_id": run_id,
+            "error_count": error_count,
+            "errors": result.get("errors", []),
+        })
+
+    return {
+        "runs": runs,
+        "total_errors": total_errors,
+        "run_count": len(run_ids),
+    }
+
+
+@mcp.tool()
+def batch_event(
+    refs: list[str],
+) -> dict[str, Any]:
+    """Get details for multiple events.
+
+    Useful for examining several related errors at once.
+
+    Args:
+        refs: List of event references (e.g., ["build:1:1", "build:1:2"])
+
+    Returns:
+        Event details for each ref
+    """
+    events = []
+    found = 0
+
+    for ref in refs:
+        event = _event_impl(ref)
+        if event is not None:
+            found += 1
+            events.append({"ref": ref, "event": event})
+        else:
+            events.append({"ref": ref, "event": None, "error": "Not found"})
+
+    return {
+        "events": events,
+        "found": found,
+        "total": len(refs),
+    }
+
+
+# ============================================================================
 # Resources
 # ============================================================================
 

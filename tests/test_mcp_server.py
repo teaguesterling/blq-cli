@@ -820,6 +820,55 @@ class TestIntegration:
                 assert "errors" in errors
 
 
+class TestBatchTools:
+    """Tests for batch tools."""
+
+    @pytest.mark.asyncio
+    async def test_batch_errors(self, mcp_server):
+        """Get errors from multiple runs."""
+        async with Client(mcp_server) as client:
+            # Get history to find run IDs
+            history_raw = await client.call_tool("history", {"limit": 5})
+            history = get_data(history_raw)
+
+            if history["runs"]:
+                run_ids = [r["run_serial"] for r in history["runs"][:2]]
+
+                raw = await client.call_tool("batch_errors", {"run_ids": run_ids})
+                result = get_data(raw)
+
+                assert "runs" in result
+                assert "total_errors" in result
+                assert result["run_count"] == len(run_ids)
+
+    @pytest.mark.asyncio
+    async def test_batch_event(self, mcp_server):
+        """Get multiple events at once."""
+        async with Client(mcp_server) as client:
+            # Get some error refs
+            errors_raw = await client.call_tool("errors", {"limit": 3})
+            errors = get_data(errors_raw)
+
+            if errors["errors"]:
+                refs = [e["ref"] for e in errors["errors"][:2]]
+
+                raw = await client.call_tool("batch_event", {"refs": refs})
+                result = get_data(raw)
+
+                assert "events" in result
+                assert result["total"] == len(refs)
+
+    @pytest.mark.asyncio
+    async def test_batch_run_empty(self, mcp_server_empty):
+        """Batch run with no commands."""
+        async with Client(mcp_server_empty) as client:
+            raw = await client.call_tool("batch_run", {"commands": []})
+            result = get_data(raw)
+
+            assert result["status"] == "OK"
+            assert result["completed"] == 0
+
+
 class TestResetTool:
     """Tests for the reset tool."""
 

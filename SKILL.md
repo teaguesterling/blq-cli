@@ -161,6 +161,9 @@ blq.diff(run1=3, run2=4)  # What changed between runs?
 | `unregister_command(name)` | Remove a command |
 | `list_commands()` | List registered commands |
 | `reset(mode, confirm)` | Clear data or reinitialize |
+| `batch_run(commands)` | Run multiple commands in sequence |
+| `batch_errors(run_ids)` | Get errors from multiple runs |
+| `batch_event(refs)` | Get details for multiple events |
 
 ## Registering Commands
 

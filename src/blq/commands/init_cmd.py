@@ -468,21 +468,29 @@ def _install_extensions() -> None:
 
     conn = duckdb.connect(":memory:")
 
-    # Check if duck_hunt is already available
+    # Install duck_hunt
     try:
         conn.execute("LOAD duck_hunt")
         print("  duck_hunt  - Already installed")
-        return
     except duckdb.Error:
-        pass
+        print("  duck_hunt  - Installing from community repo...")
+        if ConnectionFactory.install_duck_hunt(conn):
+            print("  duck_hunt  - Installed successfully")
+        else:
+            print("  duck_hunt  - Installation failed (some features unavailable)", file=sys.stderr)
+            print("             Run manually: INSTALL duck_hunt FROM community", file=sys.stderr)
 
-    # Try to install duck_hunt
-    print("  duck_hunt  - Installing from community repo...")
-    if ConnectionFactory.install_duck_hunt(conn):
-        print("  duck_hunt  - Installed successfully")
-    else:
-        print("  duck_hunt  - Installation failed (some features unavailable)", file=sys.stderr)
-        print("             Run manually: INSTALL duck_hunt FROM community", file=sys.stderr)
+    # Install scalarfs for data: URL support (BIRD-compliant inline content)
+    try:
+        conn.execute("LOAD scalarfs")
+        print("  scalarfs   - Already installed")
+    except duckdb.Error:
+        try:
+            conn.execute("INSTALL scalarfs FROM community")
+            conn.execute("LOAD scalarfs")
+            print("  scalarfs   - Installed successfully")
+        except duckdb.Error:
+            print("  scalarfs   - Installation failed (data: URLs unavailable)", file=sys.stderr)
 
 
 def _detect_commands(mode: str = DETECT_AUTO) -> list[tuple[str, str, str]]:

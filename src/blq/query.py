@@ -175,6 +175,59 @@ class LogQuery:
         )
         return cls(rel, conn)
 
+    @classmethod
+    def from_content(
+        cls,
+        content: str,
+        format: str = "auto",
+        conn: duckdb.DuckDBPyConnection | None = None,
+    ) -> LogQuery:
+        """Create a LogQuery from inline log content using duck_hunt.
+
+        Uses scalarfs data: URLs to parse content without temp files.
+        Falls back to parse_duck_hunt_log if scalarfs unavailable.
+
+        Args:
+            content: Log content to parse
+            format: Log format hint (default: "auto")
+            conn: DuckDB connection (creates new if None)
+
+        Returns:
+            LogQuery wrapping the parsed log data
+
+        Raises:
+            duckdb.Error: If duck_hunt extension not available
+        """
+        if conn is None:
+            conn = duckdb.connect(":memory:")
+
+        # Load duck_hunt extension
+        try:
+            conn.execute("LOAD duck_hunt")
+        except duckdb.Error:
+            raise duckdb.Error(
+                "duck_hunt extension required for parsing log content. "
+                "Run 'blq init' to install required extensions."
+            )
+
+        # Try scalarfs data: URL first (more efficient for large content)
+        try:
+            conn.execute("LOAD scalarfs")
+            # Use data+varchar: protocol for raw string content
+            data_url = f"data+varchar:{content}"
+            rel = conn.sql(
+                "SELECT * FROM read_duck_hunt_log($1, $2)",
+                params=[data_url, format],
+            )
+        except duckdb.Error:
+            # Fall back to parse_duck_hunt_log (scalar function)
+            rel = conn.sql(
+                "SELECT * FROM parse_duck_hunt_log($1, $2)",
+                params=[content, format],
+            )
+
+        return cls(rel, conn)
+
     # -------------------------------------------------------------------------
     # Filter methods
     # -------------------------------------------------------------------------
