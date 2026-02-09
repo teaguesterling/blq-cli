@@ -119,7 +119,7 @@ mcp = FastMCP(
         "Read blq://guide for detailed usage instructions. "
         "The database is shared with the CLI - users can run 'blq run build' "
         "and you can query the results, or vice versa. "
-        "Start with status() or list_commands() to see current state. "
+        "Start with status() or commands() to see current state."
         "Use errors(), event(ref), and context(ref) to drill down into issues. "
         "Docs: https://blq-cli.readthedocs.io/en/latest/"
     ),
@@ -624,6 +624,7 @@ def _events_impl(
                     "message": _to_json_safe(row.get("message")),
                     "tool_name": _to_json_safe(row.get("tool_name")),
                     "category": _to_json_safe(row.get("category")),
+                    "log_line": _safe_int(row.get("log_line_start")),
                 }
             )
 
@@ -1030,6 +1031,7 @@ def _info_impl(ref: str) -> dict[str, Any]:
 
         return {
             "run_ref": run_ref,
+            "run_serial": run_serial,
             "invocation_id": invocation_id,
             "source_name": _to_json_safe(row.get("source_name")),
             "source_type": _to_json_safe(row.get("source_type")),
@@ -1345,8 +1347,8 @@ def _unregister_command_impl(name: str) -> dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
-def _list_commands_impl() -> dict[str, Any]:
-    """Implementation of list_commands."""
+def _commands_impl() -> dict[str, Any]:
+    """Implementation of commands listing."""
     try:
         from blq.cli import BlqConfig
 
@@ -1385,19 +1387,51 @@ def run(
     args: dict[str, str] | list[str] | None = None,
     extra: list[str] | None = None,
     timeout: int = 300,
+    # Batch mode parameters
+    commands: list[str] | None = None,
+    stop_on_failure: bool = True,
 ) -> dict[str, Any]:
     """Run a registered command and capture its output.
 
+    Can run a single command or multiple commands in sequence (batch mode).
+
     Args:
-        command: Registered command name (use exec() for ad-hoc commands)
+        command: Registered command name (use the exec tool for ad-hoc commands)
         args: Command arguments - either a dict of named args (recommended)
               or a list of CLI args for backward compatibility
         extra: Passthrough arguments appended to command
         timeout: Timeout in seconds (default: 300)
+        commands: List of command names for batch mode (overrides `command`)
+        stop_on_failure: In batch mode, stop after first failure (default: true)
 
     Returns:
-        Run result with status, errors, and warnings
+        Run result with status, errors, and warnings.
+        In batch mode, returns results for each command with overall status.
     """
+    # Batch mode: run multiple commands in sequence
+    if commands is not None:
+        results = []
+        overall_status = "OK"
+
+        for cmd in commands:
+            result = _run_impl(cmd, timeout=timeout)
+            results.append({"command": cmd, "result": result})
+
+            if result.get("status") == "FAIL":
+                overall_status = "FAIL"
+                if stop_on_failure:
+                    break
+            elif result.get("status") == "WARN" and overall_status == "OK":
+                overall_status = "WARN"
+
+        return {
+            "status": overall_status,
+            "results": results,
+            "commands_run": len(results),
+            "commands_requested": len(commands),
+        }
+
+    # Single command mode
     return _run_impl(command, args, extra, timeout)
 
 
@@ -1444,59 +1478,20 @@ def query(sql: str, limit: int = 100) -> dict[str, Any]:
 
 
 @mcp.tool()
-def errors(
-    limit: int = 20,
-    run_id: int | None = None,
-    source: str | None = None,
-    file_pattern: str | None = None,
-) -> dict[str, Any]:
-    """Get recent errors.
-
-    Args:
-        limit: Max errors to return (default: 20)
-        run_id: Filter to specific run (by serial number, e.g., 1, 2, 3)
-        source: Filter to specific source name
-        file_pattern: Filter by file path pattern (SQL LIKE)
-
-    Returns:
-        Errors list with total count. Each error includes a 'ref' field
-        in format "tag:serial:event" or "serial:event".
-    """
-    return _errors_impl(limit, run_id, source, file_pattern)
-
-
-@mcp.tool()
-def warnings(
-    limit: int = 20,
-    run_id: int | None = None,
-    source: str | None = None,
-) -> dict[str, Any]:
-    """Get recent warnings.
-
-    Args:
-        limit: Max warnings to return (default: 20)
-        run_id: Filter to specific run (by serial number, e.g., 1, 2, 3)
-        source: Filter to specific source name
-
-    Returns:
-        Warnings list with total count. Each warning includes a 'ref' field
-        in format "tag:serial:event" or "serial:event".
-    """
-    return _warnings_impl(limit, run_id, source)
-
-
-@mcp.tool()
 def events(
     limit: int = 20,
     run_id: int | None = None,
     source: str | None = None,
     severity: str | None = None,
     file_pattern: str | None = None,
+    # Batch mode
+    run_ids: list[int] | None = None,
+    limit_per_run: int = 10,
 ) -> dict[str, Any]:
     """Get events with optional severity filter.
 
-    This is the main event viewing tool. Use errors() or warnings() as shortcuts
-    for filtering by severity.
+    For errors only: use severity="error"
+    For warnings only: use severity="warning"
 
     Args:
         limit: Max events to return (default: 20)
@@ -1505,62 +1500,110 @@ def events(
         severity: Filter by severity. Can be a single value (error, warning, info)
                   or comma-separated list (e.g., "error,warning")
         file_pattern: Filter by file path pattern (SQL LIKE)
+        run_ids: List of run IDs for batch mode (returns events grouped by run)
+        limit_per_run: Max events per run in batch mode (default: 10)
 
     Returns:
         Events list with total count. Each event includes a 'ref' field
         in format "tag:serial:event" or "serial:event".
+        In batch mode, returns events grouped by run_id.
     """
+    # Batch mode: get events from multiple runs
+    if run_ids:
+        runs = []
+        total_events = 0
+
+        for rid in run_ids:
+            result = _events_impl(
+                limit=limit_per_run,
+                run_id=rid,
+                source=source,
+                severity=severity,
+                file_pattern=file_pattern,
+            )
+            event_count = len(result.get("events", []))
+            total_events += event_count
+            runs.append({
+                "run_id": rid,
+                "event_count": event_count,
+                "events": result.get("events", []),
+            })
+
+        return {
+            "runs": runs,
+            "total_events": total_events,
+            "run_count": len(run_ids),
+        }
+
+    # Single run/all runs mode
     return _events_impl(limit, run_id, source, severity, file_pattern)
 
 
 @mcp.tool()
-def event(ref: str) -> dict[str, Any] | None:
-    """Get details for a specific event by reference.
+def inspect(
+    ref: str,
+    lines: int = 5,
+    include_log_context: bool = True,
+    include_source_context: bool = True,
+    # Batch mode
+    refs: list[str] | None = None,
+) -> dict[str, Any]:
+    """Get comprehensive event details with context.
 
-    Args:
-        ref: Event reference in format "tag:serial:event" (e.g., "build:1:3")
-             or "serial:event" (e.g., "1:3")
+    Returns event details with optional log context (where the error appears
+    in command output) and source context (where it is in source files).
 
-    Returns:
-        Event details or None if not found
-    """
-    return _event_impl(ref)
-
-
-@mcp.tool()
-def context(ref: str, lines: int = 5) -> dict[str, Any]:
-    """Get log context around a specific event.
-
-    Args:
-        ref: Event reference in format "tag:serial:event" (e.g., "build:1:3")
-             or "serial:event" (e.g., "1:3")
-        lines: Lines of context before/after (default: 5)
-
-    Returns:
-        Context lines around the event
-    """
-    return _context_impl(ref, lines)
-
-
-@mcp.tool()
-def inspect(ref: str, lines: int = 5) -> dict[str, Any]:
-    """Get comprehensive event details with dual context.
-
-    Returns full event details including both log context (where the error
-    appears in the command output) and source context (where the error is
-    in the source file, when source_lookup is enabled).
+    For basic event details only, use include_log_context=False and
+    include_source_context=False.
 
     Args:
         ref: Event reference in format "tag:serial:event" (e.g., "build:1:3")
              or "serial:event" (e.g., "1:3")
         lines: Lines of context before/after (default: 5)
+        include_log_context: Include surrounding log lines (default: true)
+        include_source_context: Include source file context (default: true)
+        refs: List of event references for batch mode (overrides `ref`)
 
     Returns:
         Event details with ref, severity, ref_file, ref_line, ref_column,
         message, tool_name, category, code, fingerprint, log_context,
-        and source_context (or null if disabled/unavailable)
+        and source_context (based on include_* flags).
+        In batch mode, returns list of event details.
     """
-    return _inspect_impl(ref, lines)
+    # Batch mode: get details for multiple events
+    if refs:
+        events_list = []
+        found = 0
+
+        for r in refs:
+            result = _inspect_impl(r, lines)
+            if "error" not in result:
+                found += 1
+                # Optionally strip context based on flags
+                if not include_log_context:
+                    result.pop("log_context", None)
+                if not include_source_context:
+                    result.pop("source_context", None)
+                events_list.append({"ref": r, "event": result})
+            else:
+                events_list.append({"ref": r, "event": None, "error": result.get("error")})
+
+        return {
+            "events": events_list,
+            "found": found,
+            "total": len(refs),
+        }
+
+    # Single event mode
+    result = _inspect_impl(ref, lines)
+
+    # Strip context if not requested
+    if not include_log_context:
+        result.pop("log_context", None)
+    if not include_source_context:
+        result.pop("source_context", None)
+
+    return result
 
 
 @mcp.tool()
@@ -1598,17 +1641,147 @@ def status() -> dict[str, Any]:
 
 
 @mcp.tool()
-def info(ref: str) -> dict[str, Any]:
+def info(
+    ref: str | None = None,
+    head: int | None = None,
+    tail: int | None = None,
+    errors: bool = False,
+    warnings: bool = False,
+    severity: str | None = None,
+    limit: int = 20,
+    context: int | None = None,
+) -> dict[str, Any]:
     """Get detailed information about a specific run.
 
+    If ref is not provided, returns info about the most recent run.
+
     Args:
-        ref: Run reference (e.g., 'test:5') or invocation_id (UUID)
+        ref: Run reference (e.g., 'test:5') or invocation_id (UUID).
+             If not provided, uses the most recent run.
+        head: Return first N lines of output
+        tail: Return last N lines of output
+        errors: Include error events
+        warnings: Include warning events
+        severity: Filter events by severity (e.g., 'error', 'error,warning')
+        limit: Max events to return (default: 20)
+        context: Show N lines of log context around each event (distinct from head/tail)
 
     Returns:
-        Detailed run information including command, status, git info,
-        event counts, and captured output streams with sizes.
+        Run info with optional output and events
     """
-    return _info_impl(ref)
+    # If no ref provided, get the most recent run
+    if ref is None:
+        return _last_impl(head, tail, errors, warnings, severity, limit, context)
+
+    # Get info for specific run
+    result = _info_impl(ref)
+
+    # If additional output/events requested, fetch them
+    if head is not None or tail is not None or errors or warnings or severity or context is not None:
+        # Get run_id from result for fetching output/events
+        run_ref = result.get("run_ref", "")
+        run_serial = result.get("run_serial")
+
+        if run_serial:
+            try:
+                storage = _get_storage()
+                output_bytes = None
+                log_lines = None
+
+                # Load output if needed for head/tail or context
+                if head is not None or tail is not None or context is not None:
+                    output_bytes = storage.get_output(run_serial)
+                    if output_bytes:
+                        try:
+                            content = output_bytes.decode("utf-8", errors="replace")
+                        except Exception:
+                            content = output_bytes.decode("latin-1")
+                        log_lines = content.splitlines()
+
+                        if head is not None:
+                            result["head"] = log_lines[:head]
+                        if tail is not None:
+                            result["tail"] = log_lines[-tail:] if tail else log_lines
+
+                # Get events if requested
+                if errors or warnings or severity or context is not None:
+                    if errors and warnings:
+                        sev_filter = "error,warning"
+                    elif errors:
+                        sev_filter = "error"
+                    elif warnings:
+                        sev_filter = "warning"
+                    elif context is not None:
+                        # If context requested but no severity, default to errors
+                        sev_filter = "error"
+                    else:
+                        sev_filter = severity
+
+                    events_result = _events_impl(
+                        limit=limit,
+                        run_id=run_serial,
+                        severity=sev_filter,
+                    )
+                    raw_events = events_result.get("events", [])
+
+                    # Transform events based on whether context is requested
+                    if context is not None and log_lines is not None:
+                        # Compact format with context
+                        events_list = []
+                        errors_by_category: dict[str, int] = {}
+                        for event in raw_events:
+                            full_ref = event.get("ref") or ""
+                            ref_file = event.get("ref_file")
+                            ref_line = event.get("ref_line")
+                            log_line = event.get("log_line")
+                            category = event.get("category") or "other"
+
+                            # Track category counts
+                            errors_by_category[category] = (
+                                errors_by_category.get(category, 0) + 1
+                            )
+
+                            # Use short ref: "test:47:242" -> "47:242"
+                            parts = full_ref.split(":")
+                            short_ref = (
+                                ":".join(parts[-2:]) if len(parts) >= 2 else full_ref
+                            )
+
+                            # Build location
+                            location = (
+                                f"{ref_file}:{ref_line}"
+                                if ref_file and ref_line
+                                else ref_file
+                            )
+
+                            compact_event: dict[str, Any] = {
+                                "ref": short_ref,
+                                "location": location,
+                            }
+
+                            # Add context lines
+                            if log_line is not None:
+                                start = max(0, log_line - context - 1)
+                                end = min(len(log_lines), log_line + context)
+                                context_lines = []
+                                for i in range(start, end):
+                                    prefix = ">>> " if i == log_line - 1 else "    "
+                                    context_lines.append(
+                                        f"{prefix}{i + 1:4d} | {log_lines[i]}"
+                                    )
+                                compact_event["context"] = "\n".join(context_lines)
+
+                            events_list.append(compact_event)
+
+                        result["events"] = events_list
+                        result["errors_by_category"] = errors_by_category
+                    else:
+                        # Full format without context
+                        result["events"] = raw_events
+            except Exception:
+                pass  # Silently skip if can't fetch additional data
+
+    return result
 
 
 def _last_impl(
@@ -1618,6 +1791,7 @@ def _last_impl(
     warnings: bool = False,
     severity: str | None = None,
     limit: int = 20,
+    context: int | None = None,
 ) -> dict[str, Any]:
     """Implementation of last command - get info about most recent run."""
     try:
@@ -1661,23 +1835,24 @@ def _last_impl(
             "git_commit": _to_json_safe(row.get("git_commit")),
         }
 
-        # Get output if requested
-        if head is not None or tail is not None:
+        # Load output if needed
+        log_lines = None
+        if head is not None or tail is not None or context is not None:
             output_bytes = storage.get_output(run_serial)
             if output_bytes:
                 try:
                     content = output_bytes.decode("utf-8", errors="replace")
                 except Exception:
                     content = output_bytes.decode("latin-1")
-                lines = content.splitlines()
+                log_lines = content.splitlines()
 
                 if head is not None:
-                    result["head"] = lines[:head]
+                    result["head"] = log_lines[:head]
                 if tail is not None:
-                    result["tail"] = lines[-tail:] if tail else lines
+                    result["tail"] = log_lines[-tail:] if tail else log_lines
 
         # Get events if requested
-        if errors or warnings or severity:
+        if errors or warnings or severity or context is not None:
             # Determine severity filter
             if errors and warnings:
                 sev_filter = "error,warning"
@@ -1685,6 +1860,9 @@ def _last_impl(
                 sev_filter = "error"
             elif warnings:
                 sev_filter = "warning"
+            elif context is not None:
+                # If context requested but no severity, default to errors
+                sev_filter = "error"
             else:
                 sev_filter = severity
 
@@ -1705,45 +1883,61 @@ def _last_impl(
             """).df()
 
             events_list = []
+            errors_by_category: dict[str, int] = {}
             for _, erow in events_df.iterrows():
-                events_list.append({
-                    "ref": _to_json_safe(erow.get("ref")),
-                    "severity": _to_json_safe(erow.get("severity")),
-                    "ref_file": _to_json_safe(erow.get("ref_file")),
-                    "ref_line": _safe_int(erow.get("ref_line")),
-                    "message": _to_json_safe(erow.get("message")),
-                })
+                full_ref = _to_json_safe(erow.get("ref")) or ""
+                ref_file = _to_json_safe(erow.get("ref_file"))
+                ref_line = _safe_int(erow.get("ref_line"))
+                log_line = _safe_int(erow.get("log_line_start"))
+                category = _to_json_safe(erow.get("category")) or "other"
+
+                # Track category counts
+                errors_by_category[category] = errors_by_category.get(category, 0) + 1
+
+                if context is not None and log_lines is not None:
+                    # Compact format when context is present
+                    # Use short ref (strip tag prefix): "test:47:242" -> "47:242"
+                    parts = full_ref.split(":")
+                    short_ref = ":".join(parts[-2:]) if len(parts) >= 2 else full_ref
+
+                    # Build location from file:line
+                    location = f"{ref_file}:{ref_line}" if ref_file and ref_line else ref_file
+
+                    event: dict[str, Any] = {
+                        "ref": short_ref,
+                        "location": location,
+                    }
+
+                    # Add context lines
+                    if log_line is not None:
+                        start = max(0, log_line - context - 1)
+                        end = min(len(log_lines), log_line + context)
+                        context_lines = []
+                        for i in range(start, end):
+                            prefix = ">>> " if i == log_line - 1 else "    "
+                            context_lines.append(f"{prefix}{i + 1:4d} | {log_lines[i]}")
+                        event["context"] = "\n".join(context_lines)
+                else:
+                    # Full format when no context
+                    event = {
+                        "ref": full_ref,
+                        "severity": _to_json_safe(erow.get("severity")),
+                        "ref_file": ref_file,
+                        "ref_line": ref_line,
+                        "message": _to_json_safe(erow.get("message")),
+                        "log_line": log_line,
+                    }
+
+                events_list.append(event)
+
             result["events"] = events_list
+            if context is not None:
+                result["errors_by_category"] = errors_by_category
 
         return result
 
     except Exception as e:
         return {"error": str(e)}
-
-
-@mcp.tool()
-def last(
-    head: int | None = None,
-    tail: int | None = None,
-    errors: bool = False,
-    warnings: bool = False,
-    severity: str | None = None,
-    limit: int = 20,
-) -> dict[str, Any]:
-    """Get information about the most recent run.
-
-    Args:
-        head: Return first N lines of output
-        tail: Return last N lines of output
-        errors: Include error events
-        warnings: Include warning events
-        severity: Filter events by severity (e.g., 'error', 'error,warning')
-        limit: Max events to return (default: 20)
-
-    Returns:
-        Run info with optional output and events
-    """
-    return _last_impl(head, tail, errors, warnings, severity, limit)
 
 
 @mcp.tool()
@@ -1828,13 +2022,13 @@ def unregister_command(name: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def list_commands() -> dict[str, Any]:
+def commands() -> dict[str, Any]:
     """List all registered commands.
 
     Returns:
         List of registered commands with their configuration
     """
-    return _list_commands_impl()
+    return _commands_impl()
 
 
 def _reset_impl(
@@ -1979,117 +2173,6 @@ def reset(
     return _reset_impl(mode, confirm)
 
 
-# ============================================================================
-# Batch Tools
-# ============================================================================
-
-
-@mcp.tool()
-def batch_run(
-    commands: list[str],
-    stop_on_failure: bool = True,
-    timeout: int = 300,
-) -> dict[str, Any]:
-    """Run multiple registered commands in sequence.
-
-    Useful for running build -> test -> lint pipelines.
-
-    Args:
-        commands: List of registered command names to run
-        stop_on_failure: Stop after first failure (default: true)
-        timeout: Timeout per command in seconds (default: 300)
-
-    Returns:
-        Results for each command with overall status
-    """
-    results = []
-    overall_status = "OK"
-
-    for cmd in commands:
-        result = _run_impl(cmd, timeout=timeout)
-        results.append({"command": cmd, "result": result})
-
-        if result.get("status") == "FAIL":
-            overall_status = "FAIL"
-            if stop_on_failure:
-                break
-        elif result.get("status") == "WARN" and overall_status == "OK":
-            overall_status = "WARN"
-
-    return {
-        "status": overall_status,
-        "results": results,
-        "completed": len(results),
-        "total": len(commands),
-    }
-
-
-@mcp.tool()
-def batch_errors(
-    run_ids: list[int],
-    limit_per_run: int = 10,
-) -> dict[str, Any]:
-    """Get errors from multiple runs.
-
-    Useful for comparing errors across a series of runs.
-
-    Args:
-        run_ids: List of run serial numbers
-        limit_per_run: Max errors per run (default: 10)
-
-    Returns:
-        Errors grouped by run_id
-    """
-    runs = []
-    total_errors = 0
-
-    for run_id in run_ids:
-        result = _errors_impl(limit=limit_per_run, run_id=run_id)
-        error_count = len(result.get("errors", []))
-        total_errors += error_count
-        runs.append({
-            "run_id": run_id,
-            "error_count": error_count,
-            "errors": result.get("errors", []),
-        })
-
-    return {
-        "runs": runs,
-        "total_errors": total_errors,
-        "run_count": len(run_ids),
-    }
-
-
-@mcp.tool()
-def batch_event(
-    refs: list[str],
-) -> dict[str, Any]:
-    """Get details for multiple events.
-
-    Useful for examining several related errors at once.
-
-    Args:
-        refs: List of event references (e.g., ["build:1:1", "build:1:2"])
-
-    Returns:
-        Event details for each ref
-    """
-    events = []
-    found = 0
-
-    for ref in refs:
-        event = _event_impl(ref)
-        if event is not None:
-            found += 1
-            events.append({"ref": ref, "event": event})
-        else:
-            events.append({"ref": ref, "event": None, "error": "Not found"})
-
-    return {
-        "events": events,
-        "found": found,
-        "total": len(refs),
-    }
 
 
 # ============================================================================
@@ -2195,18 +2278,18 @@ def resource_guide() -> str:
 
 ## Key Tools
 - status() - Overview of all sources
-- list_commands() - Registered commands
-- errors(limit, run_id) - Get errors
-- event(ref) - Error details (ref like "build:1:3")
-- context(ref) - Log lines around error
+- commands() - Registered commands
+- events(severity="error") - Get errors
+- inspect(ref) - Error details with context (ref like "build:1:3")
 - diff(run1, run2) - Compare runs
 - run(command) - Run registered command
+- info() - Most recent run details (or info(ref) for specific run)
 - reset(mode, confirm) - Clear data
 
 ## Workflow
-1. list_commands() or status() to see current state
-2. errors() to get recent errors
-3. event(ref) and context(ref) to understand issues
+1. commands() or status() to see current state
+2. events(severity="error") to get recent errors
+3. inspect(ref) to understand issues with full context
 4. After fixes: diff(run1, run2) to verify
 
 Docs: https://blq-cli.readthedocs.io/en/latest/

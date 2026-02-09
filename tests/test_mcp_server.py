@@ -145,84 +145,83 @@ class TestQueryTool:
                     assert row[severity_idx] == "error"
 
 
-class TestErrorsTool:
-    """Tests for the errors convenience tool."""
+class TestEventsTool:
+    """Tests for the events tool (consolidated from errors/warnings)."""
 
     @pytest.mark.asyncio
-    async def test_errors_default(self, mcp_server):
-        """Get errors with default parameters."""
+    async def test_events_errors_default(self, mcp_server):
+        """Get errors with default parameters using events(severity='error')."""
         async with Client(mcp_server) as client:
-            raw = await client.call_tool("errors", {})
+            raw = await client.call_tool("events", {"severity": "error"})
             result = get_data(raw)
 
-            assert "errors" in result
+            assert "events" in result
             assert "total_count" in result
-            assert isinstance(result["errors"], list)
+            assert isinstance(result["events"], list)
 
     @pytest.mark.asyncio
-    async def test_errors_with_limit(self, mcp_server):
+    async def test_events_errors_with_limit(self, mcp_server):
         """Get errors with limit."""
         async with Client(mcp_server) as client:
-            raw = await client.call_tool("errors", {"limit": 5})
+            raw = await client.call_tool("events", {"severity": "error", "limit": 5})
             result = get_data(raw)
 
-            assert len(result["errors"]) <= 5
+            assert len(result["events"]) <= 5
 
     @pytest.mark.asyncio
-    async def test_errors_with_file_pattern(self, mcp_server):
+    async def test_events_errors_with_file_pattern(self, mcp_server):
         """Get errors filtered by file pattern."""
         async with Client(mcp_server) as client:
-            raw = await client.call_tool("errors", {"file_pattern": "%main%"})
+            raw = await client.call_tool("events", {"severity": "error", "file_pattern": "%main%"})
             result = get_data(raw)
 
-            for error in result["errors"]:
-                if error.get("file_path"):
-                    assert "main" in error["file_path"].lower()
+            for event in result["events"]:
+                if event.get("ref_file"):
+                    assert "main" in event["ref_file"].lower()
 
     @pytest.mark.asyncio
-    async def test_errors_structure(self, mcp_server):
-        """Verify error structure."""
+    async def test_events_error_structure(self, mcp_server):
+        """Verify error event structure."""
         async with Client(mcp_server) as client:
-            raw = await client.call_tool("errors", {"limit": 1})
+            raw = await client.call_tool("events", {"severity": "error", "limit": 1})
             result = get_data(raw)
 
-            if result["errors"]:
-                error = result["errors"][0]
-                assert "ref" in error
-                assert "message" in error
+            if result["events"]:
+                event = result["events"][0]
+                assert "ref" in event
+                assert "message" in event
                 # ref should be in format "run_id:event_id"
-                assert ":" in error["ref"]
-
-
-class TestWarningsTool:
-    """Tests for the warnings convenience tool."""
+                assert ":" in event["ref"]
 
     @pytest.mark.asyncio
-    async def test_warnings_default(self, mcp_server):
-        """Get warnings with default parameters."""
+    async def test_events_warnings_default(self, mcp_server):
+        """Get warnings with default parameters using events(severity='warning')."""
         async with Client(mcp_server) as client:
-            raw = await client.call_tool("warnings", {})
+            raw = await client.call_tool("events", {"severity": "warning"})
             result = get_data(raw)
 
-            assert "warnings" in result
+            assert "events" in result
             assert "total_count" in result
 
 
-class TestEventTool:
-    """Tests for the event detail tool."""
+class TestInspectTool:
+    """Tests for the inspect tool (consolidated from event/context)."""
 
     @pytest.mark.asyncio
-    async def test_event_by_ref(self, mcp_server):
-        """Get event details by reference."""
+    async def test_inspect_event_details(self, mcp_server):
+        """Get event details by reference using inspect."""
         async with Client(mcp_server) as client:
             # First get an error to find a valid ref
-            errors_raw = await client.call_tool("errors", {"limit": 1})
-            errors = get_data(errors_raw)
+            events_raw = await client.call_tool("events", {"severity": "error", "limit": 1})
+            events = get_data(events_raw)
 
-            if errors["errors"]:
-                ref = errors["errors"][0]["ref"]
+            if events["events"]:
+                ref = events["events"][0]["ref"]
 
-                raw = await client.call_tool("event", {"ref": ref})
+                raw = await client.call_tool(
+                    "inspect",
+                    {"ref": ref, "include_log_context": False, "include_source_context": False},
+                )
                 result = get_data(raw)
 
                 assert result is not None
@@ -231,53 +230,49 @@ class TestEventTool:
                 assert "severity" in result
 
     @pytest.mark.asyncio
-    async def test_event_not_found(self, mcp_server):
+    async def test_inspect_event_not_found(self, mcp_server):
         """Event not found returns appropriate response."""
         async with Client(mcp_server) as client:
-            raw = await client.call_tool("event", {"ref": "99999:99999"})
+            raw = await client.call_tool("inspect", {"ref": "99999:99999"})
             result = get_data(raw)
 
-            # Should return None
-            assert result is None
-
-
-class TestContextTool:
-    """Tests for the context tool."""
+            # Should return error
+            assert "error" in result
 
     @pytest.mark.asyncio
-    async def test_context_default_lines(self, mcp_server):
-        """Get context with default line count."""
+    async def test_inspect_with_log_context(self, mcp_server):
+        """Get event with log context."""
         async with Client(mcp_server) as client:
-            errors_raw = await client.call_tool("errors", {"limit": 1})
-            errors = get_data(errors_raw)
+            events_raw = await client.call_tool("events", {"severity": "error", "limit": 1})
+            events = get_data(events_raw)
 
-            if errors["errors"]:
-                ref = errors["errors"][0]["ref"]
+            if events["events"]:
+                ref = events["events"][0]["ref"]
 
-                raw = await client.call_tool("context", {"ref": ref})
+                raw = await client.call_tool(
+                    "inspect",
+                    {"ref": ref, "include_log_context": True, "include_source_context": False},
+                )
                 result = get_data(raw)
 
-                # Returns formatted text context
-                assert "context" in result or "error" in result
-                if "context" in result:
-                    assert isinstance(result["context"], str)
-                    assert "---" in result["context"]  # Has separator lines
+                # Should have log_context field
+                assert "log_context" in result or "error" in result
 
     @pytest.mark.asyncio
-    async def test_context_custom_lines(self, mcp_server):
+    async def test_inspect_custom_lines(self, mcp_server):
         """Get context with custom line count."""
         async with Client(mcp_server) as client:
-            errors_raw = await client.call_tool("errors", {"limit": 1})
-            errors = get_data(errors_raw)
+            events_raw = await client.call_tool("events", {"severity": "error", "limit": 1})
+            events = get_data(events_raw)
 
-            if errors["errors"]:
-                ref = errors["errors"][0]["ref"]
+            if events["events"]:
+                ref = events["events"][0]["ref"]
 
-                raw = await client.call_tool("context", {"ref": ref, "lines": 10})
+                raw = await client.call_tool("inspect", {"ref": ref, "lines": 10})
                 result = get_data(raw)
 
-                # Returns formatted text context
-                assert "context" in result or "error" in result
+                # Returns event with context
+                assert "log_context" in result or "error" in result
 
 
 class TestOutputTool:
@@ -482,11 +477,11 @@ class TestResources:
         """Read the context resource for an existing event."""
         async with Client(mcp_server) as client:
             # First get an error to find a valid ref
-            errors_raw = await client.call_tool("errors", {"limit": 1})
-            errors = get_data(errors_raw)
+            events_raw = await client.call_tool("events", {"severity": "error", "limit": 1})
+            events = get_data(events_raw)
 
-            if errors["errors"]:
-                ref = errors["errors"][0]["ref"]
+            if events["events"]:
+                ref = events["events"][0]["ref"]
 
                 # Skip if ref contains path separators (from exec'd scripts)
                 # as those can't be used in resource URIs
@@ -509,12 +504,12 @@ class TestResources:
             # Run the command
             await client.call_tool("run", {"command": "build"})
 
-            # Get errors
-            errors_raw = await client.call_tool("errors", {"limit": 1})
-            errors = get_data(errors_raw)
+            # Get errors using events with severity filter
+            events_raw = await client.call_tool("events", {"severity": "error", "limit": 1})
+            events = get_data(events_raw)
 
-            if errors["errors"]:
-                ref = errors["errors"][0]["ref"]
+            if events["events"]:
+                ref = events["events"][0]["ref"]
                 # Ref should be clean like "build:1:1"
                 assert "/" not in ref
 
@@ -790,17 +785,18 @@ class TestIntegration:
             run_result = get_data(run_raw)
             assert "run_ref" in run_result
 
-            # 2. Get errors
-            errors_raw = await client.call_tool("errors", {})
-            errors_result = get_data(errors_raw)
-            assert "errors" in errors_result
+            # 2. Get errors using events with severity filter
+            events_raw = await client.call_tool("events", {"severity": "error"})
+            events_result = get_data(events_raw)
+            assert "events" in events_result
 
-            # 3. If errors, drill down
-            if errors_result["errors"]:
-                ref = errors_result["errors"][0]["ref"]
-                event_raw = await client.call_tool("event", {"ref": ref})
-                event_result = get_data(event_raw)
-                assert event_result is not None
+            # 3. If errors, drill down using inspect
+            if events_result["events"]:
+                ref = events_result["events"][0]["ref"]
+                inspect_raw = await client.call_tool("inspect", {"ref": ref})
+                inspect_result = get_data(inspect_raw)
+                assert inspect_result is not None
+                assert "error" not in inspect_result or "ref" in inspect_result
 
     @pytest.mark.asyncio
     async def test_status_check_workflow(self, mcp_server):
@@ -816,20 +812,22 @@ class TestIntegration:
             hist = get_data(history_raw)
             assert "runs" in hist
 
-            # 3. Query specific run if available
+            # 3. Query specific run if available using events
             if hist["runs"]:
                 run_serial = hist["runs"][0]["run_serial"]
-                errors_raw = await client.call_tool("errors", {"run_id": run_serial})
-                errors = get_data(errors_raw)
-                assert "errors" in errors
+                events_raw = await client.call_tool(
+                    "events", {"severity": "error", "run_id": run_serial}
+                )
+                events = get_data(events_raw)
+                assert "events" in events
 
 
-class TestBatchTools:
-    """Tests for batch tools."""
+class TestBatchModes:
+    """Tests for batch mode parameters in consolidated tools."""
 
     @pytest.mark.asyncio
-    async def test_batch_errors(self, mcp_server):
-        """Get errors from multiple runs."""
+    async def test_events_batch_mode(self, mcp_server):
+        """Get events from multiple runs using events with run_ids parameter."""
         async with Client(mcp_server) as client:
             # Get history to find run IDs
             history_raw = await client.call_tool("history", {"limit": 5})
@@ -838,39 +836,41 @@ class TestBatchTools:
             if history["runs"]:
                 run_ids = [r["run_serial"] for r in history["runs"][:2]]
 
-                raw = await client.call_tool("batch_errors", {"run_ids": run_ids})
+                raw = await client.call_tool(
+                    "events", {"run_ids": run_ids, "severity": "error"}
+                )
                 result = get_data(raw)
 
                 assert "runs" in result
-                assert "total_errors" in result
+                assert "total_events" in result
                 assert result["run_count"] == len(run_ids)
 
     @pytest.mark.asyncio
-    async def test_batch_event(self, mcp_server):
-        """Get multiple events at once."""
+    async def test_inspect_batch_mode(self, mcp_server):
+        """Get multiple events at once using inspect with refs parameter."""
         async with Client(mcp_server) as client:
             # Get some error refs
-            errors_raw = await client.call_tool("errors", {"limit": 3})
-            errors = get_data(errors_raw)
+            events_raw = await client.call_tool("events", {"severity": "error", "limit": 3})
+            events = get_data(events_raw)
 
-            if errors["errors"]:
-                refs = [e["ref"] for e in errors["errors"][:2]]
+            if events["events"]:
+                refs = [e["ref"] for e in events["events"][:2]]
 
-                raw = await client.call_tool("batch_event", {"refs": refs})
+                raw = await client.call_tool("inspect", {"ref": refs[0], "refs": refs})
                 result = get_data(raw)
 
                 assert "events" in result
                 assert result["total"] == len(refs)
 
     @pytest.mark.asyncio
-    async def test_batch_run_empty(self, mcp_server_empty):
-        """Batch run with no commands."""
+    async def test_run_batch_mode_empty(self, mcp_server_empty):
+        """Batch run with no commands using run with commands parameter."""
         async with Client(mcp_server_empty) as client:
-            raw = await client.call_tool("batch_run", {"commands": []})
+            raw = await client.call_tool("run", {"command": "dummy", "commands": []})
             result = get_data(raw)
 
             assert result["status"] == "OK"
-            assert result["completed"] == 0
+            assert result["commands_run"] == 0
 
 
 class TestResetTool:

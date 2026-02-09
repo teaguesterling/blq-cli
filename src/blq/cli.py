@@ -490,34 +490,45 @@ def main() -> None:
     p_inspect.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_inspect.set_defaults(func=cmd_inspect)
 
-    # commands
-    p_commands = subparsers.add_parser("commands", help="List registered commands")
-    p_commands.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-    p_commands.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
-    p_commands.set_defaults(func=cmd_commands)
+    # commands (with subcommands for list, register, unregister)
+    p_commands = subparsers.add_parser("commands", help="Manage registered commands")
+    commands_subparsers = p_commands.add_subparsers(dest="commands_command", help="Commands subcommand")
 
-    # register
-    p_register = subparsers.add_parser("register", help="Register a command")
-    p_register.add_argument("name", help="Command name (e.g., 'build', 'test')")
-    p_register.add_argument("cmd", nargs="+", help="Command to run")
-    p_register.add_argument("--description", "-d", help="Command description")
-    p_register.add_argument(
+    # commands list (default when no subcommand)
+    p_commands_list = commands_subparsers.add_parser("list", help="List registered commands")
+    p_commands_list.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_commands_list.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
+    p_commands_list.set_defaults(func=cmd_commands)
+
+    # commands register
+    p_commands_register = commands_subparsers.add_parser("register", help="Register a command")
+    p_commands_register.add_argument("name", help="Command name (e.g., 'build', 'test')")
+    p_commands_register.add_argument("cmd", nargs="+", help="Command to run")
+    p_commands_register.add_argument("--description", "-d", help="Command description")
+    p_commands_register.add_argument(
         "--timeout", "-t", type=int, default=300, help="Timeout in seconds (default: 300)"
     )
-    p_register.add_argument("--format", "-f", default="auto", help="Log format hint")
-    p_register.add_argument(
+    p_commands_register.add_argument("--format", "-f", default="auto", help="Log format hint")
+    p_commands_register.add_argument(
         "--no-capture", "-N", action="store_true", help="Don't capture logs by default"
     )
-    p_register.add_argument("--force", action="store_true", help="Overwrite existing command")
-    p_register.add_argument(
+    p_commands_register.add_argument("--force", action="store_true", help="Overwrite existing command")
+    p_commands_register.add_argument(
         "--run", "-r", action="store_true", help="Run command immediately after registering"
     )
-    p_register.set_defaults(func=cmd_register)
+    p_commands_register.set_defaults(func=cmd_register)
 
-    # unregister
-    p_unregister = subparsers.add_parser("unregister", help="Remove a registered command")
-    p_unregister.add_argument("name", help="Command name to remove")
-    p_unregister.set_defaults(func=cmd_unregister)
+    # commands unregister
+    p_commands_unregister = commands_subparsers.add_parser("unregister", help="Remove a registered command")
+    p_commands_unregister.add_argument("name", help="Command name to remove")
+    p_commands_unregister.set_defaults(func=cmd_unregister)
+
+    # Default: commands without subcommand shows list
+    def commands_default(args: argparse.Namespace) -> None:
+        """Default handler for 'blq commands' - show list."""
+        cmd_commands(args)
+
+    p_commands.set_defaults(func=commands_default)
 
     # sync
     p_sync = subparsers.add_parser("sync", help="Sync project logs to central location")
