@@ -365,6 +365,63 @@ class TestCmdExec:
         # Only stderr summary
         assert "Building..." not in captured.out
 
+    def test_verbose_shows_summary(self, initialized_project, sample_build_script, capsys):
+        """Verbose mode shows run summary to stderr."""
+        args = argparse.Namespace(
+            command=[str(sample_build_script)],
+            name=None,
+            format="auto",
+            keep_raw=False,
+            json=False,
+            markdown=False,
+            quiet=False,
+            summary=False,
+            verbose=True,
+            include_warnings=False,
+            error_limit=20,
+            no_capture=False,
+            timeout=None,
+        )
+
+        try:
+            cmd_exec(args)
+        except SystemExit:
+            pass
+
+        captured = capsys.readouterr()
+        # Verbose mode should show summary in stderr
+        assert "FAIL" in captured.err
+        assert "error" in captured.err.lower()
+
+    def test_non_verbose_no_summary(self, initialized_project, sample_build_script, capsys):
+        """Non-verbose mode doesn't add summary output."""
+        args = argparse.Namespace(
+            command=[str(sample_build_script)],
+            name=None,
+            format="auto",
+            keep_raw=False,
+            json=False,
+            markdown=False,
+            quiet=False,
+            summary=False,
+            verbose=False,
+            include_warnings=False,
+            error_limit=20,
+            no_capture=False,
+            timeout=None,
+        )
+
+        try:
+            cmd_exec(args)
+        except SystemExit:
+            pass
+
+        captured = capsys.readouterr()
+        # Non-verbose mode should not add any blq summary to stderr
+        # Only the command's own stderr output should be there
+        assert "FAIL" not in captured.err
+        assert "error" not in captured.err.lower() or "error:" in captured.out.lower()
+
 
 class TestCmdImport:
     """Tests for blq import command."""

@@ -40,6 +40,68 @@ from blq.commands.core import (
 logger = logging.getLogger("blq-cli")
 
 
+def _print_run_summary(
+    result: RunResult,
+    source_name: str,
+    show_events: bool = True,
+    max_events: int = 10,
+) -> None:
+    """Print a formatted run summary to stderr.
+
+    Args:
+        result: The run result to summarize
+        source_name: Name of the source (e.g., "test-all")
+        show_events: Whether to show individual events
+        max_events: Maximum number of events to show
+    """
+    # Status indicators
+    status_icons = {
+        "OK": "\033[32m✓\033[0m",      # Green checkmark
+        "FAIL": "\033[31m✗\033[0m",    # Red X
+        "WARN": "\033[33m⚠\033[0m",    # Yellow warning
+        "TIMEOUT": "\033[35m⏱\033[0m",  # Magenta clock
+    }
+    icon = status_icons.get(result.status, "?")
+
+    # Build run ref
+    run_ref = f"{source_name}:{result.run_id}"
+
+    # Build counts string
+    counts = []
+    error_count = result.summary.get("errors", 0)
+    warning_count = result.summary.get("warnings", 0)
+    if error_count > 0:
+        counts.append(f"{error_count} error{'s' if error_count != 1 else ''}")
+    if warning_count > 0:
+        counts.append(f"{warning_count} warning{'s' if warning_count != 1 else ''}")
+    counts_str = ", ".join(counts) if counts else "no issues"
+
+    # Print header line
+    print(f"\n{icon} {run_ref} | {result.status} | {result.duration_sec:.1f}s | {counts_str}",
+          file=sys.stderr)
+
+    # Print events if requested and there are any
+    if show_events and (result.errors or result.warnings):
+        events = result.errors[:max_events]
+        if result.warnings and len(events) < max_events:
+            events.extend(result.warnings[:max_events - len(events)])
+
+        for e in events:
+            # Truncate message to fit on one line
+            msg = (e.message or "")[:60]
+            if len(e.message or "") > 60:
+                msg += "..."
+            loc = e.location()
+            # Format: ref  location  message
+            print(f"  {e.ref:<12} {loc:<30} {msg}", file=sys.stderr)
+
+        remaining = error_count + warning_count - len(events)
+        if remaining > 0:
+            print(f"  ... and {remaining} more", file=sys.stderr)
+
+    print(file=sys.stderr)  # Blank line after summary
+
+
 def _make_event_summary(run_id: int, e: dict) -> EventSummary:
     """Create an EventSummary from an event dict."""
     return EventSummary(
@@ -558,13 +620,9 @@ def cmd_run(args: argparse.Namespace) -> None:
     elif args.markdown:
         print(result.to_markdown(include_warnings=args.include_warnings))
     else:
-        # Log summary based on verbosity level
-        if result.summary.get("errors", 0) > 0:
-            logger.info(f"Errors: {result.summary['errors']}")
-        if result.summary.get("warnings", 0) > 0:
-            logger.info(f"Warnings: {result.summary['warnings']}")
-        logger.debug(f"Duration: {result.duration_sec:.1f}s")
-        logger.debug(f"Saved: {result.parquet_path}")
+        # Show summary only in verbose mode
+        if verbose:
+            _print_run_summary(result, source_name, show_events=True, max_events=10)
 
     sys.exit(result.exit_code)
 
@@ -640,13 +698,9 @@ def cmd_exec(args: argparse.Namespace) -> None:
     elif args.markdown:
         print(result.to_markdown(include_warnings=args.include_warnings))
     else:
-        # Log summary based on verbosity level
-        if result.summary.get("errors", 0) > 0:
-            logger.info(f"Errors: {result.summary['errors']}")
-        if result.summary.get("warnings", 0) > 0:
-            logger.info(f"Warnings: {result.summary['warnings']}")
-        logger.debug(f"Duration: {result.duration_sec:.1f}s")
-        logger.debug(f"Saved: {result.parquet_path}")
+        # Show summary only in verbose mode
+        if verbose:
+            _print_run_summary(result, source_name, show_events=True, max_events=10)
 
     sys.exit(result.exit_code)
 
