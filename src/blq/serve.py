@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 from typing import Any
 
@@ -90,9 +91,12 @@ def _check_tool_enabled(tool_name: str) -> None:
 
 
 def _to_json_safe(value: Any) -> Any:
-    """Convert pandas NA/NaT values to None for JSON serialization."""
+    """Convert pandas NA/NaT values to None and UUID to string for JSON serialization."""
     if pd.isna(value):
         return None
+    # Handle UUID objects
+    if hasattr(value, "hex") and hasattr(value, "int"):
+        return str(value)
     return value
 
 
@@ -194,55 +198,83 @@ def _run_impl(
             timeout=timeout,
         )
 
-        # Parse JSON output
+        # Parse JSON output and return concise response
         if result.stdout.strip():
             try:
-                return json.loads(result.stdout)  # type: ignore[no-any-return]
+                full_result = json.loads(result.stdout)
+                # Build concise response with essential fields
+                run_id = full_result.get("run_id")
+                source_name = full_result.get("source_name") or command
+                exit_code = full_result.get("exit_code", 0)
+                summary = full_result.get("summary", {})
+                errors = full_result.get("errors", [])
+                has_errors = exit_code != 0 or len(errors) > 0
+
+                concise: dict[str, Any] = {
+                    "run_ref": f"{source_name}:{run_id}" if run_id else None,
+                    "status": full_result.get("status"),
+                    "exit_code": exit_code,
+                    "summary": summary,
+                }
+
+                # Only include errors if there are any
+                if errors:
+                    concise["errors"] = errors
+
+                # Include duration if > 5 seconds
+                duration = full_result.get("duration_sec", 0)
+                if duration > 5:
+                    concise["duration_sec"] = round(duration, 1)
+
+                # Include tail and output_stats for failures
+                output_stats = full_result.get("output_stats", {})
+                tail = output_stats.get("tail", [])
+                total_lines = output_stats.get("lines", 0)
+
+                if has_errors and tail:
+                    concise["tail"] = tail
+                    if total_lines > len(tail):
+                        concise["output_stats"] = {
+                            "lines": total_lines,
+                            "bytes": output_stats.get("bytes", 0),
+                        }
+
+                return concise
             except json.JSONDecodeError:
                 pass
 
         # Check if this was a "not registered" error
         if "is not a registered command" in result.stderr:
             return {
-                "run_id": None,
+                "run_ref": None,
                 "status": "FAIL",
                 "exit_code": result.returncode,
                 "error": f"'{command}' is not registered. Use exec() for ad-hoc commands.",
-                "error_count": 0,
-                "warning_count": 0,
-                "errors": [],
+                "summary": {"total_events": 0, "errors": 0, "warnings": 0},
             }
 
         # Fallback: construct basic result
         return {
-            "run_id": None,
+            "run_ref": None,
             "status": "FAIL" if result.returncode != 0 else "OK",
             "exit_code": result.returncode,
-            "error_count": 0,
-            "warning_count": 0,
-            "errors": [],
-            "output": result.stdout[:1000] if result.stdout else None,
-            "stderr": result.stderr[:1000] if result.stderr else None,
+            "summary": {"total_events": 0, "errors": 0, "warnings": 0},
         }
     except subprocess.TimeoutExpired:
         return {
-            "run_id": None,
+            "run_ref": None,
             "status": "FAIL",
             "exit_code": -1,
             "error": f"Command timed out after {timeout} seconds",
-            "error_count": 0,
-            "warning_count": 0,
-            "errors": [],
+            "summary": {"total_events": 0, "errors": 0, "warnings": 0},
         }
     except Exception as e:
         return {
-            "run_id": None,
+            "run_ref": None,
             "status": "FAIL",
             "exit_code": -1,
             "error": str(e),
-            "error_count": 0,
-            "warning_count": 0,
-            "errors": [],
+            "summary": {"total_events": 0, "errors": 0, "warnings": 0},
         }
 
 
@@ -308,8 +340,9 @@ def _exec_impl(
         return result
 
     # No match - run as ad-hoc exec
+    # Split command into parts since CLI uses REMAINDER parsing
     cmd_parts = ["blq", "exec", "--json", "--quiet"]
-    cmd_parts.append(command)
+    cmd_parts.extend(shlex.split(command))
     if args:
         cmd_parts.extend(args)
 
@@ -321,42 +354,73 @@ def _exec_impl(
             timeout=timeout,
         )
 
-        # Parse JSON output
+        # Parse JSON output and return concise response
         if result.stdout.strip():
             try:
-                return json.loads(result.stdout)  # type: ignore[no-any-return]
+                full_result = json.loads(result.stdout)
+                # Build concise response with essential fields
+                run_id = full_result.get("run_id")
+                source_name = full_result.get("source_name") or "exec"
+                exit_code = full_result.get("exit_code", 0)
+                summary = full_result.get("summary", {})
+                errors = full_result.get("errors", [])
+                has_errors = exit_code != 0 or len(errors) > 0
+
+                concise: dict[str, Any] = {
+                    "run_ref": f"{source_name}:{run_id}" if run_id else None,
+                    "status": full_result.get("status"),
+                    "exit_code": exit_code,
+                    "summary": summary,
+                }
+
+                # Only include errors if there are any
+                if errors:
+                    concise["errors"] = errors
+
+                # Include duration if > 5 seconds
+                duration = full_result.get("duration_sec", 0)
+                if duration > 5:
+                    concise["duration_sec"] = round(duration, 1)
+
+                # Include tail and output_stats for failures
+                output_stats = full_result.get("output_stats", {})
+                tail = output_stats.get("tail", [])
+                total_lines = output_stats.get("lines", 0)
+
+                if has_errors and tail:
+                    concise["tail"] = tail
+                    if total_lines > len(tail):
+                        concise["output_stats"] = {
+                            "lines": total_lines,
+                            "bytes": output_stats.get("bytes", 0),
+                        }
+
+                return concise
             except json.JSONDecodeError:
                 pass
 
         # Fallback: construct basic result
         return {
-            "run_id": None,
+            "run_ref": None,
             "status": "FAIL" if result.returncode != 0 else "OK",
             "exit_code": result.returncode,
-            "error_count": 0,
-            "warning_count": 0,
-            "errors": [],
-            "output": result.stdout[:1000] if result.stdout else None,
-            "stderr": result.stderr[:1000] if result.stderr else None,
+            "summary": {"total_events": 0, "errors": 0, "warnings": 0},
         }
     except subprocess.TimeoutExpired:
         return {
-            "run_id": None,
+            "run_ref": None,
             "status": "FAIL",
             "exit_code": -1,
             "error": f"Command timed out after {timeout} seconds",
-            "error_count": 0,
-            "warning_count": 0,
-            "errors": [],
+            "summary": {"total_events": 0, "errors": 0, "warnings": 0},
         }
     except Exception as e:
         return {
-            "run_id": None,
+            "run_ref": None,
             "status": "FAIL",
             "exit_code": -1,
             "error": str(e),
-            "error_count": 0,
-            "warning_count": 0,
+            "summary": {"total_events": 0, "errors": 0, "warnings": 0},
             "errors": [],
         }
 
@@ -496,6 +560,74 @@ def _warnings_impl(
         return {"warnings": warning_list, "total_count": total_count}
     except FileNotFoundError:
         return {"warnings": [], "total_count": 0}
+
+
+def _events_impl(
+    limit: int = 20,
+    run_id: int | None = None,
+    source: str | None = None,
+    severity: str | None = None,
+    file_pattern: str | None = None,
+) -> dict[str, Any]:
+    """Implementation of events command."""
+    try:
+        storage = _get_storage()
+        if not storage.has_data():
+            return {"events": [], "total_count": 0}
+
+        # Build WHERE conditions
+        conditions: list[str] = []
+        if run_id is not None:
+            conditions.append(f"run_serial = {run_id}")
+        if source:
+            conditions.append(f"source_name = '{source}'")
+        if file_pattern:
+            conditions.append(f"ref_file LIKE '{file_pattern}'")
+
+        # Severity filter (can be single value or comma-separated list)
+        if severity:
+            if "," in severity:
+                severities = [s.strip() for s in severity.split(",")]
+                severity_list = ", ".join(f"'{s}'" for s in severities)
+                conditions.append(f"severity IN ({severity_list})")
+            else:
+                conditions.append(f"severity = '{severity}'")
+
+        where = " AND ".join(conditions) if conditions else "1=1"
+
+        # Get total count
+        count_result = storage.sql(
+            f"SELECT COUNT(*) FROM blq_load_events() WHERE {where}"
+        ).fetchone()
+        total_count = count_result[0] if count_result else 0
+
+        # Get events - use ref column from view
+        df = storage.sql(f"""
+            SELECT * FROM blq_load_events()
+            WHERE {where}
+            ORDER BY run_serial DESC, event_id
+            LIMIT {limit}
+        """).df()
+
+        event_list = []
+        for _, row in df.iterrows():
+            event_list.append(
+                {
+                    "ref": _to_json_safe(row.get("ref")),
+                    "run_ref": _to_json_safe(row.get("run_ref")),
+                    "severity": _to_json_safe(row.get("severity")),
+                    "ref_file": _to_json_safe(row.get("ref_file")),
+                    "ref_line": _safe_int(row.get("ref_line")),
+                    "ref_column": _safe_int(row.get("ref_column")),
+                    "message": _to_json_safe(row.get("message")),
+                    "tool_name": _to_json_safe(row.get("tool_name")),
+                    "category": _to_json_safe(row.get("category")),
+                }
+            )
+
+        return {"events": event_list, "total_count": total_count}
+    except FileNotFoundError:
+        return {"events": [], "total_count": 0}
 
 
 def _event_impl(ref: str) -> dict[str, Any] | None:
@@ -741,6 +873,94 @@ def _status_impl() -> dict[str, Any]:
         return {"sources": sources}
     except FileNotFoundError:
         return {"sources": []}
+
+
+def _info_impl(ref: str) -> dict[str, Any]:
+    """Implementation of info command - get detailed run info."""
+    try:
+        storage = _get_storage()
+        if not storage.has_data():
+            return {"error": "No data available"}
+
+        # Check if it's a UUID (invocation_id) or a run ref
+        is_uuid = len(ref) == 36 and ref.count("-") == 4
+
+        if is_uuid:
+            # Query by invocation_id
+            df = storage.sql(f"""
+                SELECT * FROM blq_load_runs()
+                WHERE invocation_id = '{ref}'
+            """).df()
+        else:
+            # Parse as run ref
+            tag, run_serial, _ = _parse_ref(ref + ":0")  # Add dummy event_id
+            if tag is not None:
+                df = storage.sql(f"""
+                    SELECT * FROM blq_load_runs()
+                    WHERE tag = '{tag}' AND run_id = {run_serial}
+                """).df()
+            else:
+                df = storage.sql(f"""
+                    SELECT * FROM blq_load_runs()
+                    WHERE run_id = {run_serial}
+                """).df()
+
+        if df.empty:
+            return {"error": f"Run {ref} not found"}
+
+        row = df.iloc[0]
+        invocation_id = _to_json_safe(row.get("invocation_id"))
+
+        # Build run_ref
+        tag = _to_json_safe(row.get("tag"))
+        run_serial = _safe_int(row.get("run_id")) or 0
+        if tag:
+            run_ref = f"{tag}:{run_serial}"
+        else:
+            run_ref = str(run_serial)
+
+        # Get output details
+        outputs = []
+        if invocation_id:
+            outputs_result = storage.sql(f"""
+                SELECT stream, byte_length
+                FROM outputs
+                WHERE invocation_id = '{invocation_id}'
+                ORDER BY stream
+            """).fetchall()
+            outputs = [
+                {"stream": r[0], "bytes": r[1]}
+                for r in outputs_result
+            ]
+
+        return {
+            "run_ref": run_ref,
+            "invocation_id": invocation_id,
+            "source_name": _to_json_safe(row.get("source_name")),
+            "source_type": _to_json_safe(row.get("source_type")),
+            "command": _to_json_safe(row.get("command")),
+            "status": "FAIL" if (_safe_int(row.get("error_count")) or 0) > 0 else "OK",
+            "exit_code": _safe_int(row.get("exit_code")),
+            "error_count": _safe_int(row.get("error_count")) or 0,
+            "warning_count": _safe_int(row.get("warning_count")) or 0,
+            "info_count": _safe_int(row.get("info_count")) or 0,
+            "event_count": _safe_int(row.get("event_count")) or 0,
+            "started_at": str(row.get("started_at", "")),
+            "completed_at": str(row.get("completed_at", "")),
+            "cwd": _to_json_safe(row.get("cwd")),
+            "executable_path": _to_json_safe(row.get("executable_path")),
+            "hostname": _to_json_safe(row.get("hostname")),
+            "platform": _to_json_safe(row.get("platform")),
+            "arch": _to_json_safe(row.get("arch")),
+            "git_branch": _to_json_safe(row.get("git_branch")),
+            "git_commit": _to_json_safe(row.get("git_commit")),
+            "git_dirty": bool(row.get("git_dirty")),
+            "outputs": outputs,
+        }
+    except FileNotFoundError:
+        return {"error": "No lq repository found"}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 def _history_impl(limit: int = 20, source: str | None = None) -> dict[str, Any]:
@@ -1171,6 +1391,34 @@ def warnings(
 
 
 @mcp.tool()
+def events(
+    limit: int = 20,
+    run_id: int | None = None,
+    source: str | None = None,
+    severity: str | None = None,
+    file_pattern: str | None = None,
+) -> dict[str, Any]:
+    """Get events with optional severity filter.
+
+    This is the main event viewing tool. Use errors() or warnings() as shortcuts
+    for filtering by severity.
+
+    Args:
+        limit: Max events to return (default: 20)
+        run_id: Filter to specific run (by serial number, e.g., 1, 2, 3)
+        source: Filter to specific source name
+        severity: Filter by severity. Can be a single value (error, warning, info)
+                  or comma-separated list (e.g., "error,warning")
+        file_pattern: Filter by file path pattern (SQL LIKE)
+
+    Returns:
+        Events list with total count. Each event includes a 'ref' field
+        in format "tag:serial:event" or "serial:event".
+    """
+    return _events_impl(limit, run_id, source, severity, file_pattern)
+
+
+@mcp.tool()
 def event(ref: str) -> dict[str, Any] | None:
     """Get details for a specific event by reference.
 
@@ -1231,6 +1479,20 @@ def status() -> dict[str, Any]:
         Status summary with sources list
     """
     return _status_impl()
+
+
+@mcp.tool()
+def info(ref: str) -> dict[str, Any]:
+    """Get detailed information about a specific run.
+
+    Args:
+        ref: Run reference (e.g., 'test:5') or invocation_id (UUID)
+
+    Returns:
+        Detailed run information including command, status, git info,
+        event counts, and captured output streams with sizes.
+    """
+    return _info_impl(ref)
 
 
 @mcp.tool()

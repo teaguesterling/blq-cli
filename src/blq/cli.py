@@ -52,6 +52,7 @@ from blq.commands import (
     cmd_context,
     cmd_errors,
     cmd_event,
+    cmd_events,
     cmd_exec,
     cmd_filter,
     cmd_formats,
@@ -73,6 +74,7 @@ from blq.commands import (
     cmd_shell,
     cmd_sql,
     cmd_status,
+    cmd_info,
     cmd_summary,
     cmd_sync,
     cmd_unregister,
@@ -313,7 +315,7 @@ def main() -> None:
     p_exec = subparsers.add_parser(
         "exec", aliases=["e"], help="Execute ad-hoc command and capture output"
     )
-    p_exec.add_argument("command", nargs="+", help="Command to execute")
+    p_exec.add_argument("command", nargs=argparse.REMAINDER, help="Command to execute")
     p_exec.add_argument("--name", "-n", help="Source name (default: command name)")
     p_exec.add_argument("--format", "-f", default="auto", help="Parse format hint")
     p_exec.add_argument("--keep-raw", "-r", action="store_true", help="Keep raw output file")
@@ -356,16 +358,35 @@ def main() -> None:
 
     # status
     p_status = subparsers.add_parser("status", help="Show status of all sources")
-    p_status.add_argument(
-        "ref", nargs="?", help="Run ref to show details for (e.g., 'test:24')"
-    )
     p_status.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
-    p_status.add_argument("--details", "-d", action="store_true", help="Show all fields")
     p_status.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_status.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
     p_status.set_defaults(func=cmd_status)
 
-    # errors
+    # info - detailed info about a specific run
+    p_info = subparsers.add_parser("info", help="Show detailed info about a run")
+    p_info.add_argument(
+        "ref", help="Run ref (e.g., 'test:5') or invocation_id (UUID)"
+    )
+    p_info.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    p_info.add_argument("--details", "-d", action="store_true", help="Show all fields")
+    p_info.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_info.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
+    p_info.set_defaults(func=cmd_info)
+
+    # events (main command for viewing events with severity filter)
+    p_events = subparsers.add_parser("events", help="Show events (errors, warnings, info)")
+    p_events.add_argument(
+        "--severity", "-S",
+        help="Filter by severity (error, warning, info, or comma-separated list)"
+    )
+    p_events.add_argument("--source", "-s", help="Filter by source")
+    p_events.add_argument("--limit", "-n", type=int, default=20, help="Max results")
+    p_events.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_events.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
+    p_events.set_defaults(func=cmd_events)
+
+    # errors (alias for events --severity error)
     p_errors = subparsers.add_parser("errors", help="Show recent errors")
     p_errors.add_argument("--source", "-s", help="Filter by source")
     p_errors.add_argument("--limit", "-n", type=int, default=10, help="Max results")
@@ -374,7 +395,7 @@ def main() -> None:
     p_errors.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
     p_errors.set_defaults(func=cmd_errors)
 
-    # warnings
+    # warnings (alias for events --severity warning)
     p_warnings = subparsers.add_parser("warnings", help="Show recent warnings")
     p_warnings.add_argument("--source", "-s", help="Filter by source")
     p_warnings.add_argument("--limit", "-n", type=int, default=10, help="Max results")

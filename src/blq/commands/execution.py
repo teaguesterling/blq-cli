@@ -486,14 +486,24 @@ def cmd_exec(args: argparse.Namespace) -> None:
     # Get unified config (finds .lq, loads settings)
     config = BlqConfig.ensure()
 
-    # Build command from args - always treat as literal shell command
-    command = " ".join(args.command)
+    # Handle command args (REMAINDER may include leading '--')
+    cmd_args = args.command
+    if cmd_args and cmd_args[0] == "--":
+        cmd_args = cmd_args[1:]
+
+    if not cmd_args:
+        print("Error: No command specified", file=sys.stderr)
+        sys.exit(1)
+
+    # Build command from args - properly quote for shell
+    import shlex
+    command = shlex.join(cmd_args)
     # Use provided name, or extract basename of first command token
     if args.name:
         source_name = args.name
     else:
         import os
-        first_token = args.command[0]
+        first_token = cmd_args[0]
         source_name = os.path.basename(first_token)
 
     # Determine capture mode (default: capture)
