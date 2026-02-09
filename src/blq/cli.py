@@ -70,7 +70,6 @@ from blq.commands import (
     cmd_register,
     cmd_report,
     cmd_run,
-    cmd_serve,
     cmd_shell,
     cmd_sql,
     cmd_status,
@@ -80,6 +79,7 @@ from blq.commands import (
     cmd_warnings,
     cmd_watch,
 )
+from blq.commands.mcp_cmd import cmd_mcp_install, cmd_mcp_serve
 from blq.commands.core import (
     GLOBAL_PROJECTS_PATH,
     # Re-export commonly used items for backward compatibility
@@ -124,7 +124,8 @@ __all__ = [
     "cmd_query",
     "cmd_register",
     "cmd_run",
-    "cmd_serve",
+    "cmd_mcp_install",
+    "cmd_mcp_serve",
     "cmd_shell",
     "cmd_sql",
     "cmd_status",
@@ -513,19 +514,34 @@ def main() -> None:
     )
     p_filter.set_defaults(func=cmd_filter)
 
-    # serve (MCP server)
-    p_serve = subparsers.add_parser("serve", help="Start MCP server for AI agent integration")
-    p_serve.add_argument(
+    # mcp (MCP server commands)
+    p_mcp = subparsers.add_parser("mcp", help="MCP server commands")
+    mcp_subparsers = p_mcp.add_subparsers(dest="mcp_command", help="MCP subcommands")
+
+    # mcp install
+    p_mcp_install = mcp_subparsers.add_parser(
+        "install", help="Create or update .mcp.json configuration"
+    )
+    p_mcp_install.add_argument(
+        "--force", "-f", action="store_true", help="Overwrite existing blq config"
+    )
+    p_mcp_install.set_defaults(func=cmd_mcp_install)
+
+    # mcp serve
+    p_mcp_serve = mcp_subparsers.add_parser(
+        "serve", help="Start MCP server for AI agent integration"
+    )
+    p_mcp_serve.add_argument(
         "--transport",
         "-t",
         choices=["stdio", "sse"],
         default="stdio",
         help="Transport type (default: stdio)",
     )
-    p_serve.add_argument(
+    p_mcp_serve.add_argument(
         "--port", "-p", type=int, default=8080, help="Port for SSE transport (default: 8080)"
     )
-    p_serve.set_defaults(func=cmd_serve)
+    p_mcp_serve.set_defaults(func=cmd_mcp_serve)
 
     # =========================================================================
     # Hooks commands

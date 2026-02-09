@@ -177,20 +177,72 @@ def _run_impl(
         }
 
 
+def _find_matching_registered_command(full_cmd: str) -> tuple[str, list[str]] | None:
+    """Check if command matches a registered command prefix.
+
+    Args:
+        full_cmd: Full command string to check
+
+    Returns:
+        Tuple of (command_name, extra_args) if match found, None otherwise
+    """
+    try:
+        from blq.cli import BlqConfig
+
+        config = BlqConfig.find()
+        if config is None:
+            return None
+
+        normalized_full = _normalize_cmd(full_cmd)
+
+        for name, cmd in config.commands.items():
+            normalized_registered = _normalize_cmd(cmd.cmd)
+
+            # Check if full command starts with registered command
+            if normalized_full.startswith(normalized_registered):
+                # Extract extra args
+                remainder = normalized_full[len(normalized_registered):].strip()
+                if remainder:
+                    extra_args = remainder.split()
+                else:
+                    extra_args = []
+                return name, extra_args
+
+        return None
+    except Exception:
+        return None
+
+
 def _exec_impl(
     command: str,
     args: list[str] | None = None,
-    extra: list[str] | None = None,
     timeout: int = 300,
 ) -> dict[str, Any]:
-    """Implementation of exec command (for ad-hoc shell commands)."""
-    # Build command for blq exec
+    """Implementation of exec command (for ad-hoc shell commands).
+
+    If the command matches a registered command prefix, uses run() instead
+    for cleaner refs.
+    """
+    # Build full command string
+    full_cmd = command
+    if args:
+        full_cmd = f"{command} {' '.join(args)}"
+
+    # Check if this matches a registered command
+    match = _find_matching_registered_command(full_cmd)
+    if match:
+        name, extra_args = match
+        result = _run_impl(name, extra=extra_args if extra_args else None, timeout=timeout)
+        result["matched_command"] = name
+        if extra_args:
+            result["extra_args"] = extra_args
+        return result
+
+    # No match - run as ad-hoc exec
     cmd_parts = ["blq", "exec", "--json", "--quiet"]
     cmd_parts.append(command)
     if args:
         cmd_parts.extend(args)
-    if extra:
-        cmd_parts.extend(extra)
 
     try:
         result = subprocess.run(
@@ -899,21 +951,25 @@ def run(
 def exec(
     command: str,
     args: list[str] | None = None,
-    extra: list[str] | None = None,
     timeout: int = 300,
 ) -> dict[str, Any]:
     """Execute an ad-hoc shell command and capture its output.
 
+    If the command matches a registered command prefix, automatically uses
+    run() instead for cleaner refs. For example, if 'test' is registered as
+    'pytest tests/', then exec('pytest tests/ -v') will run as
+    run(command='test', extra=['-v']).
+
     Args:
         command: Shell command to run
-        args: Additional arguments (backwards compatible alias for extra)
-        extra: Extra arguments to append to the command
+        args: Additional arguments to append
         timeout: Timeout in seconds (default: 300)
 
     Returns:
-        Run result with status, errors, and warnings
+        Run result with status, errors, and warnings. If a registered command
+        was matched, includes 'matched_command' and optionally 'extra_args'.
     """
-    return _exec_impl(command, args, extra, timeout)
+    return _exec_impl(command, args, timeout)
 
 
 @mcp.tool()

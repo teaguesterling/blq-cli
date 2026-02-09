@@ -611,25 +611,74 @@ class TestRegisterCommandTool:
 
 
 # ============================================================================
-# Exec Tool Extra Args Tests
+# Exec Tool Registered Command Detection Tests
 # ============================================================================
 
 
-class TestExecToolExtra:
-    """Tests for exec tool with extra arguments."""
+class TestExecRegisteredCommandDetection:
+    """Tests for exec tool detecting registered command prefixes."""
 
     @pytest.mark.asyncio
-    async def test_exec_with_extra_args(self, mcp_server_empty):
-        """Execute a command with extra arguments."""
+    async def test_exec_matches_registered_command(self, mcp_server_empty):
+        """Exec with registered command prefix uses run() instead."""
         async with Client(mcp_server_empty) as client:
+            # Register a base command
+            await client.call_tool(
+                "register_command",
+                {"name": "greet", "cmd": "echo hello"},
+            )
+
+            # Exec with extra args - should match registered command
             raw = await client.call_tool(
                 "exec",
-                {"command": "echo", "extra": ["hello", "world"]},
+                {"command": "echo hello world"},
             )
             result = get_data(raw)
 
             assert result["status"] == "OK"
-            assert result["exit_code"] == 0
+            assert result.get("matched_command") == "greet"
+            assert result.get("extra_args") == ["world"]
+
+    @pytest.mark.asyncio
+    async def test_exec_no_match_runs_adhoc(self, mcp_server_empty):
+        """Exec without matching registered command runs ad-hoc."""
+        async with Client(mcp_server_empty) as client:
+            # Register a command
+            await client.call_tool(
+                "register_command",
+                {"name": "greet", "cmd": "echo hello"},
+            )
+
+            # Exec a different command - should not match
+            raw = await client.call_tool(
+                "exec",
+                {"command": "echo goodbye"},
+            )
+            result = get_data(raw)
+
+            assert result["status"] == "OK"
+            assert "matched_command" not in result
+
+    @pytest.mark.asyncio
+    async def test_exec_exact_match_no_extra(self, mcp_server_empty):
+        """Exec with exact registered command match (no extra args)."""
+        async with Client(mcp_server_empty) as client:
+            # Register a command
+            await client.call_tool(
+                "register_command",
+                {"name": "greet", "cmd": "echo hello"},
+            )
+
+            # Exec exact same command
+            raw = await client.call_tool(
+                "exec",
+                {"command": "echo hello"},
+            )
+            result = get_data(raw)
+
+            assert result["status"] == "OK"
+            assert result.get("matched_command") == "greet"
+            assert result.get("extra_args") is None or result.get("extra_args") == []
 
 
 # ============================================================================
