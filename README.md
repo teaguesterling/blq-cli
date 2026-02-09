@@ -24,9 +24,9 @@ pip install blq-cli
 Initialize in your project (installs duck_hunt extension):
 ```bash
 blq init                     # Basic init
-blq init --mcp               # Also create .mcp.json for AI agents
 blq init --detect --yes      # Auto-detect and register build/test commands
 blq init --project myapp --namespace myorg  # Override project identification
+blq mcp install              # Create .mcp.json for AI agents
 ```
 
 ## Quick Start
@@ -103,6 +103,18 @@ blq context 1:3
 | `blq prune` | Remove old logs |
 | `blq formats` | List available log formats |
 | `blq completions` | Generate shell completions (bash/zsh/fish) |
+
+### MCP & Hooks
+
+| Command | Description |
+|---------|-------------|
+| `blq mcp install` | Create/update .mcp.json for AI agents |
+| `blq mcp serve` | Start MCP server |
+| `blq hooks install` | Install git pre-commit hook |
+| `blq hooks remove` | Remove git pre-commit hook |
+| `blq hooks status` | Show hook status |
+| `blq hooks add <cmd>` | Add command to pre-commit hook |
+| `blq hooks list` | List commands in pre-commit hook |
 
 ## Query Examples
 
@@ -285,11 +297,21 @@ blq sql "SELECT hostname, git_branch, environment['VIRTUAL_ENV'] FROM blq_load_e
 blq includes an MCP server for AI agent integration:
 
 ```bash
-blq serve                    # stdio transport (Claude Desktop)
-blq serve --transport sse    # HTTP/SSE transport
+blq mcp install              # Create .mcp.json config
+blq mcp serve                # stdio transport (Claude Desktop)
+blq mcp serve --transport sse  # HTTP/SSE transport
 ```
 
-Tools available: `run`, `exec`, `query`, `errors`, `warnings`, `event`, `context`, `status`, `history`, `diff`, `register_command`, `unregister_command`, `list_commands`
+Tools available: `run`, `exec`, `query`, `errors`, `warnings`, `event`, `context`, `status`, `history`, `diff`, `register_command`, `unregister_command`, `list_commands`, `reset`
+
+**Security:** Disable sensitive tools via config:
+```yaml
+# .lq/config.yaml
+mcp:
+  disabled_tools:
+    - exec
+    - reset
+```
 
 See [MCP Guide](docs/mcp.md) for details.
 

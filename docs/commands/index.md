@@ -76,11 +76,23 @@ These options apply to all commands:
 |---------|-------------|---------------|
 | `prune` | Remove old log files | [maintenance](maintenance.md) |
 
-### Server
+### MCP Server
 
 | Command | Description | Documentation |
 |---------|-------------|---------------|
-| `serve` | Start MCP server for AI agents | [MCP Server](../mcp.md) |
+| `mcp install` | Create .mcp.json for agent discovery | [MCP Server](../mcp.md) |
+| `mcp serve` | Start MCP server for AI agents | [MCP Server](../mcp.md) |
+
+### Git Hooks
+
+| Command | Description | Documentation |
+|---------|-------------|---------------|
+| `hooks install` | Install git pre-commit hook | - |
+| `hooks remove` | Remove git pre-commit hook | - |
+| `hooks status` | Show hook status | - |
+| `hooks add` | Add command to pre-commit hook | - |
+| `hooks list` | List commands in pre-commit hook | - |
+| `hooks run` | Run pre-commit hook manually | - |
 
 ### Shell & Utilities
 

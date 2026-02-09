@@ -4,7 +4,7 @@ This guide covers integrating lq with AI agents, CI/CD pipelines, and other tool
 
 ## AI Agent Integration
 
-bblq is designed to work well with AI coding assistants like Claude, GPT, and others.
+blq is designed to work well with AI coding assistants like Claude, GPT, and others.
 
 ### Structured Output
 
@@ -141,40 +141,48 @@ Store `commands.yaml` in your repo for reproducibility.
 
 ## MCP Server Integration
 
-bblq is designed to work with MCP (Model Context Protocol) servers for AI agent access.
+blq provides an MCP (Model Context Protocol) server for AI agent integration.
 
-### With duckdb_mcp
-
-```sql
--- Expose lq_events as a queryable resource
-ATTACH ':memory:' AS lq_db;
-
--- Load lq schema
-.read .lq/schema.sql
-
--- Publish as MCP tool
-SELECT mcp_publish_tool(
-    'lq_errors',
-    'Get recent build errors',
-    'SELECT * FROM lq_events WHERE severity = ''error'' ORDER BY run_id DESC LIMIT 20',
-    '{}',
-    '[]',
-    'json'
-);
-```
-
-### Future: lq serve
-
-A dedicated MCP server for blq is planned:
+### Quick Start
 
 ```bash
-blq serve --port 8080
+# Create .mcp.json for agent discovery
+blq mcp install
+
+# Start the MCP server
+blq mcp serve
 ```
 
-This will expose:
-- Query endpoints
-- Event detail endpoints
-- Log capture endpoints
+### Available Tools
+
+The MCP server exposes these tools:
+
+| Tool | Description |
+|------|-------------|
+| `run` | Run a registered command |
+| `query` | Query logs with SQL |
+| `errors` | Get recent errors |
+| `warnings` | Get recent warnings |
+| `event` | Get event details |
+| `context` | Get log context around event |
+| `status` | Get status summary |
+| `history` | Get run history |
+| `diff` | Compare errors between runs |
+| `register_command` | Register a new command |
+| `list_commands` | List all registered commands |
+
+### Resources
+
+Resources provide read-only access to data:
+
+- `blq://guide` - Agent usage guide
+- `blq://status` - Current status
+- `blq://errors` - Recent errors
+- `blq://errors/{run_id}` - Errors for a specific run
+- `blq://warnings` - Recent warnings
+- `blq://commands` - Registered commands
+
+See [MCP Guide](mcp.md) for full documentation.
 
 ## Shell Integration
 
@@ -231,7 +239,7 @@ blq sql "COPY (SELECT * FROM lq_events) TO 'events.jsonl'"
 
 ### Python API
 
-bblq provides a fluent Python API for programmatic access:
+blq provides a fluent Python API for programmatic access:
 
 ```python
 from blq import LogStore, LogQuery

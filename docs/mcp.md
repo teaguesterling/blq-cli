@@ -5,23 +5,49 @@ blq provides an MCP (Model Context Protocol) server for AI agent integration. Th
 ## Quick Start
 
 ```bash
+# Create .mcp.json for agent discovery
+blq mcp install
+
 # Start the MCP server
-blq serve
+blq mcp serve
 
 # Or with specific transport
-blq serve --transport stdio      # For Claude Desktop, etc.
-blq serve --transport sse --port 8080  # For HTTP clients
+blq mcp serve --transport stdio      # For Claude Desktop, etc.
+blq mcp serve --transport sse --port 8080  # For HTTP clients
 ```
 
-## serve Command
+## Commands
+
+### blq mcp install
+
+Create or update `.mcp.json` with blq server configuration for agent discovery.
+
+```bash
+blq mcp install
+```
+
+This creates a `.mcp.json` file in the current directory:
+
+```json
+{
+  "mcpServers": {
+    "blq": {
+      "command": "blq",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+### blq mcp serve
 
 Start the MCP server for agent integration.
 
 ```bash
-blq serve [OPTIONS]
+blq mcp serve [OPTIONS]
 ```
 
-### Options
+#### Options
 
 | Option | Short | Description |
 |--------|-------|-------------|
@@ -48,14 +74,14 @@ The blq MCP server exposes:
 - **Resources** - Data agents can read (events, runs, status)
 - **Prompts** - Templates for common workflows (fix errors, analyze regressions)
 
-All tools are namespaced under the `blq` server, so `run` becomes `lq.run` when accessed by agents.
+All tools are namespaced under the `blq` server, so `run` becomes `blq.run` when accessed by agents.
 
 ### Available Tools
 
 | Tool | Description |
 |------|-------------|
 | `run` | Run a registered command |
-| `exec` | Execute ad-hoc shell command |
+| `exec` | Execute ad-hoc shell command (detects registered command prefixes) |
 | `query` | Query logs with SQL |
 | `errors` | Get recent errors |
 | `warnings` | Get recent warnings |
@@ -64,9 +90,10 @@ All tools are namespaced under the `blq` server, so `run` becomes `lq.run` when 
 | `status` | Get status summary |
 | `history` | Get run history |
 | `diff` | Compare errors between runs |
-| `register_command` | Register a new command |
+| `register_command` | Register a new command (idempotent) |
 | `unregister_command` | Remove a registered command |
 | `list_commands` | List all registered commands |
+| `reset` | Reset or reinitialize the database |
 
 ---
 
@@ -134,11 +161,13 @@ Run a registered command and capture its output. For ad-hoc commands, use `exec`
 
 Execute an ad-hoc shell command and capture its output.
 
+**Smart Prefix Detection:** If the command matches a registered command prefix, this tool automatically uses `run()` instead. For example, if `test` is registered as `pytest -v`, then calling this tool with `pytest -v tests/unit/` will be run as `run("test", extra=["tests/unit/"])`. This provides cleaner event references (e.g., `test:1:3` instead of ad-hoc refs).
+
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `command` | string | Yes | Shell command to execute |
+| `command` | string | Yes | Shell command to run |
 | `args` | string[] | No | Additional arguments |
 | `timeout` | number | No | Timeout in seconds (default: 300) |
 
@@ -148,7 +177,6 @@ Execute an ad-hoc shell command and capture its output.
 
 ```json
 {
-  "tool": "exec",
   "arguments": {
     "command": "make",
     "args": ["-j8"]
@@ -470,16 +498,20 @@ Compare errors between two runs.
 
 Register a new command in the command registry.
 
+**Idempotent Registration:** If a command with the same name or identical command string already exists, the existing command is used instead of failing. This allows agents to safely call register_command without checking if a command already exists. Use `force=true` to overwrite an existing command.
+
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `name` | string | Yes | Command name (e.g., "build", "test") |
-| `cmd` | string | Yes | Shell command to execute |
+| `cmd` | string | Yes | Shell command (whitespace-normalized for comparison) |
 | `description` | string | No | Human-readable description |
 | `timeout` | number | No | Timeout in seconds (default: 300) |
 | `capture` | boolean | No | Whether to capture and parse logs (default: true) |
+| `format` | string | No | Log format for parsing (auto-detected from command if not specified) |
 | `force` | boolean | No | Overwrite existing command (default: false) |
+| `run_now` | boolean | No | Run the command immediately after registering (default: false) |
 
 **Returns:**
 
@@ -489,6 +521,8 @@ Register a new command in the command registry.
   "message": "Registered command 'build': make -j8"
 }
 ```
+
+If `run_now=true`, the response also includes a `run` key with the run result.
 
 **Example:**
 
@@ -500,7 +534,8 @@ Register a new command in the command registry.
     "cmd": "make -j8",
     "description": "Build the project",
     "timeout": 300,
-    "capture": true
+    "capture": true,
+    "run_now": true
   }
 }
 ```
@@ -576,6 +611,42 @@ List all registered commands.
   "arguments": {}
 }
 ```
+
+---
+
+### reset
+
+Reset or reinitialize the blq database. This is a potentially destructive operation.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `mode` | string | No | Reset level: "data" (clear runs but keep config), "schema" (recreate database), or "full" (delete .lq directory). Default: "data" |
+| `confirm` | boolean | No | Must be true to proceed (safety check). Default: false |
+
+**Returns:**
+
+```json
+{
+  "success": true,
+  "message": "Reset complete (data mode)"
+}
+```
+
+**Example:**
+
+```json
+{
+  "tool": "reset",
+  "arguments": {
+    "mode": "data",
+    "confirm": true
+  }
+}
+```
+
+**Security Note:** This tool can be disabled via configuration. See [Security Controls](#security-controls) below.
 
 ---
 
@@ -976,7 +1047,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "blq": {
       "command": "blq",
-      "args": ["serve"],
+      "args": ["mcp", "serve"],
       "cwd": "/path/to/your/project"
     }
   }
@@ -985,14 +1056,20 @@ Add to `claude_desktop_config.json`:
 
 ### Project Configuration
 
-Use `blq init --mcp` to create a `.mcp.json` file for automatic server discovery:
+Use `blq mcp install` to create a `.mcp.json` file for automatic server discovery:
+
+```bash
+blq mcp install
+```
+
+This creates:
 
 ```json
 {
   "mcpServers": {
     "blq": {
       "command": "blq",
-      "args": ["serve"]
+      "args": ["mcp", "serve"]
     }
   }
 }
@@ -1004,12 +1081,58 @@ Use `blq init --mcp` to create a `.mcp.json` file for automatic server discovery
 |----------|-------------|---------|
 | `BLQ_DIR` | Path to .lq directory | Auto-detect |
 | `BLQ_TIMEOUT` | Default command timeout (seconds) | 300 |
+| `BLQ_MCP_DISABLED_TOOLS` | Comma-separated list of tools to disable | (none) |
+
+---
+
+## Security Controls
+
+blq allows disabling sensitive MCP tools for security. This is useful when running the MCP server in untrusted environments or when you want to limit agent capabilities.
+
+### Disabling Tools
+
+Tools can be disabled via configuration file or environment variable:
+
+**Via `.lq/config.yaml`:**
+
+```yaml
+mcp:
+  disabled_tools:
+    - reset
+    - register_command
+    - unregister_command
+```
+
+**Via environment variable:**
+
+```bash
+export BLQ_MCP_DISABLED_TOOLS="reset,register_command,unregister_command"
+blq mcp serve
+```
+
+### Sensitive Tools
+
+Consider disabling these tools in production/CI environments:
+
+| Tool | Risk | Recommendation |
+|------|------|----------------|
+| `reset` | Deletes data | Disable in production |
+| `register_command` | Modifies registry | Disable if commands are fixed |
+| `unregister_command` | Modifies registry | Disable if commands are fixed |
+
+When a disabled tool is called, the server returns an error:
+
+```json
+{
+  "error": "Tool 'reset' is disabled by configuration"
+}
+```
 
 ---
 
 ## Security Considerations
 
-- **Command execution**: `run` executes shell commands. Only registered commands are allowed by default. Use `--allow-arbitrary` to permit any command.
+- **Command running**: The `run` tool only runs registered commands. Ad-hoc commands go through a separate tool.
 - **File access**: The server only accesses files within the project directory.
 - **SQL injection**: `query` uses parameterized queries where possible. Complex queries are sandboxed to read-only operations.
 
