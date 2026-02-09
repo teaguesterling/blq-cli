@@ -385,7 +385,7 @@ class TestResources:
     async def test_read_status_resource(self, mcp_server):
         """Read the status resource."""
         async with Client(mcp_server) as client:
-            content = await client.read_resource("lq://status")
+            content = await client.read_resource("blq://status")
 
             assert content is not None
 
@@ -393,9 +393,79 @@ class TestResources:
     async def test_read_commands_resource(self, mcp_server):
         """Read the commands resource."""
         async with Client(mcp_server) as client:
-            content = await client.read_resource("lq://commands")
+            content = await client.read_resource("blq://commands")
 
             assert content is not None
+
+    @pytest.mark.asyncio
+    async def test_read_guide_resource(self, mcp_server):
+        """Read the guide resource."""
+        async with Client(mcp_server) as client:
+            content = await client.read_resource("blq://guide")
+
+            assert content is not None
+            # Should contain markdown content
+            assert "blq" in str(content).lower()
+
+    @pytest.mark.asyncio
+    async def test_read_errors_resource(self, mcp_server):
+        """Read the errors resource."""
+        async with Client(mcp_server) as client:
+            content = await client.read_resource("blq://errors")
+
+            assert content is not None
+
+    @pytest.mark.asyncio
+    async def test_read_warnings_resource(self, mcp_server):
+        """Read the warnings resource."""
+        async with Client(mcp_server) as client:
+            content = await client.read_resource("blq://warnings")
+
+            assert content is not None
+
+    @pytest.mark.asyncio
+    async def test_read_context_resource(self, mcp_server):
+        """Read the context resource for an existing event."""
+        async with Client(mcp_server) as client:
+            # First get an error to find a valid ref
+            errors_raw = await client.call_tool("errors", {"limit": 1})
+            errors = get_data(errors_raw)
+
+            if errors["errors"]:
+                ref = errors["errors"][0]["ref"]
+
+                # Skip if ref contains path separators (from exec'd scripts)
+                # as those can't be used in resource URIs
+                if "/" not in ref and "\\" not in ref:
+                    content = await client.read_resource(f"blq://context/{ref}")
+                    assert content is not None
+
+    @pytest.mark.asyncio
+    async def test_read_context_resource_registered_command(
+        self, mcp_server_empty, sample_build_script
+    ):
+        """Read the context resource with a registered command (clean refs)."""
+        async with Client(mcp_server_empty) as client:
+            # Register a command to get clean refs
+            await client.call_tool(
+                "register_command",
+                {"name": "build", "cmd": str(sample_build_script)},
+            )
+
+            # Run the command
+            await client.call_tool("run", {"command": "build"})
+
+            # Get errors
+            errors_raw = await client.call_tool("errors", {"limit": 1})
+            errors = get_data(errors_raw)
+
+            if errors["errors"]:
+                ref = errors["errors"][0]["ref"]
+                # Ref should be clean like "build:1:1"
+                assert "/" not in ref
+
+                content = await client.read_resource(f"blq://context/{ref}")
+                assert content is not None
 
 
 # ============================================================================

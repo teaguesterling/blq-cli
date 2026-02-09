@@ -155,7 +155,7 @@ blq.diff(run1=3, run2=4)  # What changed between runs?
 | `context(ref, lines)` | Log lines around an event |
 | `diff(run1, run2)` | Compare errors between runs |
 | `query(sql, limit)` | Run SQL against the database |
-| `register_command(name, cmd, ...)` | Register a new command |
+| `register_command(name, cmd, run_now)` | Register and optionally run a command |
 | `unregister_command(name)` | Remove a command |
 | `list_commands()` | List registered commands |
 | `reset(mode, confirm)` | Clear data or reinitialize |
@@ -178,11 +178,43 @@ blq.register_command(
 )
 ```
 
+### Idempotent Registration
+
+`register_command` is idempotent - calling it multiple times is safe:
+
+```python
+# First call: registers the command
+blq.register_command(name="build", cmd="make -j8")
+
+# Second call: detects identical command, returns existing (no error)
+blq.register_command(name="build", cmd="make -j8")
+
+# Different name, same command: returns existing command
+blq.register_command(name="compile", cmd="make -j8")
+# → Uses existing 'build' command instead
+```
+
+### Register and Run
+
+Use `run_now=True` to register and immediately run:
+
+```python
+# Register (if needed) and run in one call
+blq.register_command(
+    name="test",
+    cmd="pytest tests/ -v",
+    run_now=True
+)
+```
+
+This is the recommended pattern for agents - it ensures clean refs while being efficient.
+
 **Benefits of registration:**
 - Clean refs (`build:1:3` vs the full command string)
 - Automatic format detection based on command
 - Reusable across sessions
 - Visible to both agent and user
+- Idempotent - safe to call multiple times
 
 ## Best Practices
 
@@ -232,6 +264,23 @@ blq.context(ref="build:5:1")
 blq.diff(run1=5, run2=6)
 # → {"fixed": 3, "new": 0} - Success!
 ```
+
+## MCP Resources
+
+In addition to tools, blq provides read-only resources:
+
+| Resource | Description |
+|----------|-------------|
+| `blq://guide` | This guide |
+| `blq://status` | Current status summary (JSON) |
+| `blq://errors` | Recent errors (JSON) |
+| `blq://errors/{serial}` | Errors for a specific run |
+| `blq://warnings` | Recent warnings (JSON) |
+| `blq://warnings/{serial}` | Warnings for a specific run |
+| `blq://context/{ref}` | Log context around an event |
+| `blq://commands` | Registered commands (JSON) |
+
+Resources are useful for embedding data in prompts or quick reads without calling tools.
 
 ## Summary
 

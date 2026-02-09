@@ -43,6 +43,7 @@ mcp = FastMCP(
     instructions=(
         "Build Log Query - capture and query build/test logs. "
         "Use tools to run builds, query errors, and analyze results. "
+        "Read blq://guide for detailed usage instructions. "
         "The database is shared with the CLI - users can run 'blq run build' "
         "and you can query the results, or vice versa. "
         "Start with status() or list_commands() to see current state. "
@@ -689,6 +690,11 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
         }
 
 
+def _normalize_cmd(cmd: str) -> str:
+    """Normalize command string for comparison (collapse whitespace)."""
+    return " ".join(cmd.split())
+
+
 def _register_command_impl(
     name: str,
     cmd: str,
@@ -697,6 +703,7 @@ def _register_command_impl(
     capture: bool = True,
     force: bool = False,
     format: str | None = None,
+    run_now: bool = False,
 ) -> dict[str, Any]:
     """Implementation of register_command."""
     try:
@@ -709,12 +716,63 @@ def _register_command_impl(
             return {"success": False, "error": "No lq repository found. Run 'blq init' first."}
 
         commands = config.commands
+        normalized_cmd = _normalize_cmd(cmd)
 
+        # Check for existing command with same name
         if name in commands and not force:
-            return {
-                "success": False,
-                "error": f"Command '{name}' already exists. Use force=true to overwrite.",
-            }
+            existing = commands[name]
+            existing_normalized = _normalize_cmd(existing.cmd)
+
+            if existing_normalized == normalized_cmd:
+                # Same command, just use it
+                result: dict[str, Any] = {
+                    "success": True,
+                    "message": f"Using existing command '{name}' (identical)",
+                    "existing": True,
+                    "command": {
+                        "name": name,
+                        "cmd": existing.cmd,
+                        "description": existing.description,
+                        "timeout": existing.timeout,
+                        "capture": existing.capture,
+                        "format": existing.format,
+                    },
+                }
+                if run_now:
+                    run_result = _run_impl(name, timeout=timeout)
+                    result["run"] = run_result
+                return result
+            else:
+                # Different command with same name
+                return {
+                    "success": False,
+                    "error": (
+                        f"Command '{name}' already exists with different command. "
+                        f"Existing: '{existing.cmd}'. Use force=true to overwrite."
+                    ),
+                }
+
+        # Check for existing command with same cmd but different name
+        for existing_name, existing in commands.items():
+            if _normalize_cmd(existing.cmd) == normalized_cmd and not force:
+                result = {
+                    "success": True,
+                    "message": f"Using existing command '{existing_name}' (same command)",
+                    "existing": True,
+                    "matched_name": existing_name,
+                    "command": {
+                        "name": existing_name,
+                        "cmd": existing.cmd,
+                        "description": existing.description,
+                        "timeout": existing.timeout,
+                        "capture": existing.capture,
+                        "format": existing.format,
+                    },
+                }
+                if run_now:
+                    run_result = _run_impl(existing_name, timeout=timeout)
+                    result["run"] = run_result
+                return result
 
         # Auto-detect format if not specified
         if format is None:
@@ -730,9 +788,10 @@ def _register_command_impl(
         )
         config.save_commands()
 
-        return {
+        result = {
             "success": True,
             "message": f"Registered command '{name}': {cmd}",
+            "existing": False,
             "command": {
                 "name": name,
                 "cmd": cmd,
@@ -742,6 +801,10 @@ def _register_command_impl(
                 "format": format,
             },
         }
+        if run_now:
+            run_result = _run_impl(name, timeout=timeout)
+            result["run"] = run_result
+        return result
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -972,8 +1035,13 @@ def register_command(
     capture: bool = True,
     force: bool = False,
     format: str | None = None,
+    run_now: bool = False,
 ) -> dict[str, Any]:
     """Register a new command.
+
+    If a command with the same name or same command string already exists,
+    returns the existing command (and runs it if run_now=True) instead of
+    failing. Use force=True to overwrite an existing command.
 
     Args:
         name: Command name (e.g., 'build', 'test')
@@ -983,11 +1051,13 @@ def register_command(
         capture: Whether to capture and parse logs (default: true)
         force: Overwrite existing command if it exists
         format: Log format for parsing (auto-detected from command if not specified)
+        run_now: Run the command immediately after registering (default: false)
 
     Returns:
-        Success status and registered command details
+        Success status and registered command details. If run_now=True,
+        also includes 'run' key with the run result.
     """
-    return _register_command_impl(name, cmd, description, timeout, capture, force, format)
+    return _register_command_impl(name, cmd, description, timeout, capture, force, format, run_now)
 
 
 @mcp.tool()
@@ -1157,35 +1227,78 @@ def reset(
 # ============================================================================
 
 
-@mcp.resource("lq://status")
+@mcp.resource("blq://status")
 def resource_status() -> str:
     """Current status of all sources."""
     result = _status_impl()
     return json.dumps(result, indent=2, default=str)
 
 
-@mcp.resource("lq://runs")
+@mcp.resource("blq://runs")
 def resource_runs() -> str:
     """List of all runs."""
     result = _history_impl(limit=100)
     return json.dumps(result, indent=2, default=str)
 
 
-@mcp.resource("lq://events")
+@mcp.resource("blq://events")
 def resource_events() -> str:
     """All stored events."""
     result = _errors_impl(limit=100)
     return json.dumps(result, indent=2, default=str)
 
 
-@mcp.resource("lq://event/{ref}")
+@mcp.resource("blq://event/{ref}")
 def resource_event(ref: str) -> str:
     """Single event details."""
     result = _event_impl(ref)
     return json.dumps(result, indent=2, default=str)
 
 
-@mcp.resource("lq://commands")
+@mcp.resource("blq://errors")
+def resource_errors() -> str:
+    """Recent errors across all runs."""
+    result = _errors_impl(limit=50)
+    return json.dumps(result, indent=2, default=str)
+
+
+@mcp.resource("blq://errors/{run_serial}")
+def resource_errors_for_run(run_serial: str) -> str:
+    """Errors for a specific run."""
+    try:
+        run_id = int(run_serial)
+        result = _errors_impl(limit=100, run_id=run_id)
+    except ValueError:
+        result = {"errors": [], "total_count": 0, "error": f"Invalid run serial: {run_serial}"}
+    return json.dumps(result, indent=2, default=str)
+
+
+@mcp.resource("blq://warnings")
+def resource_warnings() -> str:
+    """Recent warnings across all runs."""
+    result = _warnings_impl(limit=50)
+    return json.dumps(result, indent=2, default=str)
+
+
+@mcp.resource("blq://warnings/{run_serial}")
+def resource_warnings_for_run(run_serial: str) -> str:
+    """Warnings for a specific run."""
+    try:
+        run_id = int(run_serial)
+        result = _warnings_impl(limit=100, run_id=run_id)
+    except ValueError:
+        result = {"warnings": [], "total_count": 0, "error": f"Invalid run serial: {run_serial}"}
+    return json.dumps(result, indent=2, default=str)
+
+
+@mcp.resource("blq://context/{ref}")
+def resource_context(ref: str) -> str:
+    """Log context around a specific event."""
+    result = _context_impl(ref, lines=5)
+    return json.dumps(result, indent=2, default=str)
+
+
+@mcp.resource("blq://commands")
 def resource_commands() -> str:
     """Registered commands."""
     try:
@@ -1200,7 +1313,7 @@ def resource_commands() -> str:
     return json.dumps({"commands": []}, indent=2)
 
 
-@mcp.resource("lq://guide")
+@mcp.resource("blq://guide")
 def resource_guide() -> str:
     """Agent usage guide for blq MCP tools."""
     try:

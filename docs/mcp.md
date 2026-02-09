@@ -581,13 +581,13 @@ List all registered commands.
 
 ## Resources
 
-Resources provide read-only access to lq data.
+Resources provide read-only access to blq data.
 
-### lq://status
+### blq://status
 
 Current status of all sources.
 
-**URI:** `lq://status`
+**URI:** `blq://status`
 
 **MIME Type:** `application/json`
 
@@ -595,12 +595,12 @@ Current status of all sources.
 
 ---
 
-### lq://runs
+### blq://runs
 
 List of all runs.
 
-**URI:** `lq://runs`
-**URI with filter:** `lq://runs?source=build&limit=10`
+**URI:** `blq://runs`
+**URI with filter:** `blq://runs?source=build&limit=10`
 
 **MIME Type:** `application/json`
 
@@ -608,22 +608,60 @@ List of all runs.
 
 ---
 
-### lq://events
+### blq://events
 
 All stored events (with optional filtering).
 
-**URI:** `lq://events`
-**URI with filter:** `lq://events?severity=error&run_id=5`
+**URI:** `blq://events`
+**URI with filter:** `blq://events?severity=error&run_id=5`
 
 **MIME Type:** `application/json`
 
 ---
 
-### lq://event/{ref}
+### blq://errors
+
+Recent errors across all runs.
+
+**URI:** `blq://errors`
+**URI for specific run:** `blq://errors/1`
+
+**MIME Type:** `application/json`
+
+**Content:** Same as `errors` tool response.
+
+---
+
+### blq://warnings
+
+Recent warnings across all runs.
+
+**URI:** `blq://warnings`
+**URI for specific run:** `blq://warnings/1`
+
+**MIME Type:** `application/json`
+
+**Content:** Same as `warnings` tool response.
+
+---
+
+### blq://context/{ref}
+
+Log context around a specific event.
+
+**URI:** `blq://context/build:1:2`
+
+**MIME Type:** `application/json`
+
+**Content:** Same as `context` tool response.
+
+---
+
+### blq://event/{ref}
 
 Single event details.
 
-**URI:** `lq://event/1:3`
+**URI:** `blq://event/build:1:3`
 
 **MIME Type:** `application/json`
 
@@ -631,11 +669,11 @@ Single event details.
 
 ---
 
-### lq://commands
+### blq://commands
 
 Registered commands.
 
-**URI:** `lq://commands`
+**URI:** `blq://commands`
 
 **MIME Type:** `application/json`
 
@@ -659,6 +697,23 @@ Registered commands.
   ]
 }
 ```
+
+---
+
+### blq://guide
+
+Agent usage guide with detailed instructions.
+
+**URI:** `blq://guide`
+
+**MIME Type:** `text/markdown`
+
+**Content:** Comprehensive guide for AI agents using blq MCP tools, including:
+- Key concepts (shared database between CLI and MCP)
+- Why use blq tools instead of Bash
+- Recommended workflows
+- Reference format explanations
+- Best practices
 
 ---
 

@@ -427,6 +427,7 @@ def main() -> None:
         "--no-capture", "-N", action="store_true", help="Don't capture logs by default"
     )
     p_register.add_argument("--force", action="store_true", help="Overwrite existing command")
+    p_register.add_argument("--run", "-r", action="store_true", help="Run the command immediately after registering")
     p_register.set_defaults(func=cmd_register)
 
     # unregister
