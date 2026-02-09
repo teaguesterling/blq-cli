@@ -707,3 +707,43 @@ def print_output(
         output = format_table(data, columns, max_width)
 
     print(output, file=file)
+
+
+def format_context(
+    lines: list[str],
+    log_line_start: int,
+    log_line_end: int,
+    context: int = 5,
+    ref: str | None = None,
+) -> str:
+    """Format log context around an event.
+
+    Args:
+        lines: All lines from the log file
+        log_line_start: 1-indexed start line of the event
+        log_line_end: 1-indexed end line of the event
+        context: Number of context lines before/after
+        ref: Optional event reference for header
+
+    Returns:
+        Formatted context string with line numbers and markers
+    """
+    start = max(0, log_line_start - context - 1)  # 1-indexed to 0-indexed
+    end = min(len(lines), log_line_end + context)
+
+    output_lines = []
+
+    # Header
+    if ref:
+        output_lines.append(f"Context for event {ref} (lines {start + 1}-{end}):")
+    output_lines.append("-" * 60)
+
+    # Context lines with markers
+    for i in range(start, end):
+        line_num = i + 1
+        prefix = ">>> " if log_line_start <= line_num <= log_line_end else "    "
+        output_lines.append(f"{prefix}{line_num:4d} | {lines[i]}")
+
+    output_lines.append("-" * 60)
+
+    return "\n".join(output_lines)

@@ -16,7 +16,7 @@ from blq.commands.core import (
     BlqConfig,
     EventRef,
 )
-from blq.output import format_errors, get_output_format
+from blq.output import format_context, format_errors, get_output_format
 from blq.storage import BlqStorage
 
 
@@ -112,18 +112,14 @@ def cmd_context(args: argparse.Namespace) -> None:
             sys.exit(1)
 
         lines = raw_file.read_text().splitlines()
-        context = args.lines
-
-        start = max(0, log_line_start - context - 1)  # 1-indexed to 0-indexed
-        end = min(len(lines), log_line_end + context)
-
-        print(f"Context for event {args.ref} (lines {start + 1}-{end}):")
-        print("-" * 60)
-        for i in range(start, end):
-            line_num = i + 1
-            prefix = ">>> " if log_line_start <= line_num <= log_line_end else "    "
-            print(f"{prefix}{line_num:4d} | {lines[i]}")
-        print("-" * 60)
+        output = format_context(
+            lines,
+            log_line_start,
+            log_line_end,
+            context=args.lines,
+            ref=args.ref,
+        )
+        print(output)
 
     except duckdb.Error as e:
         print(f"Error: {e}", file=sys.stderr)

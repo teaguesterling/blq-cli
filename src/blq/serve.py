@@ -29,6 +29,8 @@ import subprocess
 from typing import Any
 
 import pandas as pd  # type: ignore[import-untyped]
+
+from blq.output import format_context
 from fastmcp import FastMCP
 
 from blq.storage import BlqStorage
@@ -695,7 +697,11 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
 
 
 def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
-    """Implementation of context command."""
+    """Implementation of context command.
+
+    Returns formatted text showing log context around the event,
+    matching the CLI output format.
+    """
     try:
         tag, run_serial, event_id = _parse_ref(ref)
         storage = _get_storage()
@@ -709,53 +715,49 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
         result = storage.sql(f"SELECT * FROM blq_load_events() WHERE {where}").fetchone()
 
         if result is None:
-            return {"ref": ref, "context_lines": [], "error": "Event not found"}
+            return {"error": f"Event {ref} not found"}
 
         columns = storage.sql("SELECT * FROM blq_load_events() LIMIT 0").columns
         event_data = dict(zip(columns, result))
 
-        # Get context from nearby events in the same run
-        context_lines = []
-
         log_line_start = event_data.get("log_line_start")
-        log_line_end = event_data.get("log_line_end")
+        log_line_end = event_data.get("log_line_end") or log_line_start
 
-        if log_line_start is not None:
-            # Get events near this log line - use run_serial to find same run
-            end_condition = f"AND log_line_end <= {log_line_end + lines}" if log_line_end else ""
-            nearby = storage.sql(f"""
-                SELECT * FROM blq_load_events()
-                WHERE run_serial = {run_serial}
-                  AND log_line_start >= {log_line_start - lines}
-                  {end_condition}
-                ORDER BY log_line_start
-                LIMIT {lines * 2 + 1}
-            """).df()
+        if log_line_start is None:
+            # For structured formats without line info, return message
+            source_name = event_data.get("source_name")
+            message = event_data.get("message")
+            return {
+                "context": f"Event {ref} (from structured format, no log line context)\n"
+                f"  Source: {source_name}\n"
+                f"  Message: {message}",
+            }
 
-            for _, row in nearby.iterrows():
-                is_event = row.get("run_serial") == run_serial and row.get("event_id") == event_id
-                context_lines.append(
-                    {
-                        "line": row.get("log_line_start"),
-                        "text": row.get("raw_text") or row.get("message", ""),
-                        "is_event": is_event,
-                        "ref": _to_json_safe(row.get("ref")),
-                    }
-                )
-        else:
-            # No line info, just return the event itself
-            context_lines.append(
-                {
-                    "line": None,
-                    "text": event_data.get("raw_text") or event_data.get("message", ""),
-                    "is_event": True,
-                    "ref": ref,
-                }
-            )
+        # Get raw output for this run
+        output_bytes = storage.get_output(run_serial)
+        if output_bytes is None:
+            return {"error": "Raw log not available for this run"}
 
-        return {"ref": ref, "context_lines": context_lines}
-    except (ValueError, FileNotFoundError):
-        return {"ref": ref, "context_lines": [], "error": "Event not found"}
+        # Decode output
+        try:
+            content = output_bytes.decode("utf-8", errors="replace")
+        except Exception:
+            content = output_bytes.decode("latin-1")
+
+        log_lines = content.splitlines()
+
+        # Format using shared function
+        formatted = format_context(
+            log_lines,
+            log_line_start,
+            log_line_end,
+            context=lines,
+            ref=ref,
+        )
+
+        return {"context": formatted}
+    except (ValueError, FileNotFoundError) as e:
+        return {"error": f"Event not found: {e}"}
 
 
 def _output_impl(

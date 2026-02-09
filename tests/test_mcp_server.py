@@ -257,8 +257,11 @@ class TestContextTool:
                 raw = await client.call_tool("context", {"ref": ref})
                 result = get_data(raw)
 
-                assert "context_lines" in result
-                assert isinstance(result["context_lines"], list)
+                # Returns formatted text context
+                assert "context" in result or "error" in result
+                if "context" in result:
+                    assert isinstance(result["context"], str)
+                    assert "---" in result["context"]  # Has separator lines
 
     @pytest.mark.asyncio
     async def test_context_custom_lines(self, mcp_server):
@@ -273,7 +276,8 @@ class TestContextTool:
                 raw = await client.call_tool("context", {"ref": ref, "lines": 10})
                 result = get_data(raw)
 
-                assert "context_lines" in result
+                # Returns formatted text context
+                assert "context" in result or "error" in result
 
 
 class TestOutputTool:
