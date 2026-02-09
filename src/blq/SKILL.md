@@ -122,6 +122,7 @@ blq.history()       # Past runs
 blq.errors(limit=10)           # Get error list
 blq.event(ref="build:3:2")     # Full details on one error
 blq.context(ref="build:3:2")   # Surrounding log lines
+blq.output(run_id=3, tail=50)  # Raw output if parsing missed something
 ```
 
 ### Step 4: Compare (After Fixes)
@@ -153,6 +154,7 @@ blq.diff(run1=3, run2=4)  # What changed between runs?
 | `warnings(limit, run_id, source)` | Get warning events |
 | `event(ref)` | Full details for one event |
 | `context(ref, lines)` | Log lines around an event |
+| `output(run_id, stream, tail, head)` | Raw stdout/stderr for a run |
 | `diff(run1, run2)` | Compare errors between runs |
 | `query(sql, limit)` | Run SQL against the database |
 | `register_command(name, cmd, run_now)` | Register and optionally run a command |
