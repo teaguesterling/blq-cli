@@ -42,7 +42,16 @@ def format_query_output(
         df = df.head(limit)
 
     if output_format == "json":
-        return str(df.to_json(orient="records", indent=2))
+        # Use standard json instead of ujson to handle encoding issues
+        import json
+
+        records = df.to_dict(orient="records")
+        # Sanitize any bytes values
+        for row in records:
+            for key, val in row.items():
+                if isinstance(val, bytes):
+                    row[key] = val.decode("utf-8", errors="replace")
+        return json.dumps(records, indent=2, default=str)
     elif output_format == "csv":
         return str(df.to_csv(index=False))
     elif output_format == "markdown":
