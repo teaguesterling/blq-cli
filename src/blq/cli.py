@@ -547,37 +547,46 @@ def main() -> None:
     # Hooks commands
     # =========================================================================
 
-    p_hooks_install = subparsers.add_parser(
-        "hooks-install", help="Install git pre-commit hook"
+    p_hooks = subparsers.add_parser("hooks", help="Git hooks commands")
+    hooks_subparsers = p_hooks.add_subparsers(dest="hooks_command", help="Hooks subcommands")
+
+    # hooks install
+    p_hooks_install = hooks_subparsers.add_parser(
+        "install", help="Install git pre-commit hook"
     )
     p_hooks_install.add_argument(
         "--force", "-f", action="store_true", help="Overwrite existing hook"
     )
     p_hooks_install.set_defaults(func=cmd_hooks_install)
 
-    p_hooks_remove = subparsers.add_parser(
-        "hooks-remove", help="Remove git pre-commit hook"
+    # hooks remove
+    p_hooks_remove = hooks_subparsers.add_parser(
+        "remove", help="Remove git pre-commit hook"
     )
     p_hooks_remove.set_defaults(func=cmd_hooks_remove)
 
-    p_hooks_status = subparsers.add_parser(
-        "hooks-status", help="Show git hook status"
+    # hooks status
+    p_hooks_status = hooks_subparsers.add_parser(
+        "status", help="Show git hook status"
     )
     p_hooks_status.set_defaults(func=cmd_hooks_status)
 
-    p_hooks_run = subparsers.add_parser(
-        "hooks-run", help="Run pre-commit hook commands (called by git hook)"
+    # hooks run
+    p_hooks_run = hooks_subparsers.add_parser(
+        "run", help="Run pre-commit hook commands (called by git hook)"
     )
     p_hooks_run.set_defaults(func=cmd_hooks_run)
 
-    p_hooks_add = subparsers.add_parser(
-        "hooks-add", help="Add a command to pre-commit hook"
+    # hooks add
+    p_hooks_add = hooks_subparsers.add_parser(
+        "add", help="Add a command to pre-commit hook"
     )
     p_hooks_add.add_argument("command", help="Command name to add")
     p_hooks_add.set_defaults(func=cmd_hooks_add)
 
-    p_hooks_list = subparsers.add_parser(
-        "hooks-list", help="List commands in pre-commit hook"
+    # hooks list
+    p_hooks_list = hooks_subparsers.add_parser(
+        "list", help="List commands in pre-commit hook"
     )
     p_hooks_list.set_defaults(func=cmd_hooks_list)
 

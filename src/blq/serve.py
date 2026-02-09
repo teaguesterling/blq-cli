@@ -4,13 +4,26 @@ MCP server for blq.
 Provides tools, resources, and prompts for AI agent integration.
 
 Usage:
-    blq serve                    # stdio transport (for Claude Desktop)
-    blq serve --transport sse    # SSE transport (for HTTP clients)
+    blq mcp serve                    # stdio transport (for Claude Desktop)
+    blq mcp serve --transport sse    # SSE transport (for HTTP clients)
+
+Security:
+    Tools can be disabled via .lq/config.yaml:
+        mcp:
+          disabled_tools:
+            - exec
+            - reset
+            - register_command
+            - unregister_command
+
+    Or via environment variable:
+        BLQ_MCP_DISABLED_TOOLS=exec,reset,register_command
 """
 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from typing import Any
 
@@ -18,6 +31,62 @@ import pandas as pd  # type: ignore[import-untyped]
 from fastmcp import FastMCP
 
 from blq.storage import BlqStorage
+
+
+# ============================================================================
+# Security Configuration
+# ============================================================================
+
+# Tools that can be disabled for security
+SECURITY_SENSITIVE_TOOLS = {
+    "exec",           # Can run arbitrary commands
+    "reset",          # Can delete data
+    "register_command",   # Can modify command registry
+    "unregister_command", # Can modify command registry
+}
+
+# Cache for disabled tools (loaded once at startup)
+_disabled_tools: set[str] | None = None
+
+
+def _load_disabled_tools() -> set[str]:
+    """Load list of disabled tools from config or environment."""
+    global _disabled_tools
+    if _disabled_tools is not None:
+        return _disabled_tools
+
+    disabled: set[str] = set()
+
+    # Check environment variable first
+    env_disabled = os.environ.get("BLQ_MCP_DISABLED_TOOLS", "")
+    if env_disabled:
+        disabled.update(t.strip() for t in env_disabled.split(",") if t.strip())
+
+    # Check .lq/config.yaml
+    try:
+        from blq.cli import BlqConfig
+        config = BlqConfig.find()
+        if config and hasattr(config, "mcp_config"):
+            mcp_config = config.mcp_config or {}
+            disabled_list = mcp_config.get("disabled_tools", [])
+            if isinstance(disabled_list, list):
+                disabled.update(disabled_list)
+    except Exception:
+        pass
+
+    _disabled_tools = disabled
+    return disabled
+
+
+def _check_tool_enabled(tool_name: str) -> None:
+    """Check if a tool is enabled. Raises error if disabled."""
+    disabled = _load_disabled_tools()
+    if tool_name in disabled:
+        raise PermissionError(
+            f"Tool '{tool_name}' is disabled. "
+            f"Enable it by removing from mcp.disabled_tools in .lq/config.yaml "
+            f"or BLQ_MCP_DISABLED_TOOLS environment variable."
+        )
 
 
 def _to_json_safe(value: Any) -> Any:
@@ -960,6 +1029,8 @@ def exec(
     'pytest tests/', then exec('pytest tests/ -v') will run as
     run(command='test', extra=['-v']).
 
+    Note: This tool can be disabled via mcp.disabled_tools config.
+
     Args:
         command: Shell command to run
         args: Additional arguments to append
@@ -969,6 +1040,7 @@ def exec(
         Run result with status, errors, and warnings. If a registered command
         was matched, includes 'matched_command' and optionally 'extra_args'.
     """
+    _check_tool_enabled("exec")
     return _exec_impl(command, args, timeout)
 
 
@@ -1112,6 +1184,8 @@ def register_command(
     returns the existing command (and runs it if run_now=True) instead of
     failing. Use force=True to overwrite an existing command.
 
+    Note: This tool can be disabled via mcp.disabled_tools config.
+
     Args:
         name: Command name (e.g., 'build', 'test')
         cmd: Command to run
@@ -1126,6 +1200,7 @@ def register_command(
         Success status and registered command details. If run_now=True,
         also includes 'run' key with the run result.
     """
+    _check_tool_enabled("register_command")
     return _register_command_impl(name, cmd, description, timeout, capture, force, format, run_now)
 
 
@@ -1133,12 +1208,15 @@ def register_command(
 def unregister_command(name: str) -> dict[str, Any]:
     """Remove a registered command.
 
+    Note: This tool can be disabled via mcp.disabled_tools config.
+
     Args:
         name: Command name to remove
 
     Returns:
         Success status
     """
+    _check_tool_enabled("unregister_command")
     return _unregister_command_impl(name)
 
 
@@ -1278,6 +1356,8 @@ def reset(
 ) -> dict[str, Any]:
     """Reset or reinitialize the blq database.
 
+    Note: This tool can be disabled via mcp.disabled_tools config.
+
     Args:
         mode: Reset level:
             - "data": Clear all run data but keep config and commands
@@ -1288,6 +1368,7 @@ def reset(
     Returns:
         Success status and message
     """
+    _check_tool_enabled("reset")
     return _reset_impl(mode, confirm)
 
 

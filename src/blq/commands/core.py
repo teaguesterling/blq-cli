@@ -413,6 +413,9 @@ class BlqConfig:
     # Watch configuration (private, access via watch_config property)
     _watch_config: WatchConfig | None = field(default=None, repr=False)
 
+    # MCP configuration (private, access via mcp_config property)
+    _mcp_config: dict | None = field(default=None, repr=False)
+
     # Computed paths
     @property
     def logs_dir(self) -> Path:
@@ -515,6 +518,24 @@ class BlqConfig:
             else:
                 self._watch_config = WatchConfig()
         return self._watch_config
+
+    @property
+    def mcp_config(self) -> dict:
+        """Get MCP server configuration.
+
+        Returns:
+            Dict with MCP configuration, including:
+            - disabled_tools: List of tool names to disable
+        """
+        if self._mcp_config is None:
+            # Load from config.yaml
+            if self.config_path.exists():
+                with open(self.config_path) as f:
+                    data = yaml.safe_load(f) or {}
+                self._mcp_config = data.get("mcp", {})
+            else:
+                self._mcp_config = {}
+        return self._mcp_config
 
     @classmethod
     def find(cls, start_dir: Path | None = None) -> BlqConfig | None:
