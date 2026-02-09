@@ -297,9 +297,11 @@ WHERE date >= CURRENT_DATE - INTERVAL '14 days';
 -- ============================================================================
 
 -- Status badge
-CREATE OR REPLACE MACRO blq_status_badge(error_count, warning_count) AS
+CREATE OR REPLACE MACRO blq_status_badge(error_count, warning_count, exit_code := 0) AS
     CASE
+        WHEN exit_code = -1 THEN '[TIME]'
         WHEN error_count > 0 THEN '[FAIL]'
+        WHEN exit_code != 0 THEN '[FAIL]'
         WHEN warning_count > 0 THEN '[WARN]'
         ELSE '[ OK ]'
     END;
@@ -342,7 +344,7 @@ GROUP BY i.id, i.source_name, i.source_type, i.cmd, i.timestamp, i.duration_ms,
 CREATE OR REPLACE MACRO blq_load_source_status() AS TABLE
 SELECT
     source_name,
-    blq_status_badge(error_count, warning_count) AS badge,
+    blq_status_badge(error_count, warning_count, exit_code) AS badge,
     error_count,
     warning_count,
     info_count,
@@ -413,7 +415,7 @@ LIMIT n;
 CREATE OR REPLACE MACRO blq_history(n := 20) AS TABLE
 SELECT
     run_id,
-    blq_status_badge(error_count, warning_count) AS badge,
+    blq_status_badge(error_count, warning_count, exit_code) AS badge,
     source_name,
     event_count,
     error_count,

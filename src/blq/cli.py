@@ -295,6 +295,14 @@ def main() -> None:
         metavar="N",
         help="Use exactly N positional args for placeholders (rest are passthrough)",
     )
+    p_run.add_argument(
+        "--timeout",
+        "-t",
+        type=int,
+        default=None,
+        metavar="SECONDS",
+        help="Timeout in seconds (default: from command config, or no timeout)",
+    )
     p_run.set_defaults(func=cmd_run)
     # Capture control: runtime flags override command config
     capture_group = p_run.add_mutually_exclusive_group()
@@ -337,6 +345,14 @@ def main() -> None:
     )
     p_exec.add_argument(
         "--error-limit", type=int, default=20, help="Max errors/warnings in output (default: 20)"
+    )
+    p_exec.add_argument(
+        "--timeout",
+        "-t",
+        type=int,
+        default=None,
+        metavar="SECONDS",
+        help="Timeout in seconds (default: no timeout)",
     )
     p_exec.add_argument(
         "--no-capture",

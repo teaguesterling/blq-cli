@@ -10,9 +10,12 @@ import argparse
 import logging
 import os
 import platform
+import queue
 import socket
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -65,6 +68,7 @@ def _execute_command(
     error_limit: int = 50,
     session_id: str | None = None,
     capture_env_vars: list[str] | None = None,
+    timeout: int | None = None,
 ) -> RunResult:
     """Execute a command and capture its output.
 
@@ -83,6 +87,7 @@ def _execute_command(
         error_limit: Maximum number of errors to include in result
         session_id: Optional session ID for grouping related runs (watch mode)
         capture_env_vars: Environment variables to capture (default: config.capture_env)
+        timeout: Timeout in seconds. If None, no timeout is applied.
 
     Returns:
         RunResult with execution details and parsed events
@@ -110,8 +115,10 @@ def _execute_command(
 
     logger.debug(f"Running: {command}")
     logger.debug(f"Run ID: {run_id}")
+    if timeout:
+        logger.debug(f"Timeout: {timeout}s")
 
-    # Run command, capturing output
+    # Run command, capturing output with timeout support
     process = subprocess.Popen(
         command,
         shell=True,
@@ -120,15 +127,88 @@ def _execute_command(
         text=True,
     )
 
-    output_lines = []
+    output_lines: list[str] = []
+    timed_out = False
     assert process.stdout is not None  # stdout=PIPE ensures this
-    for line in process.stdout:
-        if not quiet:
-            sys.stdout.write(line)
-            sys.stdout.flush()
-        output_lines.append(line)
 
-    exit_code = process.wait()
+    if timeout is None:
+        # No timeout - simple synchronous read
+        for line in process.stdout:
+            if not quiet:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+            output_lines.append(line)
+        exit_code = process.wait()
+    else:
+        # Timeout enabled - use threading to read output while monitoring time
+        output_queue: queue.Queue[str | None] = queue.Queue()
+
+        def read_output() -> None:
+            """Read output lines and put them in queue."""
+            try:
+                assert process.stdout is not None
+                for line in process.stdout:
+                    output_queue.put(line)
+            finally:
+                output_queue.put(None)  # Signal done
+
+        reader_thread = threading.Thread(target=read_output, daemon=True)
+        reader_thread.start()
+
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                break
+
+            try:
+                line = output_queue.get(timeout=min(remaining, 0.5))
+                if line is None:  # Reader finished
+                    break
+                if not quiet:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                output_lines.append(line)
+            except queue.Empty:
+                # Check if process has finished
+                if process.poll() is not None:
+                    # Drain remaining output
+                    while True:
+                        try:
+                            line = output_queue.get_nowait()
+                            if line is None:
+                                break
+                            if not quiet:
+                                sys.stdout.write(line)
+                                sys.stdout.flush()
+                            output_lines.append(line)
+                        except queue.Empty:
+                            break
+                    break
+
+        if timed_out:
+            # Kill the process and drain any remaining output
+            process.kill()
+            if not quiet:
+                sys.stdout.write(f"\n[TIMEOUT after {timeout}s]\n")
+                sys.stdout.flush()
+            # Give reader thread a moment to finish
+            reader_thread.join(timeout=1.0)
+            # Drain any remaining output that was captured
+            while True:
+                try:
+                    line = output_queue.get_nowait()
+                    if line is None:
+                        break
+                    output_lines.append(line)
+                except queue.Empty:
+                    break
+            exit_code = -1  # Indicate timeout
+        else:
+            exit_code = process.wait()
+            reader_thread.join(timeout=1.0)
+
     completed_at = datetime.now()
     output = "".join(output_lines)
     duration_sec = (completed_at - started_at).total_seconds()
@@ -164,6 +244,7 @@ def _execute_command(
         "git_dirty": git_info.dirty,
         "ci": ci_info,
         "session_id": session_id,
+        "timed_out": timed_out,
     }
 
     # Write using appropriate storage backend
@@ -182,7 +263,9 @@ def _execute_command(
     warning_events = [e for e in events if e.get("severity") == "warning"]
 
     # Determine status
-    if error_events:
+    if timed_out:
+        status = "TIMEOUT"
+    elif error_events:
         status = "FAIL"
     elif warning_events:
         status = "WARN"
@@ -450,6 +533,11 @@ def cmd_run(args: argparse.Namespace) -> None:
         exit_code = _run_no_capture(command, quiet)
         sys.exit(exit_code)
 
+    # Determine timeout: CLI flag overrides command config
+    timeout = getattr(args, "timeout", None)
+    if timeout is None and cmd_name in registered_commands:
+        timeout = registered_commands[cmd_name].timeout
+
     # Execute command with capture
     result = _execute_command(
         command=command,
@@ -461,6 +549,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         keep_raw=True if (args.keep_raw or structured_output) else None,
         error_limit=args.error_limit,
         capture_env_vars=capture_env_vars,
+        timeout=timeout,
     )
 
     # Output based on format
@@ -532,6 +621,7 @@ def cmd_exec(args: argparse.Namespace) -> None:
         sys.exit(exit_code)
 
     # Execute command with capture
+    timeout = getattr(args, "timeout", None)
     result = _execute_command(
         command=command,
         source_name=source_name,
@@ -541,6 +631,7 @@ def cmd_exec(args: argparse.Namespace) -> None:
         quiet=quiet,
         keep_raw=True if (args.keep_raw or structured_output) else None,
         error_limit=args.error_limit,
+        timeout=timeout,
     )
 
     # Output based on format

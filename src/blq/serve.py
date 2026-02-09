@@ -110,6 +110,19 @@ def _safe_int(value: Any) -> int | None:
         return None
 
 
+def _compute_status(error_count: int, warning_count: int, exit_code: int | None) -> str:
+    """Compute run status from counts and exit code."""
+    if exit_code == -1:
+        return "TIMEOUT"
+    if error_count > 0:
+        return "FAIL"
+    if exit_code is not None and exit_code != 0:
+        return "FAIL"
+    if warning_count > 0:
+        return "WARN"
+    return "OK"
+
+
 # Create the MCP server
 mcp = FastMCP(
     "blq",
@@ -176,6 +189,8 @@ def _run_impl(
     """
     # Build command for blq run (registered commands only)
     cmd_parts = ["blq", "run", "--json", "--quiet"]
+    if timeout:
+        cmd_parts.extend(["--timeout", str(timeout)])
     cmd_parts.append(command)
 
     if args:
@@ -193,11 +208,13 @@ def _run_impl(
         cmd_parts.extend(extra)
 
     try:
+        # Add buffer to subprocess timeout so CLI timeout fires first
+        subprocess_timeout = timeout + 10 if timeout else None
         result = subprocess.run(
             cmd_parts,
             capture_output=True,
             text=True,
-            timeout=timeout,
+            timeout=subprocess_timeout,
         )
 
         # Parse JSON output and return concise response
@@ -344,16 +361,20 @@ def _exec_impl(
     # No match - run as ad-hoc exec
     # Split command into parts since CLI uses REMAINDER parsing
     cmd_parts = ["blq", "exec", "--json", "--quiet"]
+    if timeout:
+        cmd_parts.extend(["--timeout", str(timeout)])
     cmd_parts.extend(shlex.split(command))
     if args:
         cmd_parts.extend(args)
 
     try:
+        # Add buffer to subprocess timeout so CLI timeout fires first
+        subprocess_timeout = timeout + 10 if timeout else None
         result = subprocess.run(
             cmd_parts,
             capture_output=True,
             text=True,
-            timeout=timeout,
+            timeout=subprocess_timeout,
         )
 
         # Parse JSON output and return concise response
@@ -1036,7 +1057,11 @@ def _info_impl(ref: str) -> dict[str, Any]:
             "source_name": _to_json_safe(row.get("source_name")),
             "source_type": _to_json_safe(row.get("source_type")),
             "command": _to_json_safe(row.get("command")),
-            "status": "FAIL" if (_safe_int(row.get("error_count")) or 0) > 0 else "OK",
+            "status": _compute_status(
+                _safe_int(row.get("error_count")) or 0,
+                _safe_int(row.get("warning_count")) or 0,
+                _safe_int(row.get("exit_code")),
+            ),
             "exit_code": _safe_int(row.get("exit_code")),
             "error_count": _safe_int(row.get("error_count")) or 0,
             "warning_count": _safe_int(row.get("warning_count")) or 0,
