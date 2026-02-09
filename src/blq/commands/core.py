@@ -47,21 +47,80 @@ GLOBAL_PROJECTS_PATH = GLOBAL_LQ_DIR / PROJECTS_DIR
 
 @dataclass
 class EventRef:
-    """Reference to a specific event within a run."""
+    """Reference to a specific event or run.
+
+    Supports multiple formats:
+    - "5" - run_id only (run reference)
+    - "5:3" - run_id:event_id (numeric only)
+    - "test:5" - tag:run_id (run reference)
+    - "test:5:3" - tag:run_id:event_id (full reference)
+    """
 
     run_id: int
-    event_id: int
+    event_id: int | None = None  # None means "all events in run"
+    tag: str | None = None
+
+    @property
+    def is_run_ref(self) -> bool:
+        """True if this is a run reference (no specific event)."""
+        return self.event_id is None
+
+    @property
+    def run_ref(self) -> str:
+        """Get the run reference string (without event_id)."""
+        if self.tag:
+            return f"{self.tag}:{self.run_id}"
+        return str(self.run_id)
 
     def __str__(self) -> str:
-        return f"{self.run_id}:{self.event_id}"
+        if self.tag:
+            if self.event_id is not None:
+                return f"{self.tag}:{self.run_id}:{self.event_id}"
+            return f"{self.tag}:{self.run_id}"
+        if self.event_id is not None:
+            return f"{self.run_id}:{self.event_id}"
+        return str(self.run_id)
 
     @classmethod
     def parse(cls, ref: str) -> EventRef:
-        """Parse a reference string like '5:3' into an EventRef."""
+        """Parse a reference string into an EventRef.
+
+        Formats:
+        - "5" - run_id only
+        - "5:3" - run_id:event_id
+        - "test:5" - tag:run_id
+        - "test:5:3" - tag:run_id:event_id
+        """
         parts = ref.split(":")
-        if len(parts) != 2:
-            raise ValueError(f"Invalid event reference: {ref}. Expected format: run_id:event_id")
-        return cls(run_id=int(parts[0]), event_id=int(parts[1]))
+
+        if len(parts) == 1:
+            # Just a number - run_id only
+            return cls(run_id=int(parts[0]))
+
+        elif len(parts) == 2:
+            # Could be "5:3" or "test:5"
+            try:
+                run_id = int(parts[0])
+                event_id = int(parts[1])
+                return cls(run_id=run_id, event_id=event_id)
+            except ValueError:
+                # First part is a tag
+                tag = parts[0]
+                run_id = int(parts[1])
+                return cls(run_id=run_id, tag=tag)
+
+        elif len(parts) == 3:
+            # "tag:run_id:event_id"
+            tag = parts[0]
+            run_id = int(parts[1])
+            event_id = int(parts[2])
+            return cls(run_id=run_id, event_id=event_id, tag=tag)
+
+        else:
+            raise ValueError(
+                f"Invalid reference: {ref}. "
+                "Expected format: run_id, run_id:event_id, tag:run_id, or tag:run_id:event_id"
+            )
 
 
 @dataclass

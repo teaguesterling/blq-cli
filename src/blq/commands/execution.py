@@ -488,7 +488,13 @@ def cmd_exec(args: argparse.Namespace) -> None:
 
     # Build command from args - always treat as literal shell command
     command = " ".join(args.command)
-    source_name = args.name or args.command[0]
+    # Use provided name, or extract basename of first command token
+    if args.name:
+        source_name = args.name
+    else:
+        import os
+        first_token = args.command[0]
+        source_name = os.path.basename(first_token)
 
     # Determine capture mode (default: capture)
     should_capture = not args.no_capture

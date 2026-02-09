@@ -8,11 +8,107 @@ Supports table, JSON, and markdown output formats.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Sequence
+
+
+def format_age(age_str: str) -> str:
+    """Format age string to a compact human-readable format.
+
+    Converts "0 days 03:13:38.171..." to "3h" or "5m" etc.
+    """
+    if not age_str:
+        return ""
+
+    # Parse "X days HH:MM:SS.microseconds" format
+    match = re.match(r"(\d+)\s+days?\s+(\d+):(\d+):(\d+)", str(age_str))
+    if match:
+        days = int(match.group(1))
+        hours = int(match.group(2))
+        minutes = int(match.group(3))
+
+        if days > 0:
+            return f"{days}d"
+        elif hours > 0:
+            return f"{hours}h"
+        elif minutes > 0:
+            return f"{minutes}m"
+        else:
+            return "<1m"
+
+    # Return as-is if can't parse
+    return str(age_str)[:10]
+
+
+def format_relative_time(timestamp_str: str) -> str:
+    """Format timestamp as relative time (e.g., '5m ago', '2d ago').
+
+    Args:
+        timestamp_str: ISO format or similar timestamp string
+
+    Returns:
+        Relative time string like "5m ago", "2h ago", "3d ago"
+    """
+    if not timestamp_str:
+        return ""
+
+    try:
+        # Try parsing various formats
+        ts_str = str(timestamp_str).replace("T", " ")
+        # Remove microseconds if present
+        if "." in ts_str:
+            ts_str = ts_str.split(".")[0]
+
+        ts = datetime.strptime(ts_str[:19], "%Y-%m-%d %H:%M:%S")
+        now = datetime.now()
+        delta = now - ts
+
+        seconds = int(delta.total_seconds())
+        if seconds < 0:
+            return "now"
+        elif seconds < 60:
+            return f"{seconds}s ago"
+        elif seconds < 3600:
+            return f"{seconds // 60}m ago"
+        elif seconds < 86400:
+            return f"{seconds // 3600}h ago"
+        else:
+            days = seconds // 86400
+            return f"{days}d ago"
+    except (ValueError, TypeError):
+        # Return shortened timestamp if can't parse
+        return str(timestamp_str)[:16]
+
+
+def format_file_location(row: dict) -> str:
+    """Format file:line showing end of path.
+
+    Converts "very/long/path/to/tests/test_foo.py" line 20 to
+    ".../tests/test_foo.py:20"
+    """
+    ref_file = row.get("ref_file") or ""
+    ref_line = row.get("ref_line")
+
+    if not ref_file:
+        return ""
+
+    # Show last 2-3 path components
+    parts = ref_file.replace("\\", "/").split("/")
+    if len(parts) > 3:
+        short_path = ".../" + "/".join(parts[-2:])
+    elif len(parts) > 1:
+        short_path = "/".join(parts[-2:])
+    else:
+        short_path = ref_file
+
+    # Append line number if present
+    if ref_line:
+        return f"{short_path}:{ref_line}"
+    return short_path
 
 
 @dataclass
@@ -26,6 +122,7 @@ class Column:
     max_width: int = 50
     align: str = "left"  # left, right, center
     truncate: bool = True  # Truncate long values
+    truncate_left: bool = False  # Truncate from left (show end) instead of right
     priority: int = 1  # Lower = more important (shown first)
     format_fn: Any = None  # Optional formatting function
 
@@ -36,30 +133,27 @@ class Column:
 
 # Standard column definitions for different data types
 HISTORY_COLUMNS = [
-    Column("run_ref", "Ref", min_width=6, max_width=12, priority=0),
-    Column("status", "Status", min_width=4, max_width=8, priority=0),
-    Column("error_count", "Err", min_width=3, max_width=5, align="right", priority=0),
-    Column("warning_count", "Warn", min_width=4, max_width=5, align="right", priority=1),
-    Column("started_at", "Started", min_width=16, max_width=20, priority=1),
-    Column("git_branch", "Branch", min_width=6, max_width=20, priority=2),
+    Column("run_ref", "Ref", min_width=8, max_width=18, priority=0, truncate=False),
+    Column("counts", "E/W/T", min_width=9, max_width=12, align="right", priority=0),
+    Column("when", "When", min_width=6, max_width=10, priority=1),
+    Column("git_branch", "Branch", min_width=6, max_width=15, priority=2),
     Column("git_commit", "Commit", min_width=7, max_width=8, priority=2),
-    Column("command", "Command", min_width=10, max_width=60, priority=3),
+    Column("command", "Command", min_width=10, max_width=50, priority=3),
 ]
 
 ERRORS_COLUMNS = [
-    Column("ref", "Ref", min_width=6, max_width=12, priority=0),
-    Column("severity", "Sev", min_width=5, max_width=7, priority=0),
-    Column("ref_file", "File", min_width=10, max_width=40, priority=0),
-    Column("ref_line", "Line", min_width=4, max_width=6, align="right", priority=1),
-    Column("message", "Message", min_width=20, max_width=80, priority=1),
+    Column("source_name", "Source", min_width=6, max_width=12, priority=0),
+    Column("ref", "Ref", min_width=10, max_width=18, priority=0, truncate=False),
+    Column("severity", "Sev", min_width=5, max_width=7, priority=1),
+    Column("location", "Location", min_width=15, max_width=30, priority=0, truncate_left=True),
+    Column("message", "Message", min_width=15, max_width=50, priority=1),
 ]
 
 STATUS_COLUMNS = [
-    Column("source_name", "Source", min_width=6, max_width=20, priority=0),
-    Column("status", "Status", min_width=4, max_width=8, priority=0),
-    Column("last_run", "Last Run", min_width=16, max_width=20, priority=1),
-    Column("error_count", "Errors", min_width=4, max_width=6, align="right", priority=0),
-    Column("warning_count", "Warnings", min_width=4, max_width=8, align="right", priority=1),
+    Column("status", "Source", min_width=10, max_width=30, priority=0),
+    Column("errors", "Err", min_width=3, max_width=6, align="right", priority=0),
+    Column("warnings", "Warn", min_width=4, max_width=6, align="right", priority=1),
+    Column("age", "Age", min_width=4, max_width=8, priority=1, format_fn=format_age),
 ]
 
 COMMANDS_COLUMNS = [
@@ -229,7 +323,11 @@ class TableFormatter:
 
         # Truncate if needed
         if col.truncate and len(text) > width:
-            text = text[: width - 1] + "…"
+            if col.truncate_left:
+                # Show end of text (useful for file paths)
+                text = "…" + text[-(width - 1):]
+            else:
+                text = text[: width - 1] + "…"
 
         return text
 
@@ -346,10 +444,33 @@ def format_history(
     """Format run history data."""
     if output_format == "json":
         return format_json(data)
-    elif output_format == "markdown":
-        return format_markdown(data, HISTORY_COLUMNS)
+
+    # Preprocess: add run_ref, counts, and relative time
+    processed = []
+    for row in data:
+        new_row = dict(row)
+        # Create run_ref from tag:run_id or just run_id
+        tag = row.get("tag") or row.get("source_name") or ""
+        run_id = row.get("run_id") or row.get("run_serial") or ""
+        if tag and run_id:
+            new_row["run_ref"] = f"{tag}:{run_id}"
+        else:
+            new_row["run_ref"] = str(run_id)
+
+        # Create combined counts: E/W/T (errors/warnings/total)
+        errors = row.get("error_count") or 0
+        warnings = row.get("warning_count") or 0
+        total = errors + warnings
+        new_row["counts"] = f"{errors}/{warnings}/{total}"
+
+        # Create relative time
+        new_row["when"] = format_relative_time(row.get("started_at", ""))
+        processed.append(new_row)
+
+    if output_format == "markdown":
+        return format_markdown(processed, HISTORY_COLUMNS)
     else:
-        return format_table(data, HISTORY_COLUMNS, max_width)
+        return format_table(processed, HISTORY_COLUMNS, max_width)
 
 
 def format_errors(
@@ -360,10 +481,18 @@ def format_errors(
     """Format error/warning data."""
     if output_format == "json":
         return format_json(data)
-    elif output_format == "markdown":
-        return format_markdown(data, ERRORS_COLUMNS)
+
+    # Preprocess: add combined location column
+    processed = []
+    for row in data:
+        new_row = dict(row)
+        new_row["location"] = format_file_location(row)
+        processed.append(new_row)
+
+    if output_format == "markdown":
+        return format_markdown(processed, ERRORS_COLUMNS)
     else:
-        return format_table(data, ERRORS_COLUMNS, max_width)
+        return format_table(processed, ERRORS_COLUMNS, max_width)
 
 
 def format_status(
@@ -392,6 +521,116 @@ def format_commands(
         return format_markdown(data, COMMANDS_COLUMNS)
     else:
         return format_table(data, COMMANDS_COLUMNS, max_width)
+
+
+RUN_DETAIL_COLUMNS = [
+    Column("field", "Field", min_width=15, max_width=20, priority=0),
+    Column("value", "Value", min_width=20, max_width=80, priority=0),
+]
+
+
+def format_run_details(
+    run: dict[str, Any],
+    output_format: str = "table",
+    detailed: bool = False,
+) -> str:
+    """Format detailed run information.
+
+    Args:
+        run: Run data dictionary
+        output_format: One of 'table', 'json', 'markdown'
+        detailed: Show all fields (vs. just key fields)
+
+    Returns:
+        Formatted string
+    """
+    if output_format == "json":
+        return format_json(run)
+
+    # Key fields to show by default (order matters)
+    key_fields = [
+        "run_ref",
+        "source_name",
+        "command",
+        "status",
+        "error_count",
+        "warning_count",
+        "started_at",
+        "duration",
+        "exit_code",
+        "git_branch",
+        "git_commit",
+    ]
+
+    # Additional fields for detailed view
+    extra_fields = [
+        "git_dirty",
+        "cwd",
+        "executable_path",
+        "hostname",
+        "platform",
+        "arch",
+        "run_id",
+        "run_serial",
+        "session_id",
+    ]
+
+    # Build run_ref if not present
+    if "run_ref" not in run:
+        tag = run.get("tag") or run.get("source_name") or ""
+        run_id = run.get("run_id") or run.get("run_serial") or ""
+        if tag and run_id:
+            run["run_ref"] = f"{tag}:{run_id}"
+        else:
+            run["run_ref"] = str(run_id)
+
+    # Collect fields to display
+    fields_to_show = key_fields.copy()
+    if detailed:
+        fields_to_show.extend(extra_fields)
+
+    # Build key-value pairs
+    data = []
+    for field in fields_to_show:
+        if field in run and run[field] is not None:
+            value = run[field]
+            # Format special fields
+            if field == "started_at":
+                value = f"{value} ({format_relative_time(str(value))})"
+            elif field == "git_dirty":
+                value = "Yes" if value else "No"
+            elif field == "duration":
+                # Format duration nicely
+                if isinstance(value, (int, float)):
+                    if value < 1:
+                        value = f"{value * 1000:.0f}ms"
+                    elif value < 60:
+                        value = f"{value:.1f}s"
+                    else:
+                        mins = int(value // 60)
+                        secs = value % 60
+                        value = f"{mins}m {secs:.0f}s"
+            data.append({"field": field.replace("_", " ").title(), "value": str(value)})
+
+    # Add environment and CI info if detailed
+    if detailed:
+        if run.get("environment"):
+            env = run["environment"]
+            if isinstance(env, dict):
+                env_str = ", ".join(f"{k}={v[:20]}..." if len(str(v)) > 20 else f"{k}={v}"
+                                    for k, v in list(env.items())[:5])
+                if len(env) > 5:
+                    env_str += f" (+{len(env) - 5} more)"
+                data.append({"field": "Environment", "value": env_str})
+        if run.get("ci"):
+            ci = run["ci"]
+            if isinstance(ci, dict):
+                data.append({"field": "CI Provider", "value": ci.get("provider", "?")})
+
+    if output_format == "markdown":
+        return format_markdown(data, RUN_DETAIL_COLUMNS)
+    else:
+        return format_table(data, RUN_DETAIL_COLUMNS)
 
 
 def get_output_format(args: Any) -> str:

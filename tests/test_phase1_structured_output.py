@@ -32,15 +32,34 @@ class TestEventRef:
         ref = EventRef(run_id=42, event_id=7)
         assert str(ref) == "42:7"
 
-    def test_parse_invalid_format_no_colon(self):
-        """Raise error for missing colon."""
-        with pytest.raises(ValueError, match="Invalid event reference"):
-            EventRef.parse("53")
+    def test_parse_run_id_only(self):
+        """Parse run_id only (no colon)."""
+        ref = EventRef.parse("53")
+        assert ref.run_id == 53
+        assert ref.event_id is None
+        assert ref.tag is None
+        assert ref.is_run_ref
+
+    def test_parse_tag_run_id_event_id(self):
+        """Parse tag:run_id:event_id format."""
+        ref = EventRef.parse("test:5:3")
+        assert ref.tag == "test"
+        assert ref.run_id == 5
+        assert ref.event_id == 3
+        assert not ref.is_run_ref
+
+    def test_parse_tag_run_id(self):
+        """Parse tag:run_id format (run reference)."""
+        ref = EventRef.parse("build:24")
+        assert ref.tag == "build"
+        assert ref.run_id == 24
+        assert ref.event_id is None
+        assert ref.is_run_ref
 
     def test_parse_invalid_format_too_many_colons(self):
-        """Raise error for too many colons."""
-        with pytest.raises(ValueError, match="Invalid event reference"):
-            EventRef.parse("5:3:1")
+        """Raise error for more than 3 parts."""
+        with pytest.raises(ValueError, match="Invalid reference"):
+            EventRef.parse("a:b:c:d")
 
     def test_parse_invalid_format_non_numeric(self):
         """Raise error for non-numeric values."""

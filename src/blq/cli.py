@@ -341,7 +341,11 @@ def main() -> None:
 
     # status
     p_status = subparsers.add_parser("status", help="Show status of all sources")
+    p_status.add_argument(
+        "ref", nargs="?", help="Run ref to show details for (e.g., 'test:24')"
+    )
     p_status.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    p_status.add_argument("--details", "-d", action="store_true", help="Show all fields")
     p_status.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_status.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
     p_status.set_defaults(func=cmd_status)
@@ -372,6 +376,10 @@ def main() -> None:
 
     # history
     p_history = subparsers.add_parser("history", help="Show run history")
+    p_history.add_argument(
+        "ref", nargs="?", help="Filter by tag or ref (e.g., 'test' or 'test:24')"
+    )
+    p_history.add_argument("--tag", "-t", help="Filter by tag name")
     p_history.add_argument("--limit", "-n", type=int, default=20, help="Max results")
     p_history.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_history.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")

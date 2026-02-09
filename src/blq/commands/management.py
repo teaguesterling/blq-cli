@@ -17,16 +17,55 @@ from blq.commands.core import (
     BlqConfig,
     get_store_for_args,
 )
+from blq.commands.core import EventRef
 from blq.output import (
     format_errors,
     format_history,
+    format_run_details,
     format_status,
     get_output_format,
 )
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    """Show status of all sources."""
+    """Show status of all sources, or details for a specific run.
+
+    If a ref is provided (e.g., 'test:24'), shows detailed info for that run.
+    Otherwise shows status summary for all sources.
+    """
+    ref_arg = getattr(args, "ref", None)
+
+    # If a ref is provided, show run details
+    if ref_arg:
+        try:
+            ref = EventRef.parse(ref_arg)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        try:
+            store = get_store_for_args(args)
+            # Get full run details
+            result = store.sql(f"""
+                SELECT * FROM blq_load_runs()
+                WHERE run_id = {ref.run_id}
+            """).df()
+
+            if result.empty:
+                print(f"Run {ref_arg} not found", file=sys.stderr)
+                sys.exit(1)
+
+            run_data = result.to_dict(orient="records")[0]
+            output_format = get_output_format(args)
+            detailed = getattr(args, "details", False) or getattr(args, "verbose", False)
+            print(format_run_details(run_data, output_format, detailed=detailed))
+
+        except duckdb.Error as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    # No ref provided - show overall status
     try:
         store = get_store_for_args(args)
         conn = store.connection
@@ -121,13 +160,33 @@ def cmd_summary(args: argparse.Namespace) -> None:
 
 
 def cmd_history(args: argparse.Namespace) -> None:
-    """Show run history."""
+    """Show run history.
+
+    Can filter by tag/ref (e.g., 'blq history test' or 'blq history -t test').
+    """
     try:
         store = get_store_for_args(args)
-        result = store.runs(limit=args.limit).df()
+
+        # Get filter from positional arg or --tag flag
+        tag_filter = getattr(args, "ref", None) or getattr(args, "tag", None)
+
+        if tag_filter:
+            # Filter by tag/source_name
+            result = store.sql(f"""
+                SELECT * FROM blq_load_runs()
+                WHERE tag = '{tag_filter}' OR source_name = '{tag_filter}'
+                ORDER BY run_id DESC
+                LIMIT {args.limit}
+            """).df()
+        else:
+            result = store.runs(limit=args.limit).df()
 
         # Convert to list of dicts for formatting
         data = result.to_dict(orient="records")
+
+        if not data and tag_filter:
+            print(f"No runs found for '{tag_filter}'", file=sys.stderr)
+            return
 
         # Format and print
         output_format = get_output_format(args)

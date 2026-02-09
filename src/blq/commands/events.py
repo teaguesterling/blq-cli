@@ -16,11 +16,16 @@ from blq.commands.core import (
     BlqConfig,
     EventRef,
 )
+from blq.output import format_errors, get_output_format
 from blq.storage import BlqStorage
 
 
 def cmd_event(args: argparse.Namespace) -> None:
-    """Show event details by reference."""
+    """Show event details by reference.
+
+    If ref is a run reference (e.g., test:24), shows all events from that run.
+    If ref is an event reference (e.g., test:24:1), shows that specific event.
+    """
     config = BlqConfig.ensure()
 
     try:
@@ -31,25 +36,38 @@ def cmd_event(args: argparse.Namespace) -> None:
 
     try:
         store = BlqStorage.open(config.lq_dir)
-        event = store.event(ref.run_id, ref.event_id)
 
-        if event is None:
-            print(f"Event {args.ref} not found", file=sys.stderr)
-            sys.exit(1)
+        if ref.is_run_ref:
+            # Show all events from this run
+            events = store.events(run_id=ref.run_id).df().to_dict(orient="records")
 
-        if args.json:
-            print(json.dumps(event, indent=2, default=str))
+            if not events:
+                print(f"No events found for run {ref.run_ref}", file=sys.stderr)
+                sys.exit(1)
+
+            output_format = get_output_format(args)
+            print(format_errors(events, output_format))
         else:
-            # Pretty print event details
-            print(f"Event: {args.ref}")
-            print(f"  Source: {event.get('source_name', '?')}")
-            print(f"  Severity: {event.get('severity', '?')}")
-            print(f"  File: {event.get('ref_file', '?')}:{event.get('ref_line', '?')}")
-            print(f"  Message: {event.get('message', '?')}")
-            if event.get("fingerprint"):
-                print(f"  Fingerprint: {event.get('fingerprint')}")
-            if event.get("log_line_start"):
-                print(f"  Log lines: {event.get('log_line_start')}-{event.get('log_line_end')}")
+            # Show single event
+            event = store.event(ref.run_id, ref.event_id)
+
+            if event is None:
+                print(f"Event {args.ref} not found", file=sys.stderr)
+                sys.exit(1)
+
+            if getattr(args, "json", False):
+                print(json.dumps(event, indent=2, default=str))
+            else:
+                # Pretty print event details
+                print(f"Event: {args.ref}")
+                print(f"  Source: {event.get('source_name', '?')}")
+                print(f"  Severity: {event.get('severity', '?')}")
+                print(f"  File: {event.get('ref_file', '?')}:{event.get('ref_line', '?')}")
+                print(f"  Message: {event.get('message', '?')}")
+                if event.get("fingerprint"):
+                    print(f"  Fingerprint: {event.get('fingerprint')}")
+                if event.get("log_line_start"):
+                    print(f"  Log lines: {event.get('log_line_start')}-{event.get('log_line_end')}")
 
     except duckdb.Error as e:
         print(f"Error: {e}", file=sys.stderr)
