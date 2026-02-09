@@ -523,7 +523,7 @@ class BlqStorage:
         # Convert serial number to invocation ID if needed
         if isinstance(run_id, int):
             result = self._conn.execute(
-                "SELECT id FROM invocations ORDER BY started_at LIMIT 1 OFFSET ?",
+                "SELECT id FROM invocations ORDER BY timestamp LIMIT 1 OFFSET ?",
                 [run_id - 1],
             ).fetchone()
             if not result:
@@ -546,7 +546,7 @@ class BlqStorage:
         # Convert serial number to invocation ID if needed
         if isinstance(run_id, int):
             result = self._conn.execute(
-                "SELECT id FROM invocations ORDER BY started_at LIMIT 1 OFFSET ?",
+                "SELECT id FROM invocations ORDER BY timestamp LIMIT 1 OFFSET ?",
                 [run_id - 1],
             ).fetchone()
             if not result:

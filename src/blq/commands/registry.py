@@ -7,17 +7,22 @@ Handles listing, registering, and unregistering commands.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 
 from blq.commands.core import (
     BlqConfig,
     RegisteredCommand,
 )
+from blq.output import (
+    format_commands,
+    get_output_format,
+)
 
 
 def cmd_commands(args: argparse.Namespace) -> None:
     """List registered commands."""
+    import json
+
     config = BlqConfig.ensure()
     commands = config.commands
 
@@ -26,16 +31,25 @@ def cmd_commands(args: argparse.Namespace) -> None:
         print("Use 'blq register <name> <command>' to register a command.")
         return
 
-    if args.json:
+    output_format = get_output_format(args)
+
+    if output_format == "json":
+        # JSON: dict keyed by name for backward compatibility
         data = {name: cmd.to_dict() for name, cmd in commands.items()}
         print(json.dumps(data, indent=2))
     else:
-        print(f"{'Name':<15} {'Command':<40} {'Capture':<8} Description")
-        print("-" * 80)
-        for name, cmd in commands.items():
-            cmd_display = cmd.cmd[:37] + "..." if len(cmd.cmd) > 40 else cmd.cmd
-            capture_str = "yes" if cmd.capture else "no"
-            print(f"{name:<15} {cmd_display:<40} {capture_str:<8} {cmd.description}")
+        # Table/Markdown: list of dicts
+        data = [
+            {
+                "name": name,
+                "cmd": cmd.cmd,
+                "description": cmd.description or "",
+                "timeout": cmd.timeout,
+                "capture": cmd.capture,
+            }
+            for name, cmd in commands.items()
+        ]
+        print(format_commands(data, output_format))
 
 
 def _normalize_cmd(cmd: str) -> str:
@@ -49,7 +63,7 @@ def cmd_register(args: argparse.Namespace) -> None:
     If a command with the same name or same command string already exists,
     uses the existing command instead of failing. Use --force to overwrite.
     """
-    from blq.commands.core import cmd_run
+    from blq.commands.execution import cmd_run
 
     config = BlqConfig.ensure()
     commands = config.commands

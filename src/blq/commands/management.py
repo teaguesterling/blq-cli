@@ -17,6 +17,12 @@ from blq.commands.core import (
     BlqConfig,
     get_store_for_args,
 )
+from blq.output import (
+    format_errors,
+    format_history,
+    format_status,
+    get_output_format,
+)
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -25,16 +31,21 @@ def cmd_status(args: argparse.Namespace) -> None:
         store = get_store_for_args(args)
         conn = store.connection
 
-        if args.verbose:
+        if getattr(args, "verbose", False):
             result = conn.execute("FROM blq_status_verbose()").fetchdf()
         else:
             result = conn.execute("FROM blq_status()").fetchdf()
-        print(result.to_string(index=False))
+
+        data = result.to_dict(orient="records")
+        output_format = get_output_format(args)
+        print(format_status(data, output_format))
     except duckdb.Error:
         # Fallback if macros aren't working
         store = get_store_for_args(args)
         result = store.events(limit=10).df()
-        print(result.to_string(index=False))
+        data = result.to_dict(orient="records")
+        output_format = get_output_format(args)
+        print(format_errors(data, output_format))
 
 
 def cmd_errors(args: argparse.Namespace) -> None:
@@ -49,22 +60,17 @@ def cmd_errors(args: argparse.Namespace) -> None:
 
         where = " AND ".join(conditions)
 
-        if args.compact:
-            columns = "run_id, event_id, ref_file, ref_line, message"
-        else:
-            columns = "*"
-
+        # Always get full columns for formatting, select happens in formatter
         result = store.sql(f"""
-            SELECT {columns} FROM blq_load_events()
+            SELECT * FROM blq_load_events()
             WHERE {where}
             ORDER BY run_id DESC, event_id
             LIMIT {args.limit}
         """).df()
 
-        if args.json:
-            print(result.to_json(orient="records"))
-        else:
-            print(result.to_string(index=False))
+        data = result.to_dict(orient="records")
+        output_format = get_output_format(args)
+        print(format_errors(data, output_format))
     except duckdb.Error as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
@@ -74,13 +80,24 @@ def cmd_warnings(args: argparse.Namespace) -> None:
     """Show recent warnings."""
     try:
         store = get_store_for_args(args)
+
+        # Build SQL query with filters
+        conditions = ["severity = 'warning'"]
+        if getattr(args, "source", None):
+            conditions.append(f"source_name = '{args.source}'")
+
+        where = " AND ".join(conditions)
+
         result = store.sql(f"""
             SELECT * FROM blq_load_events()
-            WHERE severity = 'warning'
+            WHERE {where}
             ORDER BY run_id DESC, event_id
             LIMIT {args.limit}
         """).df()
-        print(result.to_string(index=False))
+
+        data = result.to_dict(orient="records")
+        output_format = get_output_format(args)
+        print(format_errors(data, output_format))  # Same format as errors
     except duckdb.Error as e:
         print(f"Error: {e}", file=sys.stderr)
 
@@ -95,7 +112,10 @@ def cmd_summary(args: argparse.Namespace) -> None:
             result = conn.execute("FROM blq_summary_latest()").fetchdf()
         else:
             result = conn.execute("FROM blq_summary()").fetchdf()
-        print(result.to_string(index=False))
+
+        data = result.to_dict(orient="records")
+        output_format = get_output_format(args)
+        print(format_status(data, output_format))  # Similar format to status
     except duckdb.Error as e:
         print(f"Error: {e}", file=sys.stderr)
 
@@ -105,7 +125,13 @@ def cmd_history(args: argparse.Namespace) -> None:
     try:
         store = get_store_for_args(args)
         result = store.runs(limit=args.limit).df()
-        print(result.to_string(index=False))
+
+        # Convert to list of dicts for formatting
+        data = result.to_dict(orient="records")
+
+        # Format and print
+        output_format = get_output_format(args)
+        print(format_history(data, output_format))
     except duckdb.Error as e:
         print(f"Error: {e}", file=sys.stderr)
 

@@ -342,6 +342,8 @@ def main() -> None:
     # status
     p_status = subparsers.add_parser("status", help="Show status of all sources")
     p_status.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    p_status.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_status.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
     p_status.set_defaults(func=cmd_status)
 
     # errors
@@ -349,23 +351,30 @@ def main() -> None:
     p_errors.add_argument("--source", "-s", help="Filter by source")
     p_errors.add_argument("--limit", "-n", type=int, default=10, help="Max results")
     p_errors.add_argument("--compact", "-c", action="store_true", help="Compact format")
-    p_errors.add_argument("--json", "-j", action="store_true", help="JSON output")
+    p_errors.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_errors.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
     p_errors.set_defaults(func=cmd_errors)
 
     # warnings
     p_warnings = subparsers.add_parser("warnings", help="Show recent warnings")
     p_warnings.add_argument("--source", "-s", help="Filter by source")
     p_warnings.add_argument("--limit", "-n", type=int, default=10, help="Max results")
+    p_warnings.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_warnings.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
     p_warnings.set_defaults(func=cmd_warnings)
 
     # summary
     p_summary = subparsers.add_parser("summary", help="Aggregate summary")
     p_summary.add_argument("--latest", "-l", action="store_true", help="Latest run only")
+    p_summary.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_summary.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
     p_summary.set_defaults(func=cmd_summary)
 
     # history
     p_history = subparsers.add_parser("history", help="Show run history")
     p_history.add_argument("--limit", "-n", type=int, default=20, help="Max results")
+    p_history.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_history.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
     p_history.set_defaults(func=cmd_history)
 
     # sql
@@ -413,6 +422,7 @@ def main() -> None:
     # commands
     p_commands = subparsers.add_parser("commands", help="List registered commands")
     p_commands.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_commands.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
     p_commands.set_defaults(func=cmd_commands)
 
     # register
