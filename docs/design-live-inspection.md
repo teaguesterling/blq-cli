@@ -1,6 +1,6 @@
 # Design: Live Inspection of Long-Running Tasks
 
-**Status:** Phase 1-3 Implemented
+**Status:** Phase 1-4 Implemented
 **Date:** 2026-02-10
 **Last Updated:** 2026-02-10
 
@@ -15,7 +15,7 @@ This feature enables inspection of long-running build/test commands while they'r
 | Phase 1 | Schema changes (attempts/outcomes tables) | **Done** |
 | Phase 2 | Live output streaming | **Done** |
 | Phase 3 | CLI integration (`--status`, `--follow`) | **Done** |
-| Phase 4 | MCP integration | Planned |
+| Phase 4 | MCP integration | **Done** |
 | Phase 5 | Live event extraction | Optional |
 
 ## Architecture: Attempts/Outcomes Split
@@ -338,14 +338,50 @@ blq info build:5 --follow --tail=20  # Show last 20 lines, then follow
 
 ## Future Work
 
-### Phase 4: MCP Integration
+## Phase 4: MCP Integration (Implemented)
+
+### `history()` Tool with Status Filter
+
+Filter run history by status in MCP:
 
 ```python
-# MCP tools should work transparently
-blq.history()       # Includes running commands with status='pending'
-blq.info("build:5") # Works for running or completed commands
-blq.info("build:5", tail=50)  # Get live output
+# Filter by status
+blq.history(status="running")    # Show only running commands
+blq.history(status="completed")  # Show only completed commands
+blq.history(status="orphaned")   # Show crashed commands
+
+# Combine with source filter
+blq.history(source="test", status="running")
 ```
+
+**Implementation:**
+- Added `status` parameter to `history()` tool
+- Maps "running" to "pending" database status
+- Returns "RUNNING", "ORPHANED", or completion status ("OK", "FAIL", "WARN")
+
+### `info()` Tool with Live Output
+
+View run info including running commands:
+
+```python
+# Works for both running and completed commands
+blq.info(ref="build:5")           # Get run info
+blq.info(ref="build:5", tail=50)  # Get last 50 lines of output
+
+# For running commands, reads from live output directory
+# For completed commands, reads from blob storage
+```
+
+**Implementation:**
+- Updated `_info_impl()` to check `blq_load_attempts()` for pending runs
+- Added `is_running` and `attempt_id` fields to response
+- Modified output fetching to read from live directory for running commands
+- Uses `BirdStore.read_live_output()` for pending attempts
+
+**Key files:**
+- `src/blq/serve.py` - Updated `_history_impl()`, `_info_impl()`, and info tool
+
+## Future Work
 
 ### Phase 5: Live Event Extraction (Optional)
 

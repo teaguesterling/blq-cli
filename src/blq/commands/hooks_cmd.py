@@ -1,14 +1,18 @@
 """
-Git hooks integration for blq.
+Hooks integration for blq.
 
-Provides commands to install/remove git pre-commit hooks that
-automatically capture build/test output. Also generates portable
-hook scripts that can run with or without blq installed.
+Provides commands to install/remove hooks for various targets:
+- git: pre-commit hooks that capture build/test output
+- github/gitlab/drone: CI workflow files
+- claude-code: Claude Code hooks for agent integration
+
+Also generates portable hook scripts that can run with or without blq.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -162,6 +166,11 @@ def cmd_hooks_install(args: argparse.Namespace) -> None:
     command_names = getattr(args, "commands", [])
     hook_name = getattr(args, "hook", "pre-commit")
 
+    # Claude Code hooks don't need command names
+    if target == "claude-code":
+        _install_claude_code_hooks(force)
+        return
+
     # If no commands specified, fall back to legacy behavior for git
     if target == "git" and not command_names:
         # Legacy mode: use config-based pre-commit commands
@@ -196,9 +205,12 @@ def cmd_hooks_install(args: argparse.Namespace) -> None:
         _install_gitlab_ci(config, command_names, force)
     elif target == "drone":
         _install_drone_ci(config, command_names, force)
+    elif target == "claude-code":
+        # Claude Code hooks don't need command names
+        _install_claude_code_hooks(force)
     else:
         print(f"Error: Unknown target '{target}'", file=sys.stderr)
-        print("Available targets: git, github, gitlab, drone", file=sys.stderr)
+        print("Available targets: git, github, gitlab, drone, claude-code", file=sys.stderr)
         sys.exit(1)
 
 
@@ -450,7 +462,7 @@ def cmd_hooks_remove(args: argparse.Namespace) -> None:
 
 
 def cmd_hooks_uninstall(args: argparse.Namespace) -> None:
-    """Uninstall hooks from a target (git, github, gitlab, drone)."""
+    """Uninstall hooks from a target (git, github, gitlab, drone, claude-code)."""
     target = getattr(args, "target", "git")
     hook_name = getattr(args, "hook", "pre-commit")
 
@@ -462,9 +474,11 @@ def cmd_hooks_uninstall(args: argparse.Namespace) -> None:
         _uninstall_gitlab_ci()
     elif target == "drone":
         _uninstall_drone_ci()
+    elif target == "claude-code":
+        _uninstall_claude_code_hooks()
     else:
         print(f"Error: Unknown target '{target}'", file=sys.stderr)
-        print("Available targets: git, github, gitlab, drone", file=sys.stderr)
+        print("Available targets: git, github, gitlab, drone, claude-code", file=sys.stderr)
         sys.exit(1)
 
 
@@ -624,6 +638,15 @@ def cmd_hooks_status(args: argparse.Namespace) -> None:
     else:
         print("  drone        [not installed]")
 
+    # Claude Code hooks status
+    print()
+    print("Claude Code Hooks:")
+    claude_hook = Path(".claude/hooks/blq-suggest.sh")
+    if claude_hook.exists():
+        print(f"  suggest      [installed] {claude_hook}")
+    else:
+        print("  suggest      [not installed]")
+
     # Legacy config-based hooks
     legacy_commands = _get_precommit_commands(config)
     if legacy_commands:
@@ -736,3 +759,155 @@ def cmd_hooks_list(args: argparse.Namespace) -> None:
     commands = _get_precommit_commands(config)
     for cmd in commands:
         print(cmd)
+
+
+# =============================================================================
+# Claude Code Hooks
+# =============================================================================
+
+# Hook script content for Claude Code suggest hook
+CLAUDE_SUGGEST_HOOK = """#!/bin/bash
+# Claude Code PostToolUse hook for Bash commands
+# Suggests using blq MCP run tool when a matching registered command is found
+# Installed by: blq hooks install claude-code
+
+set -e
+
+INPUT=$(cat)
+COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+
+# Skip if no command, blq not available, or MCP not configured
+[[ -z "$COMMAND" ]] && exit 0
+command -v blq >/dev/null 2>&1 || exit 0
+[[ ! -d .lq ]] && exit 0
+[[ ! -f .mcp.json ]] && exit 0
+
+# Get suggestion from blq
+SUGGESTION=$(blq commands suggest "$COMMAND" --json 2>/dev/null || true)
+
+if [[ -n "$SUGGESTION" ]]; then
+    TIP=$(echo "$SUGGESTION" | jq -r '.tip // empty')
+    MCP_TOOL=$(echo "$SUGGESTION" | jq -r '.mcp_tool // empty')
+
+    jq -n --arg tip "$TIP" --arg mcp "$MCP_TOOL" '{
+        hookSpecificOutput: {
+            hookEventName: "PostToolUse",
+            additionalContext: "Tip: Use blq MCP tool \\($mcp) instead. \\($tip)"
+        }
+    }'
+fi
+
+exit 0
+"""
+
+
+def _install_claude_code_hooks(force: bool = False) -> bool:
+    """Install Claude Code hooks for blq integration.
+
+    Installs:
+    - .claude/hooks/blq-suggest.sh: PostToolUse hook that suggests using blq MCP tools
+
+    Returns True if any hooks were installed/updated.
+    """
+    hooks_dir = Path(".claude/hooks")
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+
+    hook_file = hooks_dir / "blq-suggest.sh"
+    settings_file = Path(".claude/settings.json")
+
+    # Write hook script
+    hook_existed = hook_file.exists()
+    if not hook_existed or force:
+        hook_file.write_text(CLAUDE_SUGGEST_HOOK)
+        hook_file.chmod(0o755)
+        print(f"{'Updated' if hook_existed else 'Created'} {hook_file}")
+
+    # Update .claude/settings.json
+    hook_config = {
+        "matcher": "Bash",
+        "hooks": [{"type": "command", "command": ".claude/hooks/blq-suggest.sh"}],
+    }
+
+    settings_updated = False
+    if settings_file.exists():
+        try:
+            with open(settings_file) as f:
+                settings = json.load(f)
+        except json.JSONDecodeError:
+            settings = {}
+    else:
+        settings = {}
+
+    if "hooks" not in settings:
+        settings["hooks"] = {}
+    if "PostToolUse" not in settings["hooks"]:
+        settings["hooks"]["PostToolUse"] = []
+
+    # Check if hook already registered
+    post_hooks = settings["hooks"]["PostToolUse"]
+    blq_hook_exists = any(
+        h.get("matcher") == "Bash"
+        and any(hh.get("command", "").endswith("blq-suggest.sh") for hh in h.get("hooks", []))
+        for h in post_hooks
+    )
+
+    if not blq_hook_exists:
+        post_hooks.append(hook_config)
+        with open(settings_file, "w") as f:
+            json.dump(settings, f, indent=2)
+        settings_updated = True
+        print(f"Registered hook in {settings_file}")
+    elif not hook_existed:
+        print(f"Hook already registered in {settings_file}")
+
+    if not hook_existed or settings_updated:
+        print("\nClaude Code hooks installed:")
+        print("  - blq-suggest.sh: suggests using blq MCP tools for registered commands")
+        return True
+
+    print("Claude Code hooks already installed. Use --force to reinstall.")
+    return False
+
+
+def _uninstall_claude_code_hooks() -> None:
+    """Remove Claude Code hooks."""
+    hook_file = Path(".claude/hooks/blq-suggest.sh")
+    settings_file = Path(".claude/settings.json")
+
+    removed_any = False
+
+    if hook_file.exists():
+        hook_file.unlink()
+        print(f"Removed {hook_file}")
+        removed_any = True
+
+    # Remove from settings.json
+    if settings_file.exists():
+        try:
+            with open(settings_file) as f:
+                settings = json.load(f)
+
+            if "hooks" in settings and "PostToolUse" in settings["hooks"]:
+                post_hooks = settings["hooks"]["PostToolUse"]
+                original_len = len(post_hooks)
+                settings["hooks"]["PostToolUse"] = [
+                    h
+                    for h in post_hooks
+                    if not (
+                        h.get("matcher") == "Bash"
+                        and any(
+                            hh.get("command", "").endswith("blq-suggest.sh")
+                            for hh in h.get("hooks", [])
+                        )
+                    )
+                ]
+                if len(settings["hooks"]["PostToolUse"]) < original_len:
+                    with open(settings_file, "w") as f:
+                        json.dump(settings, f, indent=2)
+                    print(f"Removed hook registration from {settings_file}")
+                    removed_any = True
+        except json.JSONDecodeError:
+            pass
+
+    if not removed_any:
+        print("Claude Code hooks not installed.")

@@ -739,6 +739,11 @@ def main() -> None:
     p_mcp_install.add_argument(
         "--force", "-f", action="store_true", help="Overwrite existing blq config"
     )
+    p_mcp_install.add_argument(
+        "--hooks",
+        action="store_true",
+        help="Also install Claude Code hooks (same as 'blq hooks install claude-code')",
+    )
     p_mcp_install.set_defaults(func=cmd_mcp_install)
 
     # mcp serve
@@ -790,13 +795,13 @@ def main() -> None:
 
     # hooks install
     p_hooks_install = hooks_subparsers.add_parser(
-        "install", help="Install hooks to a target (git, github, gitlab, drone)"
+        "install", help="Install hooks to a target (git, github, gitlab, drone, claude-code)"
     )
     p_hooks_install.add_argument(
         "target",
         nargs="?",
         default="git",
-        help="Installation target: git, github, gitlab, drone (default: git)",
+        help="Installation target: git, github, gitlab, drone, claude-code (default: git)",
     )
     p_hooks_install.add_argument(
         "commands", nargs="*", help="Command names to install (required for new-style install)"
@@ -817,7 +822,7 @@ def main() -> None:
         "target",
         nargs="?",
         default="git",
-        help="Target to uninstall from: git, github, gitlab, drone (default: git)",
+        help="Target to uninstall from: git, github, gitlab, drone, claude-code (default: git)",
     )
     p_hooks_uninstall.add_argument(
         "--hook", default="pre-commit", help="Git hook name (default: pre-commit)"

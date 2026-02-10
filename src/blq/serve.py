@@ -1100,8 +1100,76 @@ def _info_impl(ref: str) -> dict[str, Any]:
                     WHERE run_id = {run_serial}
                 """).df()
 
+        # If not in completed runs, check pending attempts
         if df.empty:
-            return {"error": f"Run {ref} not found"}
+            if is_uuid:
+                df = storage.sql(f"""
+                    SELECT * FROM blq_load_attempts()
+                    WHERE attempt_id = '{ref}'
+                """).df()
+            else:
+                if tag is not None:
+                    df = storage.sql(f"""
+                        SELECT * FROM blq_load_attempts()
+                        WHERE source_name = '{tag}' AND run_id = {run_serial}
+                    """).df()
+                else:
+                    df = storage.sql(f"""
+                        SELECT * FROM blq_load_attempts()
+                        WHERE run_id = {run_serial}
+                    """).df()
+
+            if df.empty:
+                return {"error": f"Run {ref} not found"}
+
+            # This is a pending/running attempt
+            row = df.iloc[0]
+            attempt_status = _to_json_safe(row.get("status"))
+            attempt_id = _to_json_safe(row.get("attempt_id"))
+
+            tag = _to_json_safe(row.get("tag"))
+            run_serial = _safe_int(row.get("run_id")) or 0
+            if tag:
+                run_ref = f"{tag}:{run_serial}"
+            else:
+                run_ref = str(run_serial)
+
+            # Map attempt status to display status
+            if attempt_status == "pending":
+                status_str = "RUNNING"
+            elif attempt_status == "orphaned":
+                status_str = "ORPHANED"
+            else:
+                status_str = "COMPLETED"
+
+            return {
+                "run_ref": run_ref,
+                "run_serial": run_serial,
+                "attempt_id": attempt_id,
+                "invocation_id": None,  # Not yet completed
+                "source_name": _to_json_safe(row.get("source_name")),
+                "source_type": _to_json_safe(row.get("source_type")),
+                "command": _to_json_safe(row.get("command")),
+                "status": status_str,
+                "exit_code": _safe_int(row.get("exit_code")),
+                "error_count": 0,  # Not yet parsed
+                "warning_count": 0,
+                "info_count": 0,
+                "event_count": 0,
+                "started_at": str(row.get("started_at", "")),
+                "completed_at": str(row.get("completed_at", "")) if attempt_status != "pending" else None,
+                "cwd": _to_json_safe(row.get("cwd")),
+                "executable_path": _to_json_safe(row.get("executable")),
+                "hostname": _to_json_safe(row.get("hostname")),
+                "platform": _to_json_safe(row.get("platform")),
+                "arch": _to_json_safe(row.get("arch")),
+                "git_branch": _to_json_safe(row.get("git_branch")),
+                "git_commit": _to_json_safe(row.get("git_commit")),
+                "git_dirty": _to_json_safe(row.get("git_dirty")),
+                "ci": _to_json_safe(row.get("ci")),
+                "outputs": [],  # Live output not yet finalized
+                "is_running": attempt_status == "pending",
+            }
 
         row = df.iloc[0]
         invocation_id = _to_json_safe(row.get("invocation_id"))
@@ -1843,6 +1911,8 @@ def info(
     )
     if needs_extra:
         run_serial = result.get("run_serial")
+        is_running = result.get("is_running", False)
+        attempt_id = result.get("attempt_id")
 
         if run_serial:
             try:
@@ -1852,14 +1922,31 @@ def info(
 
                 # Load output if needed for head/tail or context
                 if head is not None or tail is not None or context is not None:
-                    output_bytes = storage.get_output(run_serial)
-                    if output_bytes:
-                        try:
-                            content = output_bytes.decode("utf-8", errors="replace")
-                        except Exception:
-                            content = output_bytes.decode("latin-1")
-                        log_lines = content.splitlines()
+                    # For running commands, read from live output directory
+                    if is_running and attempt_id:
+                        from blq.bird import BirdStore
+                        from blq.commands.core import BlqConfig
 
+                        config = BlqConfig.find()
+                        if config:
+                            bird_store = BirdStore.open(config.lq_dir)
+                            try:
+                                content = bird_store.read_live_output(attempt_id, "combined", tail=tail)
+                                if content:
+                                    log_lines = content.splitlines()
+                            finally:
+                                bird_store.close()
+                    else:
+                        # For completed commands, read from blob storage
+                        output_bytes = storage.get_output(run_serial)
+                        if output_bytes:
+                            try:
+                                content = output_bytes.decode("utf-8", errors="replace")
+                            except Exception:
+                                content = output_bytes.decode("latin-1")
+                            log_lines = content.splitlines()
+
+                    if log_lines:
                         if head is not None:
                             result["head"] = log_lines[:head]
                         if tail is not None:

@@ -440,6 +440,28 @@ class TestHistoryTool:
                 assert "run_ref" in run
                 assert "status" in run
 
+    @pytest.mark.asyncio
+    async def test_history_with_status_filter(self, mcp_server):
+        """Filter history by status."""
+        async with Client(mcp_server) as client:
+            # Test completed filter (all runs in fixture should be completed)
+            raw = await client.call_tool("history", {"status": "completed"})
+            result = get_data(raw)
+
+            assert "runs" in result
+            # All returned runs should be completed (OK, FAIL, or WARN)
+            for run in result["runs"]:
+                assert run["status"] in ("OK", "FAIL", "WARN")
+
+            # Test running filter (no running commands expected in fixture)
+            raw = await client.call_tool("history", {"status": "running"})
+            result = get_data(raw)
+
+            assert "runs" in result
+            # Any running commands should have RUNNING status
+            for run in result["runs"]:
+                assert run["status"] == "RUNNING"
+
 
 class TestDiffTool:
     """Tests for the diff tool."""
