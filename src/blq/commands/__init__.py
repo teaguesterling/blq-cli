@@ -16,6 +16,7 @@ from blq.commands.hooks_cmd import (
     cmd_hooks_remove,
     cmd_hooks_run,
     cmd_hooks_status,
+    cmd_hooks_uninstall,
 )
 from blq.commands.init_cmd import cmd_init
 from blq.commands.management import (
@@ -60,6 +61,7 @@ __all__ = [
     # Hooks
     "cmd_hooks_generate",
     "cmd_hooks_install",
+    "cmd_hooks_uninstall",
     "cmd_hooks_remove",
     "cmd_hooks_status",
     "cmd_hooks_run",

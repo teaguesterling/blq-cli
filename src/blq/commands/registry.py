@@ -57,11 +57,27 @@ def _normalize_cmd(cmd: str) -> str:
     return " ".join(cmd.split())
 
 
+def _parse_defaults(default_args: list[str]) -> dict[str, str]:
+    """Parse --default KEY=VALUE args into a dict."""
+    defaults = {}
+    for item in default_args:
+        if "=" not in item:
+            print(f"Warning: ignoring invalid default '{item}' (expected KEY=VALUE)")
+            continue
+        key, value = item.split("=", 1)
+        defaults[key] = value
+    return defaults
+
+
 def cmd_register(args: argparse.Namespace) -> None:
     """Register a new command.
 
     If a command with the same name or same command string already exists,
     uses the existing command instead of failing. Use --force to overwrite.
+
+    Supports two modes:
+    - Simple command: blq commands register build make -j8
+    - Template command: blq commands register test -t pytest {path} -D path=tests/
     """
     from blq.commands.execution import cmd_run
 
@@ -72,11 +88,14 @@ def cmd_register(args: argparse.Namespace) -> None:
     cmd_str = " ".join(args.cmd)
     normalized_cmd = _normalize_cmd(cmd_str)
     run_now = getattr(args, "run", False)
+    is_template = getattr(args, "template", False)
+    default_args = getattr(args, "default", []) or []
 
     # Check for existing command with same name
     if name in commands and not args.force:
         existing = commands[name]
-        existing_normalized = _normalize_cmd(existing.cmd)
+        existing_template = existing.tpl if existing.is_template else existing.cmd
+        existing_normalized = _normalize_cmd(existing_template or "")
 
         if existing_normalized == normalized_cmd:
             # Same command, just use it
@@ -84,12 +103,23 @@ def cmd_register(args: argparse.Namespace) -> None:
             if run_now:
                 # Create a mock args object for cmd_run
                 run_args = argparse.Namespace(
-                    command=name,
-                    args=[],
+                    command=[name],
+                    name=None,
                     json=getattr(args, "json", False),
                     quiet=getattr(args, "quiet", False),
                     capture=None,
                     format=None,
+                    timeout=None,
+                    keep_raw=False,
+                    summary=False,
+                    verbose=False,
+                    include_warnings=False,
+                    error_limit=20,
+                    register=False,
+                    positional_args=None,
+                    dry_run=False,
+                    markdown=False,
+                    csv=False,
                 )
                 cmd_run(run_args)
             return
@@ -97,42 +127,74 @@ def cmd_register(args: argparse.Namespace) -> None:
             # Different command with same name
             print(
                 f"Command '{name}' already exists with different command.\n"
-                f"  Existing: '{existing.cmd}'\n"
+                f"  Existing: '{existing_template}'\n"
                 f"  Use --force to overwrite.",
                 file=sys.stderr,
             )
             sys.exit(1)
 
-    # Check for existing command with same cmd but different name
-    for existing_name, existing in commands.items():
-        if _normalize_cmd(existing.cmd) == normalized_cmd and not args.force:
-            print(f"Using existing command '{existing_name}' (same command)")
-            if run_now:
-                run_args = argparse.Namespace(
-                    command=existing_name,
-                    args=[],
-                    json=getattr(args, "json", False),
-                    quiet=getattr(args, "quiet", False),
-                    capture=None,
-                    format=None,
-                )
-                cmd_run(run_args)
-            return
+    # Check for existing command with same cmd but different name (skip for templates)
+    if not is_template:
+        for existing_name, existing in commands.items():
+            existing_cmd = existing.cmd if not existing.is_template else None
+            if existing_cmd and _normalize_cmd(existing_cmd) == normalized_cmd and not args.force:
+                print(f"Using existing command '{existing_name}' (same command)")
+                if run_now:
+                    run_args = argparse.Namespace(
+                        command=[existing_name],
+                        name=None,
+                        json=getattr(args, "json", False),
+                        quiet=getattr(args, "quiet", False),
+                        capture=None,
+                        format=None,
+                        timeout=None,
+                        keep_raw=False,
+                        summary=False,
+                        verbose=False,
+                        include_warnings=False,
+                        error_limit=20,
+                        register=False,
+                        positional_args=None,
+                        dry_run=False,
+                        markdown=False,
+                        csv=False,
+                    )
+                    cmd_run(run_args)
+                return
 
     # Register new command
     capture = not getattr(args, "no_capture", False)
-    commands[name] = RegisteredCommand(
-        name=name,
-        cmd=cmd_str,
-        description=args.description or "",
-        timeout=args.timeout,
-        format=args.format,
-        capture=capture,
-    )
 
+    if is_template:
+        # Template command
+        defaults = _parse_defaults(default_args)
+        commands[name] = RegisteredCommand(
+            name=name,
+            cmd=None,
+            tpl=cmd_str,
+            defaults=defaults,
+            description=args.description or "",
+            timeout=args.timeout,
+            format=args.format,
+            capture=capture,
+        )
+        defaults_note = f" (defaults: {defaults})" if defaults else ""
+        print(f"Registered template '{name}': {cmd_str}{defaults_note}")
+    else:
+        # Simple command
+        commands[name] = RegisteredCommand(
+            name=name,
+            cmd=cmd_str,
+            description=args.description or "",
+            timeout=args.timeout,
+            format=args.format,
+            capture=capture,
+        )
+        capture_note = " (no capture)" if not capture else ""
+        print(f"Registered command '{name}': {cmd_str}{capture_note}")
+
+    # Save commands to disk
     config.save_commands()
-    capture_note = " (no capture)" if not capture else ""
-    print(f"Registered command '{name}': {cmd_str}{capture_note}")
 
     if run_now:
         run_args = argparse.Namespace(

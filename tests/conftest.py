@@ -62,6 +62,7 @@ def initialized_project(chdir_temp):
     args.parquet = False  # BIRD is default
     args.namespace = None
     args.project = None
+    args.gitignore = True
     cmd_init(args)
 
     return chdir_temp
@@ -87,6 +88,7 @@ def initialized_project_parquet(chdir_temp):
     args.parquet = True  # Legacy parquet mode
     args.namespace = None
     args.project = None
+    args.gitignore = True
     cmd_init(args)
 
     return chdir_temp

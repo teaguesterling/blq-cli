@@ -531,3 +531,96 @@ class TestRunRegisteredCommand:
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
         assert "not a registered command" in captured.err
+
+
+class TestRegisterTemplateCommand:
+    """Tests for registering template commands via CLI."""
+
+    def test_register_template_with_defaults(self, initialized_project, capsys):
+        """Register a template command with defaults."""
+        import argparse
+
+        from blq.commands.registry import cmd_register
+
+        args = argparse.Namespace(
+            name="test",
+            cmd=["pytest", "{path}", "{flags}"],
+            template=True,
+            default=["path=tests/", "flags=-v"],
+            description="Run tests",
+            timeout=600,
+            format="pytest_text",
+            no_capture=False,
+            force=False,
+            run=False,
+        )
+
+        cmd_register(args)
+
+        captured = capsys.readouterr()
+        assert "Registered" in captured.out
+        assert "test" in captured.out
+
+        # Verify it was saved as a template (reload from disk)
+        config = BlqConfig.find()
+        config.reload_commands()
+        cmd = config.commands["test"]
+        assert cmd.is_template
+        assert cmd.tpl == "pytest {path} {flags}"
+        assert cmd.defaults == {"path": "tests/", "flags": "-v"}
+
+    def test_register_template_no_defaults(self, initialized_project, capsys):
+        """Register a template command without defaults (all params required)."""
+        import argparse
+
+        from blq.commands.registry import cmd_register
+
+        args = argparse.Namespace(
+            name="deploy",
+            cmd=["kubectl", "apply", "-f", "{file}"],
+            template=True,
+            default=[],
+            description="Deploy to k8s",
+            timeout=300,
+            format="auto",
+            no_capture=False,
+            force=False,
+            run=False,
+        )
+
+        cmd_register(args)
+
+        config = BlqConfig.find()
+        config.reload_commands()
+        cmd = config.commands["deploy"]
+        assert cmd.is_template
+        assert cmd.tpl == "kubectl apply -f {file}"
+        assert cmd.defaults == {}
+
+    def test_register_simple_command_not_template(self, initialized_project, capsys):
+        """Register a simple command (no --template flag)."""
+        import argparse
+
+        from blq.commands.registry import cmd_register
+
+        args = argparse.Namespace(
+            name="lint",
+            cmd=["ruff", "check", "."],
+            template=False,
+            default=[],
+            description="Run linter",
+            timeout=300,
+            format="auto",
+            no_capture=False,
+            force=False,
+            run=False,
+        )
+
+        cmd_register(args)
+
+        config = BlqConfig.find()
+        config.reload_commands()
+        cmd = config.commands["lint"]
+        assert not cmd.is_template
+        assert cmd.cmd == "ruff check ."
+        assert cmd.tpl is None

@@ -65,6 +65,7 @@ from blq.commands import (
     cmd_hooks_remove,
     cmd_hooks_run,
     cmd_hooks_status,
+    cmd_hooks_uninstall,
     cmd_import,
     cmd_info,
     cmd_init,
@@ -264,7 +265,7 @@ def main() -> None:
 
     # run
     p_run = subparsers.add_parser("run", aliases=["r"], help="Run command and capture output")
-    p_run.add_argument("command", nargs="+", help="Command to run")
+    p_run.add_argument("command", nargs=argparse.REMAINDER, help="Command name and template args")
     p_run.add_argument("--name", "-n", help="Source name (default: command name)")
     p_run.add_argument("--format", "-f", default="auto", help="Parse format hint")
     p_run.add_argument("--keep-raw", "-r", action="store_true", help="Keep raw output file")
@@ -530,10 +531,12 @@ def main() -> None:
     # commands register
     p_commands_register = commands_subparsers.add_parser("register", help="Register a command")
     p_commands_register.add_argument("name", help="Command name (e.g., 'build', 'test')")
-    p_commands_register.add_argument("cmd", nargs="+", help="Command to run")
+    p_commands_register.add_argument(
+        "cmd", nargs=argparse.REMAINDER, help="Command to run (flags like -j are preserved)"
+    )
     p_commands_register.add_argument("--description", "-d", help="Command description")
     p_commands_register.add_argument(
-        "--timeout", "-t", type=int, default=300, help="Timeout in seconds (default: 300)"
+        "--timeout", type=int, default=300, help="Timeout in seconds (default: 300)"
     )
     p_commands_register.add_argument("--format", "-f", default="auto", help="Log format hint")
     p_commands_register.add_argument(
@@ -544,6 +547,21 @@ def main() -> None:
     )
     p_commands_register.add_argument(
         "--run", "-r", action="store_true", help="Run command immediately after registering"
+    )
+    # Template command support
+    p_commands_register.add_argument(
+        "--template",
+        "-t",
+        action="store_true",
+        help="Register as template command with {param} placeholders",
+    )
+    p_commands_register.add_argument(
+        "--default",
+        "-D",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Default value for template parameter (can repeat)",
     )
     p_commands_register.set_defaults(func=cmd_register)
 
@@ -741,13 +759,13 @@ def main() -> None:
 
     # hooks install
     p_hooks_install = hooks_subparsers.add_parser(
-        "install", help="Install hooks to a target (git, github, gitlab)"
+        "install", help="Install hooks to a target (git, github, gitlab, drone)"
     )
     p_hooks_install.add_argument(
         "target",
         nargs="?",
         default="git",
-        help="Installation target: git, github, gitlab (default: git)",
+        help="Installation target: git, github, gitlab, drone (default: git)",
     )
     p_hooks_install.add_argument(
         "commands", nargs="*", help="Command names to install (required for new-style install)"
@@ -761,14 +779,19 @@ def main() -> None:
     p_hooks_install.set_defaults(func=cmd_hooks_install)
 
     # hooks uninstall (new name, was 'remove')
-    p_hooks_uninstall = hooks_subparsers.add_parser("uninstall", help="Remove installed hooks")
+    p_hooks_uninstall = hooks_subparsers.add_parser(
+        "uninstall", help="Remove installed hooks from a target"
+    )
     p_hooks_uninstall.add_argument(
-        "target", nargs="?", default="git", help="Target to uninstall from (default: git)"
+        "target",
+        nargs="?",
+        default="git",
+        help="Target to uninstall from: git, github, gitlab, drone (default: git)",
     )
     p_hooks_uninstall.add_argument(
         "--hook", default="pre-commit", help="Git hook name (default: pre-commit)"
     )
-    p_hooks_uninstall.set_defaults(func=cmd_hooks_remove)
+    p_hooks_uninstall.set_defaults(func=cmd_hooks_uninstall)
 
     # hooks remove (alias for uninstall, backward compat)
     p_hooks_remove = hooks_subparsers.add_parser("remove", help="Remove git pre-commit hook")
