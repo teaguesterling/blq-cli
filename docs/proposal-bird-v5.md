@@ -34,9 +34,10 @@ The key insight: **BIRD's current spec optimizes for shq's shell-hook use case, 
 | Complex directory structure | Overkill for single-writer clients | Layered profiles |
 | Mandatory session tracking | CLI tools don't have persistent sessions | Optional sessions |
 | In-flight pending files | Synchronous CLI doesn't need crash recovery | Optional feature |
-| TOML-only config | Some ecosystems prefer YAML | Allow both |
-| `.bird/` directory name | Conflicts with tool-specific naming | Configurable |
+| `.bird/` directory name | Conflicts with tool-specific naming | Universal `.bird/db/` + app namespacing |
 | Events schema | Missing fields tools like blq need | Extension mechanism |
+| No schema versioning | Hard to evolve schema | `bird_meta` table |
+| Uncompressed blobs only | Wastes 77-89% storage | Optional compression |
 
 ---
 
@@ -47,9 +48,10 @@ The key insight: **BIRD's current spec optimizes for shq's shell-hook use case, 
 The absolute minimum for BIRD compatibility. **All BIRD clients must implement this.**
 
 ```
-$BIRD_ROOT/
-├── bird.duckdb              # Or bird.parquet for read-only exports
-└── config.{toml,yaml,json}  # Allow any structured format
+.bird/                           # Universal BIRD root
+├── db/
+│   └── bird.duckdb              # Required: DuckDB database with tables
+└── config.toml                  # Required: TOML configuration
 ```
 
 **Core Schema (invocations only):**
@@ -82,11 +84,12 @@ CREATE TABLE invocations (
 Add stdout/stderr capture with content-addressed storage.
 
 ```
-$BIRD_ROOT/
-├── bird.duckdb
+.bird/
+├── db/
+│   └── bird.duckdb
 ├── blobs/
 │   └── content/
-│       └── {hash[0:2]}/{hash}.bin
+│       └── {hash[0:2]}/{hash}.bin[.gz|.zst]  # Optional compression
 └── config.toml
 ```
 
@@ -214,31 +217,35 @@ uri = "s3://bucket/bird/"
 
 ## Part 3: Specific Proposals
 
-### Proposal 1: Flexible Directory Naming
+### Proposal 1: Universal `.bird/` with App Namespacing
 
 **Current spec:** Mandates `.bird/` for project-level storage.
 
-**Proposed:** Allow clients to configure their directory name while maintaining compatibility:
+**Proposed:** Keep `.bird/` as universal, with `.bird/db/` as the standard database location. Apps extend via namespaced files:
 
-```toml
-# config.toml
-[bird]
-directory = ".lq"          # Default: ".bird"
-schema_version = "v5"
-client_name = "blq"
-layers = [0, 1, 2]         # Which layers this client implements
+```
+.bird/
+├── db/
+│   └── bird.duckdb          # Universal database location
+├── blobs/
+│   └── content/             # Universal blob storage
+├── config.toml              # Universal config
+│
+├── blq.commands.toml        # blq-specific: command registry
+├── shq.hints.toml           # shq-specific: format hints
+└── {app}.{purpose}.toml     # Pattern: app-namespaced files
 ```
 
-**Benefits:**
-- blq can use `.lq/` for backwards compatibility
-- shq uses `.bird/`
-- Tools can coexist in the same project
-- Cross-tool queries via `ATTACH`
+**Migration for blq:**
+- Migrate from `.lq/` to `.bird/`
+- Move `commands.yaml` → `.bird/blq.commands.toml`
+- Move database to `.bird/db/bird.duckdb`
 
-**Discovery:** Tools looking for BIRD databases should check:
-1. `$BIRD_ROOT` environment variable
-2. `.bird/` in current directory (walk up)
-3. Client-specific directories (`.lq/`, `.shq/`, etc.) - via registry or config
+**Benefits:**
+- Single discovery point (`.bird/`)
+- No conflicts between apps
+- Apps can coexist in same project
+- Clear ownership via filename prefix
 
 ### Proposal 2: Git-Tracked vs Local Data
 
@@ -370,20 +377,25 @@ layout = "simplified"     # Or "full" for complete directory structure
 
 **Rationale:** The full structure adds overhead (many directories, files, compaction) that single-writer clients don't need.
 
-### Proposal 6: Configuration Format Flexibility
+### Proposal 6: TOML as Standard Configuration Format
 
-**Current:** TOML only
-**Proposed:** Allow TOML, YAML, or JSON
+**Decision:** Standardize on TOML for all BIRD configuration files.
 
 ```
-config.toml   # Preferred
-config.yaml   # Allowed
-config.json   # Allowed
+.bird/
+├── config.toml              # Main configuration
+├── blq.commands.toml        # App-specific configs also TOML
+└── shq.hints.toml
 ```
 
-Detection order: TOML → YAML → JSON
+**Rationale:**
+- YAML has surprising edge cases (Norway problem: `NO` → `false`, implicit typing)
+- JSON lacks comments, trailing commas
+- TOML is simple, explicit, and unambiguous
+- Rust ecosystem (shq) already uses TOML
+- Python has excellent TOML support (`tomllib` in stdlib since 3.11)
 
-**Rationale:** Different ecosystems have preferences. Python tools often use YAML. Web tools use JSON. Rust tools use TOML. BIRD shouldn't force a choice.
+**Migration for blq:** Convert `config.yaml` and `commands.yaml` to TOML format.
 
 ### Proposal 7: Events Extension Mechanism
 
@@ -475,25 +487,125 @@ safe_mode = false             # Disable all state-modifying tools
 
 ---
 
-## Part 6: Open Questions
+## Part 6: Resolved Design Decisions
 
-1. **Directory naming:** Should `.bird/` be the universal standard, or should we embrace per-tool directories with a discovery mechanism?
+Based on discussion, the following decisions have been made:
 
-2. **Schema versioning:** How do we handle schema evolution? Migration scripts? Version table?
+### 1. Directory Structure: Universal `.bird/db/` with App-Specific Extensions
 
-3. **Extension registry:** Should there be a central registry of known extensions, or is this too heavyweight?
+**Decision:** `.bird/db/` is the universal standard. App-specific files live in `.bird/` with naming conventions.
 
-4. **Blob format:** Current spec uses uncompressed `.bin`. Should we support `.bin.gz` or `.bin.zst` with content negotiation?
+```
+.bird/                           # Universal BIRD root
+├── db/
+│   └── bird.duckdb              # Universal database location
+├── blobs/
+│   └── content/                 # Universal blob storage
+├── config.toml                  # Universal config format
+│
+├── blq.commands.toml            # App-specific: blq command registry
+├── shq.sessions.toml            # App-specific: shq session config
+└── myapp.custom.toml            # App-specific: custom app config
+```
 
-5. **Query language:** Should BIRD define any standard SQL macros/views that all clients expose?
+**Naming convention for app-specific files:** `{app}.{purpose}.toml`
 
-6. **Cross-client queries:** When shq and blq both exist in a project, how do unified queries work?
+**Rationale:** This provides a single discovery point (`.bird/`) while allowing apps to extend without conflicts.
+
+### 2. Schema Versioning: Version Table Required
+
+**Decision:** `bird.duckdb` must contain a `bird_meta` table:
+
+```sql
+CREATE TABLE bird_meta (
+    key       VARCHAR PRIMARY KEY,
+    value     VARCHAR NOT NULL
+);
+
+-- Required entries:
+INSERT INTO bird_meta VALUES ('schema_version', '5');
+INSERT INTO bird_meta VALUES ('created_at', '2026-02-09T10:30:00Z');
+INSERT INTO bird_meta VALUES ('client_name', 'blq');      -- Primary client
+INSERT INTO bird_meta VALUES ('client_version', '0.7.0');
+```
+
+**Migration:** Clients check `schema_version` on connect and can run migrations if needed.
+
+### 3. Blob Compression: Supported, Not Required
+
+**Decision:** Compression is optional. Blobs may be stored as:
+- `.bin` - uncompressed (default)
+- `.bin.gz` - gzip compressed
+- `.bin.zst` - zstd compressed
+
+**Empirical data from blq:**
+```
+Build log compression ratios (pytest, ruff, make output):
+- gzip: 11-23% of original (77-89% storage savings)
+- zstd: 12-23% of original (similar)
+
+1.5MB uncompressed → ~200-300KB compressed
+```
+
+**Storage reference format:**
+```
+file:ab/abc123.bin       # Uncompressed
+file:ab/abc123.bin.gz    # Gzip
+file:ab/abc123.bin.zst   # Zstd
+```
+
+**Rationale:** Compression yields significant savings for text-heavy build logs but adds complexity. Making it optional lets clients choose based on their storage/CPU tradeoffs.
+
+### 4. Standard Macros: Not Required, Tables Are Core
+
+**Decision:** BIRD does not mandate specific SQL macros. The core contract is:
+
+1. **Tables exist** with defined schemas (invocations, outputs, events, sessions)
+2. **DuckDB file** provides SQL access to those tables
+3. **Clients may add macros** for convenience but these are not part of the spec
+
+**Rationale:** Macros are implementation conveniences. The interoperability contract is the table schemas. A client reading another client's `bird.duckdb` can query tables directly without needing matching macro definitions.
+
+**Recommended (not required) macros:**
+```sql
+-- Convenience macro for recent errors
+CREATE MACRO bird_errors(n := 10) AS TABLE
+    SELECT * FROM events WHERE severity = 'error'
+    ORDER BY timestamp DESC LIMIT n;
+```
+
+### 5. Configuration Format: TOML Standard
+
+**Decision:** Standardize on TOML for all BIRD configuration.
+
+**Rationale:**
+- YAML has surprising edge cases (Norway problem, implicit typing)
+- JSON lacks comments
+- TOML is simple, unambiguous, and widely supported
+- Rust ecosystem (shq) already uses TOML
+- Python has excellent TOML support (`tomllib` in stdlib since 3.11)
+
+### 6. Cross-Client Queries: ATTACH Pattern
+
+**Decision:** When multiple BIRD clients exist, use DuckDB's `ATTACH`:
+
+```sql
+-- From shq, attach blq's database
+ATTACH '.bird/db/bird.duckdb' AS bird;
+
+-- Query unified view
+SELECT * FROM bird.invocations
+WHERE client_id LIKE 'blq%'
+ORDER BY timestamp DESC;
+```
+
+**Same-database scenario:** If shq and blq share `.bird/db/bird.duckdb`, they distinguish records via `client_id`.
 
 ---
 
-## Appendix A: blq's Current Implementation
+## Appendix A: blq's Current Implementation and Migration Path
 
-For reference, blq currently uses:
+**Current blq structure (pre-BIRD v5):**
 
 ```
 .lq/
@@ -504,7 +616,30 @@ For reference, blq currently uses:
 └── schema.sql           # Reference only
 ```
 
+**Target BIRD v5 structure:**
+
+```
+.bird/
+├── db/
+│   └── bird.duckdb      # Universal database location
+├── blobs/
+│   └── content/         # Blob storage (with optional compression)
+├── config.toml          # TOML config
+└── blq.commands.toml    # App-namespaced command registry
+```
+
+**Migration steps:**
+1. Create `.bird/db/` directory
+2. Move/migrate database to `.bird/db/bird.duckdb`
+3. Add `bird_meta` table with schema version
+4. Move blobs to `.bird/blobs/content/`
+5. Convert `config.yaml` → `.bird/config.toml`
+6. Convert `commands.yaml` → `.bird/blq.commands.toml`
+7. Optionally compress existing blobs
+8. Update `.gitignore` (`.bird/db/`, `.bird/blobs/` ignored; `.bird/*.toml` tracked)
+
 **Tables:**
+- `bird_meta` - Schema version and client info (new)
 - `sessions` - Minimal session tracking
 - `invocations` - With source_name, source_type, git metadata, CI context
 - `outputs` - Content-addressed storage
@@ -515,41 +650,54 @@ For reference, blq currently uses:
 
 ---
 
-## Appendix B: Proposed config.yaml for blq (BIRD v5)
+## Appendix B: Proposed config.toml for blq (BIRD v5)
 
-```yaml
-# .bird/config.yaml (or .lq/config.yaml)
-bird:
-  schema_version: "v5"
-  client_name: "blq"
-  client_version: "0.7.0"
-  layers: [0, 1, 2]          # Core + Outputs + Events
+```toml
+# .bird/config.toml
 
-storage:
-  mode: "duckdb"             # Single-writer
-  layout: "simplified"
-  inline_threshold: 4096     # Bytes before blob storage
+[bird]
+schema_version = "v5"
+client_name = "blq"
+client_version = "0.7.0"
+layers = [0, 1, 2]           # Core + Outputs + Events
 
-# Git-tracked project identity
-project:
-  namespace: "teaguesterling"
-  name: "blq"
+[storage]
+mode = "duckdb"              # Single-writer
+compression = "gzip"         # Optional: gzip, zstd, or none
+inline_threshold = 4096      # Bytes before blob storage
 
-# Capture configuration
-capture:
-  env_vars:                  # Environment variables to capture
-    - PATH
-    - VIRTUAL_ENV
-    - CC
-    - CXX
+[project]
+namespace = "teaguesterling"
+name = "blq"
 
-# MCP server configuration
-mcp:
-  disabled_tools: []
-  safe_mode: false
+[capture]
+env_vars = [
+    "PATH",
+    "VIRTUAL_ENV",
+    "CC",
+    "CXX",
+]
 
-# Extension: Command registry (separate file: commands.yaml)
-# Extension: Git/CI metadata (captured automatically)
+[mcp]
+disabled_tools = []
+safe_mode = false
+```
+
+**Separate file:** `.bird/blq.commands.toml`
+```toml
+# .bird/blq.commands.toml - blq command registry
+
+[commands.build]
+cmd = "make -j8"
+description = "Build the project"
+format_hint = "gcc"
+capture_output = true
+
+[commands.test]
+cmd = "pytest"
+description = "Run tests"
+format_hint = "pytest"
+timeout = 600
 ```
 
 ---
