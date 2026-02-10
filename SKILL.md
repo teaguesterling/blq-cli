@@ -309,6 +309,73 @@ blq.diff(run1=5, run2=6)
 # → {"fixed": 3, "new": 0} - Success!
 ```
 
+## Hook Scripts
+
+blq can generate portable shell scripts for registered commands that work with or without blq installed.
+
+### Generating Hooks
+
+```bash
+# Generate hook scripts (CLI)
+blq hooks generate lint test
+
+# Creates:
+# .lq/hooks/lint.sh
+# .lq/hooks/test.sh
+```
+
+### Hook Script Features
+
+Generated scripts support:
+- `--via=blq|standalone|auto` - Use blq for capture, or run command directly
+- `--metadata=auto|none|footer` - Output metadata for CI log parsing
+- `--dry-run` - Show command without executing
+- `key=value` params for template commands
+
+```bash
+# Run with blq (captures logs)
+.lq/hooks/test.sh --via=blq
+
+# Run standalone (no blq needed)
+.lq/hooks/test.sh --via=standalone
+
+# Auto mode (default): uses blq if available
+.lq/hooks/test.sh
+
+# Override template parameters
+.lq/hooks/test.sh path=tests/unit/
+```
+
+### CI Integration
+
+When running standalone in CI, scripts can output metadata for later import:
+
+```bash
+.lq/hooks/test.sh --via=standalone --metadata=footer
+# Output ends with:
+# blq:meta {"command":"test","exit_code":0,"git_sha":"abc123",...}
+```
+
+### Installing to Git Hooks
+
+```bash
+# Install to .git/hooks/pre-commit
+blq hooks install git lint format-check
+
+# Install to different hook
+blq hooks install git test --hook=pre-push
+```
+
+### Installing to CI Workflows
+
+```bash
+# Generate .github/workflows/blq-checks.yml
+blq hooks install github lint test
+
+# Generate .gitlab-ci.blq.yml
+blq hooks install gitlab lint test
+```
+
 ## MCP Resources
 
 In addition to tools, blq provides read-only resources:

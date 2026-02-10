@@ -7,6 +7,23 @@ import subprocess
 import pytest
 
 
+class TestHookTemplate:
+    """Tests for the hook script template."""
+
+    def test_template_uses_subcommand_format(self):
+        """Hook template uses 'blq hooks run' not 'blq hooks-run'."""
+        from blq.commands.hooks_cmd import PRECOMMIT_HOOK_TEMPLATE
+
+        assert "blq hooks run" in PRECOMMIT_HOOK_TEMPLATE
+        assert "blq hooks-run" not in PRECOMMIT_HOOK_TEMPLATE
+
+    def test_template_contains_marker(self):
+        """Hook template contains the marker for identification."""
+        from blq.commands.hooks_cmd import HOOK_MARKER, PRECOMMIT_HOOK_TEMPLATE
+
+        assert HOOK_MARKER in PRECOMMIT_HOOK_TEMPLATE
+
+
 @pytest.fixture
 def git_repo(temp_dir):
     """Create a git repository in temp_dir."""
@@ -71,6 +88,19 @@ class TestHooksInstall:
         hook_path = initialized_git_project / ".git" / "hooks" / "pre-commit"
         content = hook_path.read_text()
         assert HOOK_MARKER in content
+
+    def test_install_uses_correct_command_format(self, initialized_git_project):
+        """Installed hook uses 'blq hooks run' (not 'blq hooks-run')."""
+        from blq.commands.hooks_cmd import cmd_hooks_install
+
+        args = argparse.Namespace(force=False)
+        cmd_hooks_install(args)
+
+        hook_path = initialized_git_project / ".git" / "hooks" / "pre-commit"
+        content = hook_path.read_text()
+        # Must use subcommand format, not hyphenated
+        assert "blq hooks run" in content
+        assert "blq hooks-run" not in content
 
     def test_install_idempotent(self, initialized_git_project, capsys):
         """Installing twice without force shows message."""
@@ -194,12 +224,13 @@ class TestHooksStatus:
 
         args = argparse.Namespace(force=False)
         cmd_hooks_install(args)
+        capsys.readouterr()  # Clear install output
 
         cmd_hooks_status(argparse.Namespace())
 
         captured = capsys.readouterr()
-        assert "installed" in captured.out
-        assert "blq-managed" in captured.out
+        assert "[installed]" in captured.out
+        assert "pre-commit" in captured.out
 
 
 class TestHooksAdd:
@@ -301,7 +332,7 @@ class TestNotInGitRepo:
         assert "Not in a git repository" in captured.err
 
     def test_status_not_git(self, temp_dir, capsys):
-        """Status shows not in git repo."""
+        """Status shows not initialized when not in blq project."""
         original = os.getcwd()
         os.chdir(temp_dir)
 
@@ -311,6 +342,7 @@ class TestNotInGitRepo:
             cmd_hooks_status(argparse.Namespace())
 
             captured = capsys.readouterr()
-            assert "Not in a git repository" in captured.out
+            # New behavior: checks for blq initialization first
+            assert "not initialized" in captured.out
         finally:
             os.chdir(original)

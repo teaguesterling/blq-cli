@@ -10,6 +10,7 @@ from blq.commands.events import cmd_context, cmd_event, cmd_inspect
 from blq.commands.execution import cmd_capture, cmd_exec, cmd_import, cmd_run
 from blq.commands.hooks_cmd import (
     cmd_hooks_add,
+    cmd_hooks_generate,
     cmd_hooks_install,
     cmd_hooks_list,
     cmd_hooks_remove,
@@ -57,6 +58,7 @@ __all__ = [
     "cmd_import",
     "cmd_capture",
     # Hooks
+    "cmd_hooks_generate",
     "cmd_hooks_install",
     "cmd_hooks_remove",
     "cmd_hooks_status",

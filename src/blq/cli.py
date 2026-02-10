@@ -59,6 +59,7 @@ from blq.commands import (
     cmd_formats,
     cmd_history,
     cmd_hooks_add,
+    cmd_hooks_generate,
     cmd_hooks_install,
     cmd_hooks_list,
     cmd_hooks_remove,
@@ -718,37 +719,84 @@ def main() -> None:
     # Hooks commands
     # =========================================================================
 
-    p_hooks = subparsers.add_parser("hooks", help="Git hooks commands")
+    p_hooks = subparsers.add_parser("hooks", help="Hook script generation and installation")
     hooks_subparsers = p_hooks.add_subparsers(dest="hooks_command", help="Hooks subcommands")
 
+    # hooks generate
+    p_hooks_generate = hooks_subparsers.add_parser(
+        "generate", help="Generate hook scripts from registered commands"
+    )
+    p_hooks_generate.add_argument(
+        "commands", nargs="+", help="Command names to generate scripts for"
+    )
+    p_hooks_generate.add_argument(
+        "--force", "-f", action="store_true", help="Overwrite existing scripts"
+    )
+    p_hooks_generate.set_defaults(func=cmd_hooks_generate)
+
     # hooks install
-    p_hooks_install = hooks_subparsers.add_parser("install", help="Install git pre-commit hook")
+    p_hooks_install = hooks_subparsers.add_parser(
+        "install", help="Install hooks to a target (git, github, gitlab)"
+    )
     p_hooks_install.add_argument(
-        "--force", "-f", action="store_true", help="Overwrite existing hook"
+        "target",
+        nargs="?",
+        default="git",
+        help="Installation target: git, github, gitlab (default: git)",
+    )
+    p_hooks_install.add_argument(
+        "commands", nargs="*", help="Command names to install (required for new-style install)"
+    )
+    p_hooks_install.add_argument(
+        "--hook", default="pre-commit", help="Git hook name (default: pre-commit)"
+    )
+    p_hooks_install.add_argument(
+        "--force", "-f", action="store_true", help="Overwrite existing hook/workflow"
     )
     p_hooks_install.set_defaults(func=cmd_hooks_install)
 
-    # hooks remove
+    # hooks uninstall (new name, was 'remove')
+    p_hooks_uninstall = hooks_subparsers.add_parser(
+        "uninstall", help="Remove installed hooks"
+    )
+    p_hooks_uninstall.add_argument(
+        "target", nargs="?", default="git", help="Target to uninstall from (default: git)"
+    )
+    p_hooks_uninstall.add_argument(
+        "--hook", default="pre-commit", help="Git hook name (default: pre-commit)"
+    )
+    p_hooks_uninstall.set_defaults(func=cmd_hooks_remove)
+
+    # hooks remove (alias for uninstall, backward compat)
     p_hooks_remove = hooks_subparsers.add_parser("remove", help="Remove git pre-commit hook")
     p_hooks_remove.set_defaults(func=cmd_hooks_remove)
 
     # hooks status
-    p_hooks_status = hooks_subparsers.add_parser("status", help="Show git hook status")
+    p_hooks_status = hooks_subparsers.add_parser(
+        "status", help="Show hook scripts and installation status"
+    )
     p_hooks_status.set_defaults(func=cmd_hooks_status)
 
     # hooks run
     p_hooks_run = hooks_subparsers.add_parser(
-        "run", help="Run pre-commit hook commands (called by git hook)"
+        "run", help="Run pre-commit hook commands"
+    )
+    p_hooks_run.add_argument(
+        "commands", nargs="*", help="Commands to run (default: configured pre-commit commands)"
     )
     p_hooks_run.set_defaults(func=cmd_hooks_run)
 
-    # hooks add
-    p_hooks_add = hooks_subparsers.add_parser("add", help="Add a command to pre-commit hook")
+    # hooks add (legacy, for config-based hooks)
+    p_hooks_add = hooks_subparsers.add_parser(
+        "add", help="Add a command to pre-commit config (legacy)"
+    )
     p_hooks_add.add_argument("command", help="Command name to add")
     p_hooks_add.set_defaults(func=cmd_hooks_add)
 
-    # hooks list
-    p_hooks_list = hooks_subparsers.add_parser("list", help="List commands in pre-commit hook")
+    # hooks list (legacy, for config-based hooks)
+    p_hooks_list = hooks_subparsers.add_parser(
+        "list", help="List commands in pre-commit config (legacy)"
+    )
     p_hooks_list.set_defaults(func=cmd_hooks_list)
 
     # =========================================================================
