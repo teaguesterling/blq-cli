@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from blq.commands.core import BlqConfig
-from blq.config_format import load_toml, save_toml
 from blq.commands.events import cmd_inspect
+from blq.config_format import load_toml, save_toml
 from blq.output import format_status, read_source_context
 
 
@@ -352,6 +352,15 @@ class TestFormatStatusWithUniqueCounts:
         assert "\u2713" in result  # Checkmark
 
 
+try:
+    import fastmcp  # noqa: F401
+
+    HAS_FASTMCP = True
+except ImportError:
+    HAS_FASTMCP = False
+
+
+@pytest.mark.skipif(not HAS_FASTMCP, reason="fastmcp not installed")
 class TestInspectMCPTool:
     """Tests for the inspect MCP tool."""
 
@@ -366,9 +375,6 @@ class TestInspectMCPTool:
     @pytest.mark.asyncio
     async def test_inspect_tool_returns_details(self, mcp_server):
         """Inspect tool returns event details with context."""
-
-        # Skip if mcp test infrastructure not available
-        pytest.importorskip("mcp")
 
         from blq.serve import _inspect_impl
 
