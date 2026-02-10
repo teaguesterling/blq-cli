@@ -144,6 +144,61 @@ class TestQueryTool:
                 for row in result["rows"]:
                     assert row[severity_idx] == "error"
 
+    @pytest.mark.asyncio
+    async def test_query_with_filter(self, mcp_server):
+        """Query with simple filter expressions."""
+        async with Client(mcp_server) as client:
+            # Filter for errors
+            raw = await client.call_tool("query", {"filter": "severity=error"})
+            result = get_data(raw)
+
+            assert "columns" in result
+            assert "rows" in result
+
+            # All returned rows should be errors
+            if result["rows"]:
+                severity_idx = result["columns"].index("severity")
+                for row in result["rows"]:
+                    assert row[severity_idx] == "error"
+
+    @pytest.mark.asyncio
+    async def test_query_filter_multiple(self, mcp_server):
+        """Query with multiple filter expressions."""
+        async with Client(mcp_server) as client:
+            # Multiple filters are AND'd
+            raw = await client.call_tool(
+                "query", {"filter": "severity=error,warning", "limit": 10}
+            )
+            result = get_data(raw)
+
+            assert "columns" in result
+            assert len(result["rows"]) <= 10
+
+    @pytest.mark.asyncio
+    async def test_query_filter_contains(self, mcp_server):
+        """Query with contains (~) filter."""
+        async with Client(mcp_server) as client:
+            raw = await client.call_tool("query", {"filter": "ref_file~test"})
+            result = get_data(raw)
+
+            assert "columns" in result
+            # Results should contain files with 'test' in the path
+            if result["rows"]:
+                file_idx = result["columns"].index("ref_file")
+                for row in result["rows"]:
+                    if row[file_idx]:
+                        assert "test" in row[file_idx].lower()
+
+    @pytest.mark.asyncio
+    async def test_query_requires_sql_or_filter(self, mcp_server):
+        """Query requires either sql or filter parameter."""
+        async with Client(mcp_server) as client:
+            raw = await client.call_tool("query", {})
+            result = get_data(raw)
+
+            assert "error" in result
+            assert "sql or filter" in result["error"].lower()
+
 
 class TestEventsTool:
     """Tests for the events tool (consolidated from errors/warnings)."""

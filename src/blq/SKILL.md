@@ -200,7 +200,21 @@ This is the recommended starting point - you can see errors with their surroundi
 | `inspect(ref, lines, ...)` | Full details with log and source context (supports batch mode with `refs` param) |
 | `output(run_id, stream, tail, head)` | Raw stdout/stderr for a run |
 | `diff(run1, run2)` | Compare errors between runs |
-| `query(sql, limit)` | Run SQL against the database |
+| `query(sql, filter, limit)` | Query with SQL or filter expressions (e.g., `filter="severity=error"`) |
+
+#### Filter Syntax for `query`
+
+The `filter` parameter supports simple expressions:
+- `key=value` - exact match (`severity=error`)
+- `key=v1,v2` - multiple values (`severity=error,warning`)
+- `key~pattern` - contains (`ref_file~test`)
+- `key!=value` - not equal (`tool_name!=mypy`)
+
+Multiple filters are AND'd together (space or comma separated):
+```python
+blq.query(filter="severity=error ref_file~test")  # Errors in test files
+blq.query(filter="tool_name=pytest category=test")  # pytest test failures
+```
 
 ### Command Management
 

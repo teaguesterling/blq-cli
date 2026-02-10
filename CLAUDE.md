@@ -46,15 +46,15 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **Verbose mode** (`-v`) for run/exec with summary output
 - **MCP safe mode** (`--safe-mode`/`--disabled-tools` for `blq mcp serve`)
 - **Blob cleanup** in prune mode (orphaned content-addressed blobs)
+- **Query filter syntax** (`query(filter="severity=error ref_file~test")`)
 - Full mypy type checking compliance
-- 438 unit tests
+- 442 unit tests
 - Comprehensive documentation (README, docs/)
 
 ### TODO
 
 **Features:**
 - [ ] Implement sync feature (see `docs/design-sync.md`) - Issue #21
-- [ ] Unified search tool: `search(query=...|filter=...|sql=...)` - consolidate query capabilities
 - [ ] Parameterized commands (avoid duplicate commands for variations like test subsets)
 - [ ] Plugin system for adding commands or extra fields to existing commands
 
@@ -258,7 +258,7 @@ blq mcp serve --transport sse  # SSE transport
 | Tool | Description |
 |------|-------------|
 | `run` | Run registered command(s) - supports batch mode via `commands` param |
-| `query` | Query stored events with SQL |
+| `query` | Query events with SQL or filter expressions (`filter="severity=error"`) |
 | `events` | Get events with severity/run filters - supports batch mode via `run_ids` param |
 | `inspect` | Get comprehensive event details with context - supports batch mode via `refs` param |
 | `output` | Get raw output for a run |

@@ -37,6 +37,7 @@ from typing import Any
 import pandas as pd  # type: ignore[import-untyped]
 from fastmcp import FastMCP
 
+from blq.commands.query_cmd import parse_filter_expression
 from blq.output import format_context
 from blq.storage import BlqStorage
 
@@ -484,11 +485,42 @@ def _exec_impl(
         }
 
 
-def _query_impl(sql: str, limit: int = 100) -> dict[str, Any]:
-    """Implementation of query command."""
+def _query_impl(
+    sql: str | None = None,
+    filter: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Implementation of query command.
+
+    Args:
+        sql: Raw SQL query
+        filter: Simple filter expressions (e.g., "severity=error", "ref_file~test")
+        limit: Max rows to return
+    """
     try:
         store = _get_storage()
         conn = store.connection
+
+        # Build SQL from filter expressions if provided
+        if filter and not sql:
+            # Parse filter expressions (comma or space separated)
+            expressions = []
+            for expr in filter.replace(",", " ").split():
+                expr = expr.strip()
+                if expr:
+                    try:
+                        expressions.append(parse_filter_expression(expr))
+                    except ValueError as e:
+                        return {"columns": [], "rows": [], "row_count": 0, "error": str(e)}
+
+            if expressions:
+                where_clause = " AND ".join(expressions)
+                sql = f"SELECT * FROM blq_load_events() WHERE {where_clause}"
+            else:
+                sql = "SELECT * FROM blq_load_events()"
+
+        if not sql:
+            return {"columns": [], "rows": [], "row_count": 0, "error": "Either sql or filter must be provided"}
 
         # Add LIMIT if not present (basic safety)
         sql_upper = sql.upper()
@@ -1525,17 +1557,38 @@ def exec(
 
 
 @mcp.tool()
-def query(sql: str, limit: int = 100) -> dict[str, Any]:
-    """Query stored log events with SQL.
+def query(
+    sql: str | None = None,
+    filter: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Query stored log events with SQL or simple filter expressions.
+
+    Use either `sql` for raw SQL queries or `filter` for simple expressions.
+
+    Filter syntax:
+        key=value      -> exact match (key = 'value')
+        key=v1,v2      -> multiple values (key IN ('v1', 'v2'))
+        key~pattern    -> contains (key ILIKE '%pattern%')
+        key!=value     -> not equal (key != 'value')
+
+    Multiple filters are AND'd together (space or comma separated).
 
     Args:
         sql: SQL query against blq_load_events() or other blq macros
+        filter: Simple filter expressions (e.g., "severity=error ref_file~test")
         limit: Max rows to return (default: 100)
 
     Returns:
         Query results with columns, rows, and row_count
+
+    Examples:
+        query(sql="SELECT * FROM blq_load_events() WHERE severity = 'error'")
+        query(filter="severity=error")
+        query(filter="severity=error,warning ref_file~test")
+        query(filter="tool_name=pytest", limit=50)
     """
-    return _query_impl(sql, limit)
+    return _query_impl(sql=sql, filter=filter, limit=limit)
 
 
 @mcp.tool()
