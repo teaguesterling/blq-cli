@@ -641,6 +641,50 @@ class BirdStore:
                 [content_hash],
             )
 
+    def cleanup_orphaned_blobs(self) -> tuple[int, int]:
+        """Remove blobs that are no longer referenced by any output.
+
+        Returns:
+            Tuple of (blobs_deleted, bytes_freed)
+        """
+        # Find orphaned blobs (in registry but not referenced by outputs)
+        result = self._conn.execute("""
+            SELECT br.content_hash, br.byte_length, br.storage_path
+            FROM blob_registry br
+            LEFT JOIN outputs o ON br.content_hash = o.content_hash
+            WHERE o.content_hash IS NULL
+        """).fetchall()
+
+        blobs_deleted = 0
+        bytes_freed = 0
+
+        for content_hash, byte_length, storage_path in result:
+            # Delete the blob file
+            blob_path = self._blob_dir / storage_path
+            if blob_path.exists():
+                try:
+                    blob_path.unlink()
+                    bytes_freed += byte_length
+                    blobs_deleted += 1
+                except OSError:
+                    pass  # File may already be gone
+
+            # Remove from registry
+            self._conn.execute(
+                "DELETE FROM blob_registry WHERE content_hash = ?",
+                [content_hash],
+            )
+
+        # Clean up empty subdirectories
+        for subdir in self._blob_dir.iterdir():
+            if subdir.is_dir() and not any(subdir.iterdir()):
+                try:
+                    subdir.rmdir()
+                except OSError:
+                    pass
+
+        return blobs_deleted, bytes_freed
+
     # =========================================================================
     # Event Management
     # =========================================================================

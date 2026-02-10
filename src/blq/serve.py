@@ -2227,13 +2227,22 @@ def _clean_impl(
 
             conn.close()
 
-            # TODO: Clean up orphaned blobs
+            # Clean up orphaned blobs
+            from blq.bird import BirdStore
+            store = BirdStore.open(lq_dir)
+            blobs_deleted, bytes_freed = store.cleanup_orphaned_blobs()
+            store.close()
 
             return {
                 "success": True,
                 "message": f"Removed data older than {days} days.",
                 "mode": mode,
-                "removed": {"invocations": invocation_count, "events": event_count},
+                "removed": {
+                    "invocations": invocation_count,
+                    "events": event_count,
+                    "blobs": blobs_deleted,
+                    "bytes_freed": bytes_freed,
+                },
             }
 
         elif mode == "schema":

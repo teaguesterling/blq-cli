@@ -383,6 +383,44 @@ class TestOutputManagement:
         # Same hash
         assert output1.content_hash == output2.content_hash
 
+    def test_cleanup_orphaned_blobs(self, bird_store):
+        """Orphaned blobs are cleaned up."""
+        inv = InvocationRecord(
+            id=str(uuid.uuid4()),
+            session_id="test",
+            cmd="cat bigfile",
+            cwd="/tmp",
+            exit_code=0,
+            client_id="blq-test",
+        )
+        bird_store.write_invocation(inv)
+
+        # Write a blob
+        content = b"z" * 5000
+        output = bird_store.write_output(inv.id, "combined", content)
+        blob_path = bird_store._blob_dir / output.storage_ref.replace("file:", "")
+        assert blob_path.exists()
+
+        # Delete the output record (simulate prune)
+        bird_store._conn.execute("DELETE FROM outputs WHERE invocation_id = ?", [inv.id])
+
+        # Blob still exists (orphaned)
+        assert blob_path.exists()
+
+        # Cleanup orphaned blobs
+        blobs_deleted, bytes_freed = bird_store.cleanup_orphaned_blobs()
+
+        assert blobs_deleted == 1
+        assert bytes_freed == len(content)
+        assert not blob_path.exists()
+
+        # Registry entry should be deleted too
+        result = bird_store._conn.execute(
+            "SELECT COUNT(*) FROM blob_registry WHERE content_hash = ?",
+            [output.content_hash]
+        ).fetchone()
+        assert result[0] == 0
+
 
 class TestWriteBirdInvocation:
     """Tests for the write_bird_invocation helper function."""

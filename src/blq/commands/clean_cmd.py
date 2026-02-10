@@ -67,6 +67,7 @@ def _clean_data(lq_dir: Path, confirm: bool) -> None:
         conn.execute("DELETE FROM outputs")
         conn.execute("DELETE FROM invocations")
         conn.execute("DELETE FROM sessions")
+        conn.execute("DELETE FROM blob_registry")
         conn.close()
 
     # Clear blobs
@@ -156,9 +157,17 @@ def _clean_prune(lq_dir: Path, days: int, confirm: bool, dry_run: bool) -> None:
 
     conn.close()
 
-    # TODO: Clean up orphaned blobs (content-addressed, need to check ref counts)
+    # Clean up orphaned blobs
+    from blq.bird import BirdStore
+    store = BirdStore.open(lq_dir)
+    blobs_deleted, bytes_freed = store.cleanup_orphaned_blobs()
+    store.close()
 
-    print(f"Removed {invocation_count} invocations and {event_count} events.")
+    msg = f"Removed {invocation_count} invocations and {event_count} events."
+    if blobs_deleted > 0:
+        mb_freed = bytes_freed / (1024 * 1024)
+        msg += f" Freed {blobs_deleted} blobs ({mb_freed:.1f} MB)."
+    print(msg)
 
 
 def _clean_schema(lq_dir: Path, confirm: bool) -> None:

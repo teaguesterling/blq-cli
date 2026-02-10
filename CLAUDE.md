@@ -45,8 +45,9 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **Timeout handling** for command execution with partial output capture
 - **Verbose mode** (`-v`) for run/exec with summary output
 - **MCP safe mode** (`--safe-mode`/`--disabled-tools` for `blq mcp serve`)
+- **Blob cleanup** in prune mode (orphaned content-addressed blobs)
 - Full mypy type checking compliance
-- 437 unit tests
+- 438 unit tests
 - Comprehensive documentation (README, docs/)
 
 ### TODO
@@ -67,7 +68,6 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - [ ] Migrate to updated BIRD spec (when ready)
 
 **Maintenance:**
-- [ ] Blob cleanup in prune mode (track orphaned content-addressed blobs)
 - [ ] Configurable autoprune (periodic cleanup with predefined limits)
 
 ## Architecture
