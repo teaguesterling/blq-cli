@@ -44,15 +44,16 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **Clean command** (`blq clean data/prune/schema/full`) for database maintenance
 - **Timeout handling** for command execution with partial output capture
 - **Verbose mode** (`-v`) for run/exec with summary output
+- **MCP safe mode** (`--safe-mode`/`--disabled-tools` for `blq mcp serve`)
 - Full mypy type checking compliance
-- 431 unit tests
+- 437 unit tests
 - Comprehensive documentation (README, docs/)
 
 ### TODO
 
 **Features:**
 - [ ] Implement sync feature (see `docs/design-sync.md`) - Issue #21
-- [ ] Add `--disabled-tools` parameter to `blq mcp serve` command
+- [ ] Unified search tool: `search(query=...|filter=...|sql=...)` - consolidate query capabilities
 - [ ] Parameterized commands (avoid duplicate commands for variations like test subsets)
 - [ ] Plugin system for adding commands or extra fields to existing commands
 
@@ -67,6 +68,7 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 
 **Maintenance:**
 - [ ] Blob cleanup in prune mode (track orphaned content-addressed blobs)
+- [ ] Configurable autoprune (periodic cleanup with predefined limits)
 
 ## Architecture
 
@@ -271,7 +273,14 @@ blq mcp serve --transport sse  # SSE transport
 
 ### MCP Security
 
-Disable sensitive tools via `.lq/config.yaml`:
+Disable tools via CLI flags:
+```bash
+blq mcp serve --safe-mode           # Disables exec, clean, register_command, unregister_command
+blq mcp serve -D exec,clean         # Disable specific tools
+blq mcp serve -S -D custom_tool     # Combine safe mode with additional tools
+```
+
+Or via `.lq/config.yaml`:
 ```yaml
 mcp:
   disabled_tools:
@@ -280,7 +289,7 @@ mcp:
     - unregister_command
 ```
 
-Or via environment: `BLQ_MCP_DISABLED_TOOLS=clean`
+Or via environment: `BLQ_MCP_DISABLED_TOOLS=clean,exec`
 
 ### MCP Resources
 

@@ -917,3 +917,78 @@ class TestCleanTool:
             history_raw = await client.call_tool("history", {})
             history = get_data(history_raw)
             assert len(history["runs"]) == 0
+
+
+class TestDisabledTools:
+    """Tests for tool disabling (--disabled-tools, --safe-mode)."""
+
+    def test_init_disabled_tools_safe_mode(self):
+        """Safe mode disables state-modifying tools."""
+        from blq import serve
+
+        # Reset state
+        serve._disabled_tools = None
+
+        # Initialize with safe mode
+        serve._init_disabled_tools(safe_mode=True)
+
+        disabled = serve._load_disabled_tools()
+        assert "exec" in disabled
+        assert "clean" in disabled
+        assert "register_command" in disabled
+        assert "unregister_command" in disabled
+
+        # Reset for other tests
+        serve._disabled_tools = None
+
+    def test_init_disabled_tools_cli_arg(self):
+        """CLI --disabled-tools argument works."""
+        from blq import serve
+
+        # Reset state
+        serve._disabled_tools = None
+
+        # Initialize with CLI arg
+        serve._init_disabled_tools(cli_disabled="exec,clean")
+
+        disabled = serve._load_disabled_tools()
+        assert "exec" in disabled
+        assert "clean" in disabled
+        assert "register_command" not in disabled
+
+        # Reset for other tests
+        serve._disabled_tools = None
+
+    def test_init_disabled_tools_combined(self):
+        """Safe mode and CLI args combine."""
+        from blq import serve
+
+        # Reset state
+        serve._disabled_tools = None
+
+        # Initialize with both
+        serve._init_disabled_tools(cli_disabled="custom_tool", safe_mode=True)
+
+        disabled = serve._load_disabled_tools()
+        assert "exec" in disabled  # From safe mode
+        assert "custom_tool" in disabled  # From CLI
+
+        # Reset for other tests
+        serve._disabled_tools = None
+
+    def test_check_tool_enabled_raises(self):
+        """Disabled tool raises PermissionError."""
+        from blq import serve
+
+        # Reset state
+        serve._disabled_tools = None
+        serve._init_disabled_tools(cli_disabled="exec")
+
+        with pytest.raises(PermissionError) as exc_info:
+            serve._check_tool_enabled("exec")
+
+        assert "exec" in str(exc_info.value)
+        assert "disabled" in str(exc_info.value)
+
+        # Reset for other tests
+        serve._disabled_tools = None

@@ -688,6 +688,18 @@ def main() -> None:
     p_mcp_serve.add_argument(
         "--port", "-p", type=int, default=8080, help="Port for SSE transport (default: 8080)"
     )
+    p_mcp_serve.add_argument(
+        "--disabled-tools",
+        "-D",
+        type=str,
+        help="Comma-separated list of tools to disable (e.g., 'exec,clean')",
+    )
+    p_mcp_serve.add_argument(
+        "--safe-mode",
+        "-S",
+        action="store_true",
+        help="Disable tools that modify state (exec, clean, register_command, unregister_command)",
+    )
     p_mcp_serve.set_defaults(func=cmd_mcp_serve)
 
     # =========================================================================

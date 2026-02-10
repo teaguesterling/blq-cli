@@ -6,18 +6,24 @@ Provides tools, resources, and prompts for AI agent integration.
 Usage:
     blq mcp serve                    # stdio transport (for Claude Desktop)
     blq mcp serve --transport sse    # SSE transport (for HTTP clients)
+    blq mcp serve --safe-mode        # Disable state-modifying tools
+    blq mcp serve -D exec,clean      # Disable specific tools
 
 Security:
-    Tools can be disabled via .lq/config.yaml:
+    Tools can be disabled via CLI flags:
+        blq mcp serve --safe-mode    # Disables exec, clean, register_command, unregister_command
+        blq mcp serve -D exec,clean  # Disable specific tools
+
+    Or via .lq/config.yaml:
         mcp:
           disabled_tools:
             - exec
-            - reset
+            - clean
             - register_command
             - unregister_command
 
     Or via environment variable:
-        BLQ_MCP_DISABLED_TOOLS=exec,reset,register_command
+        BLQ_MCP_DISABLED_TOOLS=exec,clean,register_command
 """
 
 from __future__ import annotations
@@ -38,10 +44,11 @@ from blq.storage import BlqStorage
 # Security Configuration
 # ============================================================================
 
-# Tools that can be disabled for security
-SECURITY_SENSITIVE_TOOLS = {
-    "exec",           # Can run arbitrary commands
-    "reset",          # Can delete data
+# Tools that modify state and can be disabled for security (--safe-mode / -S)
+# These are the tools disabled when running in safe mode
+SAFE_MODE_DISABLED_TOOLS = {
+    "exec",               # Can run arbitrary commands
+    "clean",              # Can delete data
     "register_command",   # Can modify command registry
     "unregister_command", # Can modify command registry
 }
@@ -50,15 +57,31 @@ SECURITY_SENSITIVE_TOOLS = {
 _disabled_tools: set[str] | None = None
 
 
-def _load_disabled_tools() -> set[str]:
-    """Load list of disabled tools from config or environment."""
+def _init_disabled_tools(
+    cli_disabled: str | None = None,
+    safe_mode: bool = False,
+) -> None:
+    """Initialize disabled tools from CLI arguments.
+
+    This must be called before any tools are invoked, typically at server startup.
+
+    Args:
+        cli_disabled: Comma-separated list of tools to disable from --disabled-tools
+        safe_mode: If True, disable all tools in SAFE_MODE_DISABLED_TOOLS
+    """
     global _disabled_tools
-    if _disabled_tools is not None:
-        return _disabled_tools
 
     disabled: set[str] = set()
 
-    # Check environment variable first
+    # Add safe mode tools first
+    if safe_mode:
+        disabled.update(SAFE_MODE_DISABLED_TOOLS)
+
+    # Add CLI-specified tools
+    if cli_disabled:
+        disabled.update(t.strip() for t in cli_disabled.split(",") if t.strip())
+
+    # Check environment variable
     env_disabled = os.environ.get("BLQ_MCP_DISABLED_TOOLS", "")
     if env_disabled:
         disabled.update(t.strip() for t in env_disabled.split(",") if t.strip())
@@ -76,7 +99,20 @@ def _load_disabled_tools() -> set[str]:
         pass
 
     _disabled_tools = disabled
-    return disabled
+
+
+def _load_disabled_tools() -> set[str]:
+    """Get the set of disabled tools.
+
+    If _init_disabled_tools() hasn't been called, loads from config/environment only.
+    """
+    global _disabled_tools
+    if _disabled_tools is not None:
+        return _disabled_tools
+
+    # Fallback: initialize without CLI args
+    _init_disabled_tools()
+    return _disabled_tools or set()
 
 
 def _check_tool_enabled(tool_name: str) -> None:
@@ -2606,13 +2642,23 @@ def investigate_flaky(test_pattern: str | None = None, lookback: int = 10) -> st
 # ============================================================================
 
 
-def serve(transport: str = "stdio", port: int = 8080) -> None:
+def serve(
+    transport: str = "stdio",
+    port: int = 8080,
+    disabled_tools: str | None = None,
+    safe_mode: bool = False,
+) -> None:
     """Start the MCP server.
 
     Args:
         transport: Transport type ("stdio" or "sse")
         port: Port for SSE transport
+        disabled_tools: Comma-separated list of tools to disable
+        safe_mode: If True, disable state-modifying tools (exec, clean, register/unregister)
     """
+    # Initialize disabled tools before starting the server
+    _init_disabled_tools(cli_disabled=disabled_tools, safe_mode=safe_mode)
+
     if transport == "stdio":
         mcp.run()
     elif transport == "sse":

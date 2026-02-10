@@ -76,5 +76,12 @@ def cmd_mcp_serve(args: argparse.Namespace) -> None:
 
     transport = getattr(args, "transport", "stdio")
     port = getattr(args, "port", 8080)
+    disabled_tools = getattr(args, "disabled_tools", None)
+    safe_mode = getattr(args, "safe_mode", False)
 
-    serve(transport=transport, port=port)
+    serve(
+        transport=transport,
+        port=port,
+        disabled_tools=disabled_tools,
+        safe_mode=safe_mode,
+    )
