@@ -21,7 +21,7 @@ from typing import Any
 import duckdb
 
 # Schema version
-BIRD_SCHEMA_VERSION = "2.0.0"
+BIRD_SCHEMA_VERSION = "2.1.0"
 
 # Storage thresholds (per BIRD spec)
 DEFAULT_INLINE_THRESHOLD = 4096  # 4KB - outputs smaller than this are stored inline
@@ -90,6 +90,85 @@ class InvocationRecord:
         """Generate a new UUID for an invocation."""
         # TODO: Use UUIDv7 when available for time-ordered IDs
         return str(uuid.uuid4())
+
+
+@dataclass
+class AttemptRecord:
+    """A BIRD attempt (command start - written before completion).
+
+    This enables tracking of running commands. Status is derived by LEFT JOIN
+    with OutcomeRecord:
+    - No outcome = 'pending' (still running)
+    - Outcome with NULL exit_code = 'orphaned' (crashed)
+    - Outcome with exit_code = 'completed'
+    """
+
+    # Identity
+    id: str  # UUID
+    session_id: str
+
+    # Command
+    cmd: str
+    cwd: str
+
+    # Client
+    client_id: str
+
+    # Timing (start only)
+    timestamp: datetime = field(default_factory=datetime.now)
+
+    # Optional fields
+    executable: str | None = None
+    format_hint: str | None = None
+    hostname: str | None = None
+    username: str | None = None
+
+    # BIRD spec: user-defined tag
+    tag: str | None = None
+
+    # blq-specific fields
+    source_name: str | None = None
+    source_type: str | None = None
+    environment: dict[str, str] | None = None
+    platform: str | None = None
+    arch: str | None = None
+    git_commit: str | None = None
+    git_branch: str | None = None
+    git_dirty: bool | None = None
+    ci: dict[str, str] | None = None
+
+    # Partitioning
+    date: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
+
+    @classmethod
+    def generate_id(cls) -> str:
+        """Generate a new UUID for an attempt."""
+        return str(uuid.uuid4())
+
+
+@dataclass
+class OutcomeRecord:
+    """A BIRD outcome (command completion - written after command finishes).
+
+    Links to AttemptRecord via attempt_id.
+    """
+
+    # Identity (1:1 with attempt)
+    attempt_id: str  # References AttemptRecord.id
+
+    # Result
+    exit_code: int | None = None  # NULL = crashed/unknown
+
+    # Timing
+    completed_at: datetime = field(default_factory=datetime.now)
+    duration_ms: int | None = None
+
+    # Termination details
+    signal: int | None = None  # If killed by signal
+    timeout: bool = False  # If killed by timeout
+
+    # Partitioning
+    date: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
 
 
 @dataclass
@@ -420,8 +499,306 @@ class BirdStore:
         Returns:
             Next sequential run number
         """
-        result = self._conn.execute("SELECT COUNT(*) FROM invocations").fetchone()
+        # Count from invocations only (completed runs)
+        # With the live output pattern, attempts are written at start and
+        # invocations at completion with the same ID, so counting invocations
+        # gives us the count of completed runs.
+        result = self._conn.execute("""
+            SELECT COUNT(*) FROM invocations
+        """).fetchone()
         return (result[0] if result else 0) + 1
+
+    # =========================================================================
+    # Attempt/Outcome Management (BIRD v5 pattern)
+    # =========================================================================
+
+    def write_attempt(self, record: AttemptRecord) -> str:
+        """Write an attempt record (at command START).
+
+        Call this when a command starts executing. The attempt will have
+        'pending' status until write_outcome() is called.
+
+        Args:
+            record: Attempt record to write
+
+        Returns:
+            The attempt ID
+        """
+        self._conn.execute(
+            """
+            INSERT INTO attempts (
+                id, session_id, timestamp, cwd, cmd, executable,
+                format_hint, client_id, hostname, username, tag,
+                source_name, source_type, environment, platform, arch,
+                git_commit, git_branch, git_dirty, ci, date
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                record.id,
+                record.session_id,
+                record.timestamp,
+                record.cwd,
+                record.cmd,
+                record.executable,
+                record.format_hint,
+                record.client_id,
+                record.hostname,
+                record.username,
+                record.tag,
+                record.source_name,
+                record.source_type,
+                json.dumps(record.environment) if record.environment else None,
+                record.platform,
+                record.arch,
+                record.git_commit,
+                record.git_branch,
+                record.git_dirty,
+                json.dumps(record.ci) if record.ci else None,
+                record.date,
+            ],
+        )
+        return record.id
+
+    def write_outcome(self, record: OutcomeRecord) -> None:
+        """Write an outcome record (at command COMPLETION).
+
+        Call this when a command finishes executing. Links to the
+        attempt via attempt_id.
+
+        Args:
+            record: Outcome record to write
+        """
+        self._conn.execute(
+            """
+            INSERT INTO outcomes (
+                attempt_id, completed_at, duration_ms, exit_code,
+                signal, timeout, date
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                record.attempt_id,
+                record.completed_at,
+                record.duration_ms,
+                record.exit_code,
+                record.signal,
+                record.timeout,
+                record.date,
+            ],
+        )
+
+    def get_running_attempts(self) -> list[dict]:
+        """Get attempts without outcomes (running commands).
+
+        Returns:
+            List of running attempt dicts with elapsed time
+        """
+        result = self._conn.execute("""
+            SELECT
+                a.id,
+                a.session_id,
+                a.timestamp,
+                a.cmd,
+                a.source_name,
+                a.tag,
+                a.hostname,
+                EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - a.timestamp)) * 1000 AS elapsed_ms
+            FROM attempts a
+            WHERE NOT EXISTS (SELECT 1 FROM outcomes o WHERE o.attempt_id = a.id)
+            ORDER BY a.timestamp DESC
+        """).fetchall()
+
+        columns = [
+            "id",
+            "session_id",
+            "timestamp",
+            "cmd",
+            "source_name",
+            "tag",
+            "hostname",
+            "elapsed_ms",
+        ]
+        return [dict(zip(columns, row)) for row in result]
+
+    def get_attempt_status(self, attempt_id: str) -> str | None:
+        """Get the status of an attempt.
+
+        Args:
+            attempt_id: The attempt UUID
+
+        Returns:
+            'pending', 'orphaned', 'completed', or None if not found
+        """
+        result = self._conn.execute(
+            """
+            SELECT
+                CASE
+                    WHEN o.attempt_id IS NULL THEN 'pending'
+                    WHEN o.exit_code IS NULL THEN 'orphaned'
+                    ELSE 'completed'
+                END AS status
+            FROM attempts a
+            LEFT JOIN outcomes o ON a.id = o.attempt_id
+            WHERE a.id = ?
+            """,
+            [attempt_id],
+        ).fetchone()
+
+        return result[0] if result else None
+
+    # =========================================================================
+    # Live Output Management
+    # =========================================================================
+
+    def get_live_dir(self, attempt_id: str) -> Path:
+        """Get the live output directory for an attempt.
+
+        Args:
+            attempt_id: The attempt UUID
+
+        Returns:
+            Path to live output directory (.lq/live/{attempt_id}/)
+        """
+        return self._lq_dir / "live" / attempt_id
+
+    def create_live_dir(self, attempt_id: str, meta: dict) -> Path:
+        """Create live output directory and metadata file.
+
+        Args:
+            attempt_id: The attempt UUID
+            meta: Metadata dict with cmd, source_name, started_at, pid, etc.
+
+        Returns:
+            Path to the created live directory
+        """
+        live_dir = self.get_live_dir(attempt_id)
+        live_dir.mkdir(parents=True, exist_ok=True)
+
+        # Write metadata
+        meta_path = live_dir / "meta.json"
+        meta_path.write_text(json.dumps(meta, default=str, indent=2))
+
+        return live_dir
+
+    def get_live_output_path(self, attempt_id: str, stream: str = "combined") -> Path:
+        """Get path to a live output file.
+
+        Args:
+            attempt_id: The attempt UUID
+            stream: Stream name ('stdout', 'stderr', 'combined')
+
+        Returns:
+            Path to the live output file
+        """
+        live_dir = self.get_live_dir(attempt_id)
+        return live_dir / f"{stream}.log"
+
+    def read_live_output(
+        self,
+        attempt_id: str,
+        stream: str = "combined",
+        tail: int | None = None,
+        head: int | None = None,
+    ) -> str | None:
+        """Read from live output file.
+
+        Args:
+            attempt_id: The attempt UUID
+            stream: Stream name ('stdout', 'stderr', 'combined')
+            tail: If set, return only last N lines
+            head: If set, return only first N lines
+
+        Returns:
+            Output content as string, or None if file doesn't exist
+        """
+        output_path = self.get_live_output_path(attempt_id, stream)
+        if not output_path.exists():
+            return None
+
+        content = output_path.read_text()
+
+        if tail is not None:
+            lines = content.splitlines(keepends=True)
+            content = "".join(lines[-tail:])
+        elif head is not None:
+            lines = content.splitlines(keepends=True)
+            content = "".join(lines[:head])
+
+        return content
+
+    def cleanup_live_dir(self, attempt_id: str) -> bool:
+        """Remove live output directory after completion.
+
+        Args:
+            attempt_id: The attempt UUID
+
+        Returns:
+            True if directory was removed, False if it didn't exist
+        """
+        import shutil
+
+        live_dir = self.get_live_dir(attempt_id)
+        if live_dir.exists():
+            shutil.rmtree(live_dir)
+            return True
+        return False
+
+    def list_live_attempts(self) -> list[dict]:
+        """List attempts with live output directories.
+
+        Returns:
+            List of dicts with attempt_id, meta, and live_dir path
+        """
+        live_root = self._lq_dir / "live"
+        if not live_root.exists():
+            return []
+
+        results = []
+        for attempt_dir in live_root.iterdir():
+            if attempt_dir.is_dir():
+                meta_path = attempt_dir / "meta.json"
+                meta = {}
+                if meta_path.exists():
+                    try:
+                        meta = json.loads(meta_path.read_text())
+                    except json.JSONDecodeError:
+                        pass
+
+                results.append({
+                    "attempt_id": attempt_dir.name,
+                    "meta": meta,
+                    "live_dir": str(attempt_dir),
+                })
+
+        return results
+
+    def finalize_live_output(
+        self,
+        attempt_id: str,
+        stream: str = "combined",
+    ) -> OutputRecord | None:
+        """Move live output to blob storage and clean up.
+
+        Args:
+            attempt_id: The attempt UUID
+            stream: Stream name to finalize
+
+        Returns:
+            OutputRecord if output was saved, None otherwise
+        """
+        live_path = self.get_live_output_path(attempt_id, stream)
+        if not live_path.exists():
+            return None
+
+        content = live_path.read_bytes()
+        if not content:
+            return None
+
+        # Write to blob storage
+        record = self.write_output(attempt_id, stream, content)
+
+        return record
 
     # =========================================================================
     # Output Management

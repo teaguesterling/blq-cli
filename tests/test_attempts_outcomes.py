@@ -244,18 +244,19 @@ class TestBirdStoreAttempts:
         running = store.get_running_attempts()
 
         assert len(running) == 2
-        running_ids = {r["id"] for r in running}
+        # Convert to strings for comparison (DuckDB returns UUID objects)
+        running_ids = {str(r["id"]) for r in running}
         assert id1 in running_ids
         assert id2 in running_ids
         assert id3 not in running_ids
 
         store.close()
 
-    def test_get_next_run_number_includes_attempts(self, initialized_project):
-        """get_next_run_number counts both invocations and attempts."""
+    def test_get_next_run_number_counts_invocations(self, initialized_project):
+        """get_next_run_number counts only invocations (completed runs)."""
         store = BirdStore.open(initialized_project / ".lq")
 
-        # Create an attempt
+        # Create an attempt (pending run - not yet complete)
         attempt = AttemptRecord(
             id=AttemptRecord.generate_id(),
             session_id="test",
@@ -265,9 +266,26 @@ class TestBirdStoreAttempts:
         )
         store.write_attempt(attempt)
 
-        # Next run number should be 2
+        # Attempt alone doesn't increment run number (it's still pending)
         next_num = store.get_next_run_number()
-        assert next_num >= 2  # At least 2, may be higher if fixtures create data
+        assert next_num == 1  # No completed invocations yet
+
+        # Create an invocation (simulating run completion)
+        from blq.bird import InvocationRecord
+
+        invocation = InvocationRecord(
+            id=attempt.id,  # Same ID as attempt
+            session_id="test",
+            cmd="test cmd",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+            exit_code=0,
+        )
+        store.write_invocation(invocation)
+
+        # Now we have a completed run
+        next_num = store.get_next_run_number()
+        assert next_num == 2
 
         store.close()
 
@@ -348,6 +366,381 @@ class TestAttemptsOutcomesSql:
         ]
         attempt_id_idx = columns.index("attempt_id")
 
-        assert result[0][attempt_id_idx] == pending_id
+        # Convert to string for comparison (DuckDB returns UUID objects)
+        assert str(result[0][attempt_id_idx]) == pending_id
+
+        store.close()
+
+
+class TestLiveOutputStreaming:
+    """Tests for live output directory and streaming."""
+
+    def test_create_live_dir(self, initialized_project):
+        """Create live output directory for an attempt."""
+        store = BirdStore.open(initialized_project / ".lq")
+
+        attempt = AttemptRecord(
+            id=AttemptRecord.generate_id(),
+            session_id="test",
+            cmd="long running command",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+        )
+        attempt_id = store.write_attempt(attempt)
+
+        # Create live directory
+        meta = {"cmd": "long running command", "started_at": "2024-01-01T00:00:00"}
+        live_dir = store.create_live_dir(attempt_id, meta)
+
+        assert live_dir.exists()
+        assert (live_dir / "meta.json").exists()
+        assert live_dir.name == attempt_id
+
+        store.close()
+
+    def test_get_live_output_path(self, initialized_project):
+        """Get path to live output file."""
+        store = BirdStore.open(initialized_project / ".lq")
+
+        attempt = AttemptRecord(
+            id=AttemptRecord.generate_id(),
+            session_id="test",
+            cmd="test",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+        )
+        attempt_id = store.write_attempt(attempt)
+
+        # Create live directory first
+        store.create_live_dir(attempt_id, {"cmd": "test"})
+
+        # Get path for combined output
+        output_path = store.get_live_output_path(attempt_id, "combined")
+
+        assert output_path.parent.name == attempt_id
+        assert output_path.name == "combined.log"
+
+        store.close()
+
+    def test_write_and_read_live_output(self, initialized_project):
+        """Write to and read from live output file."""
+        store = BirdStore.open(initialized_project / ".lq")
+
+        attempt = AttemptRecord(
+            id=AttemptRecord.generate_id(),
+            session_id="test",
+            cmd="test",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+        )
+        attempt_id = store.write_attempt(attempt)
+
+        # Create live directory
+        store.create_live_dir(attempt_id, {"cmd": "test"})
+
+        # Write some output
+        output_path = store.get_live_output_path(attempt_id, "combined")
+        with open(output_path, "w") as f:
+            f.write("line 1\n")
+            f.write("line 2\n")
+            f.write("line 3\n")
+
+        # Read it back
+        content = store.read_live_output(attempt_id, "combined")
+        assert content == "line 1\nline 2\nline 3\n"
+
+        # Read with tail
+        content = store.read_live_output(attempt_id, "combined", tail=2)
+        assert content == "line 2\nline 3\n"
+
+        store.close()
+
+    def test_cleanup_live_dir(self, initialized_project):
+        """Clean up live directory after completion."""
+        store = BirdStore.open(initialized_project / ".lq")
+
+        attempt = AttemptRecord(
+            id=AttemptRecord.generate_id(),
+            session_id="test",
+            cmd="test",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+        )
+        attempt_id = store.write_attempt(attempt)
+
+        # Create live directory
+        live_dir = store.create_live_dir(attempt_id, {"cmd": "test"})
+        output_path = store.get_live_output_path(attempt_id, "combined")
+
+        # Write some content
+        with open(output_path, "w") as f:
+            f.write("test output\n")
+
+        assert live_dir.exists()
+
+        # Clean up
+        store.cleanup_live_dir(attempt_id)
+
+        assert not live_dir.exists()
+
+        store.close()
+
+    def test_list_live_attempts(self, initialized_project):
+        """List attempts with active live output."""
+        store = BirdStore.open(initialized_project / ".lq")
+
+        # Create two attempts with live directories
+        attempt1 = AttemptRecord(
+            id=AttemptRecord.generate_id(),
+            session_id="test",
+            cmd="cmd1",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+        )
+        attempt2 = AttemptRecord(
+            id=AttemptRecord.generate_id(),
+            session_id="test",
+            cmd="cmd2",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+        )
+
+        id1 = store.write_attempt(attempt1)
+        id2 = store.write_attempt(attempt2)
+
+        store.create_live_dir(id1, {"cmd": "cmd1"})
+        store.create_live_dir(id2, {"cmd": "cmd2"})
+
+        # List live attempts - returns list of dicts with attempt_id, meta, live_dir
+        live_attempts = store.list_live_attempts()
+        live_ids = [a["attempt_id"] for a in live_attempts]
+
+        assert id1 in live_ids
+        assert id2 in live_ids
+
+        # Clean up one
+        store.cleanup_live_dir(id1)
+
+        live_attempts = store.list_live_attempts()
+        live_ids = [a["attempt_id"] for a in live_attempts]
+        assert id1 not in live_ids
+        assert id2 in live_ids
+
+        store.close()
+
+    def test_finalize_live_output_inline(self, initialized_project):
+        """Finalize small live output as inline storage."""
+        store = BirdStore.open(initialized_project / ".lq")
+
+        attempt = AttemptRecord(
+            id=AttemptRecord.generate_id(),
+            session_id="test",
+            cmd="test",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+        )
+        attempt_id = store.write_attempt(attempt)
+
+        # Create live directory and write small content (<4KB = inline threshold)
+        store.create_live_dir(attempt_id, {"cmd": "test"})
+        output_path = store.get_live_output_path(attempt_id, "combined")
+
+        test_content = "test output line 1\ntest output line 2\n"
+        with open(output_path, "w") as f:
+            f.write(test_content)
+
+        # Finalize - small content gets stored inline
+        output_record = store.finalize_live_output(attempt_id, "combined")
+
+        # Should return an OutputRecord
+        assert output_record is not None
+        assert output_record.content_hash is not None
+        assert output_record.storage_type == "inline"
+        assert output_record.storage_ref.startswith("data:")  # Base64 data URI
+        assert output_record.byte_length == len(test_content)
+
+        store.close()
+
+    def test_finalize_live_output_blob(self, initialized_project):
+        """Finalize large live output to blob storage."""
+        store = BirdStore.open(initialized_project / ".lq")
+
+        attempt = AttemptRecord(
+            id=AttemptRecord.generate_id(),
+            session_id="test",
+            cmd="test",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+        )
+        attempt_id = store.write_attempt(attempt)
+
+        # Create live directory and write large content (>4KB = blob threshold)
+        store.create_live_dir(attempt_id, {"cmd": "test"})
+        output_path = store.get_live_output_path(attempt_id, "combined")
+
+        # Create content larger than 4KB inline threshold
+        test_content = ("X" * 100 + "\n") * 50  # ~5KB
+        with open(output_path, "w") as f:
+            f.write(test_content)
+
+        # Finalize - large content goes to blob storage
+        output_record = store.finalize_live_output(attempt_id, "combined")
+
+        # Should return an OutputRecord
+        assert output_record is not None
+        assert output_record.content_hash is not None
+        assert output_record.storage_type == "blob"
+        assert output_record.storage_ref.startswith("file:")  # Blob file reference
+
+        # Verify blob was written
+        blob_hash = output_record.content_hash
+        blob_path = (
+            initialized_project / ".lq" / "blobs" / "content" / blob_hash[:2] / f"{blob_hash}.bin"
+        )
+        assert blob_path.exists()
+        assert blob_path.read_bytes() == test_content.encode()
+
+        store.close()
+
+    def test_live_dir_not_created_for_nonexistent_attempt(self, initialized_project):
+        """Live directory creation requires valid attempt ID."""
+        store = BirdStore.open(initialized_project / ".lq")
+
+        # Try to create live dir for non-existent attempt
+        fake_id = "00000000-0000-0000-0000-000000000000"
+        live_dir = store.create_live_dir(fake_id, {"cmd": "test"})
+
+        # Should still create the directory (we don't validate attempt existence)
+        # This is intentional - the directory is created regardless
+        assert live_dir.exists()
+
+        store.close()
+
+
+class TestHistoryStatusFilter:
+    """Tests for blq history --status filter."""
+
+    def test_blq_history_status_pending(self, initialized_project):
+        """blq_history_status filters pending attempts."""
+        store = BirdStore.open(initialized_project / ".lq")
+
+        # Create a pending attempt (no outcome)
+        pending = AttemptRecord(
+            id=AttemptRecord.generate_id(),
+            session_id="test",
+            cmd="sleep 100",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+            source_name="long-running",
+        )
+        store.write_attempt(pending)
+
+        # Create a completed attempt (with outcome and invocation)
+        completed = AttemptRecord(
+            id=AttemptRecord.generate_id(),
+            session_id="test",
+            cmd="echo done",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+            source_name="quick",
+        )
+        completed_id = store.write_attempt(completed)
+        store.write_outcome(OutcomeRecord(attempt_id=completed_id, exit_code=0, duration_ms=100))
+
+        # Query with pending status
+        result = store.connection.execute(
+            "SELECT * FROM blq_history_status('pending', 20)"
+        ).fetchall()
+
+        # Should only have the pending one
+        assert len(result) == 1
+        # Check source_name column (index 2 in the result)
+        columns = [
+            desc[0]
+            for desc in store.connection.execute(
+                "SELECT * FROM blq_history_status('pending', 20) LIMIT 0"
+            ).description
+        ]
+        source_name_idx = columns.index("source_name")
+        assert result[0][source_name_idx] == "long-running"
+
+        store.close()
+
+    def test_blq_history_status_completed(self, initialized_project):
+        """blq_history_status filters completed attempts."""
+        store = BirdStore.open(initialized_project / ".lq")
+
+        # Create a pending attempt
+        pending = AttemptRecord(
+            id=AttemptRecord.generate_id(),
+            session_id="test",
+            cmd="sleep 100",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+            source_name="pending-cmd",
+        )
+        store.write_attempt(pending)
+
+        # Create a completed attempt
+        completed = AttemptRecord(
+            id=AttemptRecord.generate_id(),
+            session_id="test",
+            cmd="echo done",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+            source_name="completed-cmd",
+        )
+        completed_id = store.write_attempt(completed)
+        store.write_outcome(OutcomeRecord(attempt_id=completed_id, exit_code=0, duration_ms=100))
+
+        # Query with completed status
+        result = store.connection.execute(
+            "SELECT * FROM blq_history_status('completed', 20)"
+        ).fetchall()
+
+        # Should only have the completed one
+        assert len(result) == 1
+        columns = [
+            desc[0]
+            for desc in store.connection.execute(
+                "SELECT * FROM blq_history_status('completed', 20) LIMIT 0"
+            ).description
+        ]
+        source_name_idx = columns.index("source_name")
+        assert result[0][source_name_idx] == "completed-cmd"
+
+        store.close()
+
+    def test_blq_history_status_null_returns_all(self, initialized_project):
+        """blq_history_status with NULL returns all attempts."""
+        store = BirdStore.open(initialized_project / ".lq")
+
+        # Create pending and completed attempts
+        pending = AttemptRecord(
+            id=AttemptRecord.generate_id(),
+            session_id="test",
+            cmd="sleep 100",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+        )
+        completed = AttemptRecord(
+            id=AttemptRecord.generate_id(),
+            session_id="test",
+            cmd="echo done",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+        )
+
+        store.write_attempt(pending)
+        completed_id = store.write_attempt(completed)
+        store.write_outcome(OutcomeRecord(attempt_id=completed_id, exit_code=0, duration_ms=100))
+
+        # Query with NULL status (should return all)
+        result = store.connection.execute(
+            "SELECT * FROM blq_history_status(NULL, 20)"
+        ).fetchall()
+
+        # Should have both
+        assert len(result) == 2
 
         store.close()

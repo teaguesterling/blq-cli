@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS blq_metadata (
 );
 
 -- Insert schema version (ignore if exists)
-INSERT OR IGNORE INTO blq_metadata VALUES ('schema_version', '2.0.0');
+INSERT OR IGNORE INTO blq_metadata VALUES ('schema_version', '2.1.0');
 INSERT OR IGNORE INTO blq_metadata VALUES ('storage_mode', 'duckdb');
 
 -- Base path for blob storage (set at runtime)
@@ -52,6 +52,73 @@ CREATE TABLE IF NOT EXISTS sessions (
 
     -- Context
     cwd               VARCHAR,                  -- Initial working directory
+
+    -- Partitioning
+    date              DATE NOT NULL DEFAULT CURRENT_DATE
+);
+
+-- ============================================================================
+-- ATTEMPTS/OUTCOMES TABLES (BIRD v5 pattern for long-running commands)
+-- ============================================================================
+
+-- Attempts table: written at command START (before we know the outcome)
+-- Enables tracking of running commands via LEFT JOIN with outcomes
+CREATE TABLE IF NOT EXISTS attempts (
+    -- Identity
+    id                UUID PRIMARY KEY DEFAULT uuid(),  -- UUIDv7 when available
+    session_id        VARCHAR NOT NULL,                 -- References sessions.session_id
+
+    -- Timing (start only - completion is in outcomes)
+    timestamp         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Context
+    cwd               VARCHAR NOT NULL,
+
+    -- Command
+    cmd               VARCHAR NOT NULL,                 -- Full command string
+    executable        VARCHAR,                          -- Extracted executable name
+
+    -- Format detection
+    format_hint       VARCHAR,                          -- Detected format (gcc, pytest, etc.)
+
+    -- Client identity
+    client_id         VARCHAR NOT NULL,                 -- e.g., "blq-shell"
+    hostname          VARCHAR,
+    username          VARCHAR,
+
+    -- BIRD spec: user-defined tag (non-unique alias)
+    tag               VARCHAR,                          -- e.g., "build-v1.2.3"
+
+    -- blq-specific fields
+    source_name       VARCHAR,                          -- Registered command name
+    source_type       VARCHAR,                          -- 'run', 'exec', 'import', 'capture'
+    environment       JSON,                             -- Captured environment variables
+    platform          VARCHAR,                          -- OS (Linux, Darwin, Windows)
+    arch              VARCHAR,                          -- Architecture (x86_64, arm64)
+    git_commit        VARCHAR,                          -- HEAD SHA
+    git_branch        VARCHAR,                          -- Current branch
+    git_dirty         BOOLEAN,                          -- Uncommitted changes
+    ci                JSON,                             -- CI provider context
+
+    -- Partitioning
+    date              DATE NOT NULL DEFAULT CURRENT_DATE
+);
+
+-- Outcomes table: written at command COMPLETION
+-- Commands without outcomes are "pending" (still running)
+-- Commands with outcomes but NULL exit_code are "orphaned" (crashed)
+CREATE TABLE IF NOT EXISTS outcomes (
+    -- Identity (1:1 with attempts)
+    attempt_id        UUID PRIMARY KEY,                 -- References attempts.id
+
+    -- Timing
+    completed_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    duration_ms       BIGINT,                           -- Wall-clock duration
+
+    -- Result
+    exit_code         INTEGER,                          -- NULL = crashed/unknown
+    signal            INTEGER,                          -- If killed by signal (SIGTERM=15, SIGKILL=9)
+    timeout           BOOLEAN DEFAULT FALSE,            -- If killed by timeout
 
     -- Partitioning
     date              DATE NOT NULL DEFAULT CURRENT_DATE
@@ -183,6 +250,17 @@ CREATE TABLE IF NOT EXISTS blob_registry (
 -- INDEXES
 -- ============================================================================
 
+-- Attempts indexes
+CREATE INDEX IF NOT EXISTS idx_attempts_session ON attempts(session_id);
+CREATE INDEX IF NOT EXISTS idx_attempts_date ON attempts(date);
+CREATE INDEX IF NOT EXISTS idx_attempts_source ON attempts(source_name);
+CREATE INDEX IF NOT EXISTS idx_attempts_timestamp ON attempts(timestamp DESC);
+
+-- Outcomes indexes
+CREATE INDEX IF NOT EXISTS idx_outcomes_date ON outcomes(date);
+CREATE INDEX IF NOT EXISTS idx_outcomes_completed ON outcomes(completed_at DESC);
+
+-- Legacy invocations indexes (for backward compatibility)
 CREATE INDEX IF NOT EXISTS idx_invocations_session ON invocations(session_id);
 CREATE INDEX IF NOT EXISTS idx_invocations_date ON invocations(date);
 CREATE INDEX IF NOT EXISTS idx_invocations_source ON invocations(source_name);
@@ -281,6 +359,45 @@ SELECT * FROM blq_events_flat;
 -- ============================================================================
 -- BIRD-NATIVE VIEWS
 -- ============================================================================
+
+-- Attempts with outcomes joined - provides status derivation
+-- Status: 'pending' (no outcome), 'orphaned' (outcome without exit_code), 'completed'
+CREATE OR REPLACE VIEW attempts_with_status AS
+SELECT
+    a.id,
+    a.session_id,
+    a.timestamp,
+    a.cwd,
+    a.cmd,
+    a.executable,
+    a.format_hint,
+    a.client_id,
+    a.hostname,
+    a.username,
+    a.tag,
+    a.source_name,
+    a.source_type,
+    a.environment,
+    a.platform,
+    a.arch,
+    a.git_commit,
+    a.git_branch,
+    a.git_dirty,
+    a.ci,
+    a.date,
+    o.completed_at,
+    o.exit_code,
+    o.duration_ms,
+    o.signal,
+    o.timeout,
+    -- Status derived from join (BIRD v5 pattern)
+    CASE
+        WHEN o.attempt_id IS NULL THEN 'pending'
+        WHEN o.exit_code IS NULL THEN 'orphaned'
+        ELSE 'completed'
+    END AS status
+FROM attempts a
+LEFT JOIN outcomes o ON a.id = o.attempt_id;
 
 -- Recent invocations (last 14 days)
 CREATE OR REPLACE VIEW invocations_recent AS
@@ -424,6 +541,92 @@ SELECT
     started_at,
     age(completed_at::TIMESTAMP, started_at::TIMESTAMP) AS duration
 FROM blq_load_runs()
+ORDER BY started_at DESC
+LIMIT n;
+
+-- ============================================================================
+-- ATTEMPTS/OUTCOMES MACROS (for long-running command support)
+-- ============================================================================
+
+-- Load attempts with status (pending/orphaned/completed)
+CREATE OR REPLACE MACRO blq_load_attempts() AS TABLE
+SELECT
+    ROW_NUMBER() OVER (ORDER BY a.timestamp) AS run_id,
+    a.id AS attempt_id,
+    a.session_id,
+    a.timestamp AS started_at,
+    o.completed_at,
+    a.cwd,
+    a.cmd AS command,
+    a.executable,
+    a.format_hint,
+    a.client_id,
+    a.hostname,
+    a.username,
+    a.tag,
+    a.source_name,
+    a.source_type,
+    a.environment,
+    a.platform,
+    a.arch,
+    a.git_commit,
+    a.git_branch,
+    a.git_dirty,
+    a.ci,
+    a.date,
+    o.exit_code,
+    o.duration_ms,
+    o.signal,
+    o.timeout,
+    -- Status derived from join (BIRD v5 pattern)
+    CASE
+        WHEN o.attempt_id IS NULL THEN 'pending'
+        WHEN o.exit_code IS NULL THEN 'orphaned'
+        ELSE 'completed'
+    END AS status,
+    -- Elapsed time for pending commands
+    CASE
+        WHEN o.attempt_id IS NULL THEN
+            EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - a.timestamp)) * 1000
+        ELSE o.duration_ms
+    END AS elapsed_ms
+FROM attempts a
+LEFT JOIN outcomes o ON a.id = o.attempt_id;
+
+-- Get running commands (attempts without outcomes)
+CREATE OR REPLACE MACRO blq_running() AS TABLE
+SELECT
+    ROW_NUMBER() OVER (ORDER BY timestamp) AS run_id,
+    id AS attempt_id,
+    source_name,
+    cmd AS command,
+    timestamp AS started_at,
+    EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - timestamp)) * 1000 AS elapsed_ms,
+    tag,
+    hostname
+FROM attempts a
+WHERE NOT EXISTS (SELECT 1 FROM outcomes o WHERE o.attempt_id = a.id)
+ORDER BY timestamp DESC;
+
+-- History with status filter (for --status=running, --status=completed, etc.)
+CREATE OR REPLACE MACRO blq_history_status(status_filter, n := 20) AS TABLE
+SELECT
+    run_id,
+    CASE
+        WHEN status = 'pending' THEN '[ .. ]'
+        ELSE blq_status_badge(0, 0, exit_code)
+    END AS badge,
+    source_name,
+    status,
+    started_at,
+    CASE
+        WHEN status = 'pending' THEN
+            'running ' || (elapsed_ms / 1000)::VARCHAR || 's'
+        ELSE
+            age(completed_at::TIMESTAMP, started_at::TIMESTAMP)::VARCHAR
+    END AS duration
+FROM blq_load_attempts()
+WHERE status_filter IS NULL OR status = status_filter
 ORDER BY started_at DESC
 LIMIT n;
 

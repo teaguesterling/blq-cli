@@ -1536,12 +1536,11 @@ def get_next_run_id(lq_dir: Path) -> int:
             import duckdb
 
             conn = duckdb.connect(str(db_path), read_only=True)
-            # Check if invocations table exists
+            # Count from invocations (completed runs) - attempts may still be pending
+            # Note: With the live output pattern, we write to both attempts AND
+            # invocations with the same ID, so counting only invocations is correct.
             result = conn.execute("""
-                SELECT MAX(run_id) FROM (
-                    SELECT ROW_NUMBER() OVER (ORDER BY timestamp) as run_id
-                    FROM invocations
-                )
+                SELECT COUNT(*) FROM invocations
             """).fetchone()
             if result and result[0]:
                 max_id = max(max_id, result[0])

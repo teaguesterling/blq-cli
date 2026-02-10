@@ -19,7 +19,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from blq.bird import write_bird_invocation
+from blq.bird import (
+    AttemptRecord,
+    BirdStore,
+    InvocationRecord,
+    OutcomeRecord,
+    write_bird_invocation,
+)
 from blq.commands.core import (
     RAW_DIR,
     BlqConfig,
@@ -121,6 +127,345 @@ def _make_event_summary(run_id: int, e: dict) -> EventSummary:
     )
 
 
+def _execute_with_live_output(
+    command: str,
+    source_name: str,
+    source_type: str,
+    config: BlqConfig,
+    format_hint: str = "auto",
+    quiet: bool = False,
+    keep_raw: bool | None = None,
+    error_limit: int = 50,
+    session_id: str | None = None,
+    capture_env_vars: list[str] | None = None,
+    timeout: int | None = None,
+) -> RunResult:
+    """Execute command with live output streaming (attempts/outcomes pattern).
+
+    This function writes output to live files during execution, enabling
+    inspection of long-running commands. Uses the BIRD v5 attempts/outcomes
+    pattern for tracking command status.
+
+    Flow:
+    1. Write attempt record (command is now visible as 'pending')
+    2. Create live output directory and files
+    3. Execute command, streaming output to live files
+    4. Write outcome record (command is now 'completed')
+    5. Finalize live output (move to blob storage)
+    6. Clean up live directory
+
+    Args:
+        command: The shell command to execute
+        source_name: Name to use for this run in the logs
+        source_type: Type of source ("run", "exec", "watch")
+        config: BlqConfig with project settings
+        format_hint: Log format hint for parsing
+        quiet: If True, don't stream command output to stdout
+        keep_raw: If True, save raw log output to blob storage
+        error_limit: Maximum number of errors to include in result
+        session_id: Optional session ID for grouping related runs
+        capture_env_vars: Environment variables to capture
+        timeout: Timeout in seconds
+
+    Returns:
+        RunResult with execution details and parsed events
+    """
+    if keep_raw is None:
+        keep_raw = config.keep_raw
+    lq_dir = config.lq_dir
+
+    if capture_env_vars is None:
+        capture_env_vars = config.capture_env.copy()
+
+    # Open BIRD store
+    store = BirdStore.open(lq_dir)
+
+    # Capture execution context at start
+    cwd = os.getcwd()
+    executable_path = find_executable(command)
+    environment = capture_environment(capture_env_vars)
+    hostname = socket.gethostname()
+    platform_name = platform.system()
+    arch = platform.machine()
+    git_info = capture_git_info()
+    ci_info = capture_ci_info()
+    started_at = datetime.now()
+
+    # Ensure session exists
+    client_id = f"blq-{source_type}"
+    effective_session_id = session_id or source_name
+    store.ensure_session(
+        session_id=effective_session_id,
+        client_id=client_id,
+        invoker="blq",
+        invoker_type="cli",
+        cwd=cwd,
+    )
+
+    # Create attempt record (written at START)
+    attempt = AttemptRecord(
+        id=AttemptRecord.generate_id(),
+        session_id=effective_session_id,
+        cmd=command,
+        cwd=cwd,
+        client_id=client_id,
+        timestamp=started_at,
+        executable=executable_path,
+        format_hint=format_hint if format_hint != "auto" else None,
+        hostname=hostname,
+        tag=source_name,
+        source_name=source_name,
+        source_type=source_type,
+        environment=environment or None,
+        platform=platform_name,
+        arch=arch,
+        git_commit=git_info.commit,
+        git_branch=git_info.branch,
+        git_dirty=git_info.dirty,
+        ci=ci_info,
+    )
+
+    # Write attempt - command is now visible as 'pending'
+    attempt_id = store.write_attempt(attempt)
+    run_id = store.get_next_run_number()  # This will be our run ID (invocation written at end)
+
+    logger.debug(f"Running: {command}")
+    logger.debug(f"Attempt ID: {attempt_id}")
+    logger.debug(f"Run ID: {run_id}")
+
+    # Create live output directory
+    live_meta = {
+        "cmd": command,
+        "source_name": source_name,
+        "started_at": started_at.isoformat(),
+        "pid": os.getpid(),
+        "attempt_id": attempt_id,
+        "run_id": run_id,
+    }
+    live_dir = store.create_live_dir(attempt_id, live_meta)
+    live_output_path = store.get_live_output_path(attempt_id, "combined")
+
+    # Open live output file for writing
+    live_file = open(live_output_path, "w")  # noqa: SIM115
+
+    try:
+        # Run command, streaming to live file
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+
+        output_lines: list[str] = []
+        timed_out = False
+        assert process.stdout is not None
+
+        if timeout is None:
+            # No timeout - simple synchronous read
+            for line in process.stdout:
+                if not quiet:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                output_lines.append(line)
+                # Write to live file
+                live_file.write(line)
+                live_file.flush()
+            exit_code = process.wait()
+        else:
+            # Timeout enabled - use threading
+            output_queue: queue.Queue[str | None] = queue.Queue()
+
+            def read_output() -> None:
+                try:
+                    assert process.stdout is not None
+                    for line in process.stdout:
+                        output_queue.put(line)
+                finally:
+                    output_queue.put(None)
+
+            reader_thread = threading.Thread(target=read_output, daemon=True)
+            reader_thread.start()
+
+            deadline = time.monotonic() + timeout
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+
+                try:
+                    queue_line = output_queue.get(timeout=min(remaining, 0.5))
+                    if queue_line is None:
+                        break
+                    if not quiet:
+                        sys.stdout.write(queue_line)
+                        sys.stdout.flush()
+                    output_lines.append(queue_line)
+                    # Write to live file
+                    live_file.write(queue_line)
+                    live_file.flush()
+                except queue.Empty:
+                    if process.poll() is not None:
+                        while True:
+                            try:
+                                drain_line = output_queue.get_nowait()
+                                if drain_line is None:
+                                    break
+                                if not quiet:
+                                    sys.stdout.write(drain_line)
+                                    sys.stdout.flush()
+                                output_lines.append(drain_line)
+                                live_file.write(drain_line)
+                                live_file.flush()
+                            except queue.Empty:
+                                break
+                        break
+
+            if timed_out:
+                process.kill()
+                if not quiet:
+                    sys.stdout.write(f"\n[TIMEOUT after {timeout}s]\n")
+                    sys.stdout.flush()
+                live_file.write(f"\n[TIMEOUT after {timeout}s]\n")
+                reader_thread.join(timeout=1.0)
+                while True:
+                    try:
+                        timeout_line = output_queue.get_nowait()
+                        if timeout_line is None:
+                            break
+                        output_lines.append(timeout_line)
+                        live_file.write(timeout_line)
+                    except queue.Empty:
+                        break
+                exit_code = -1
+            else:
+                exit_code = process.wait()
+                reader_thread.join(timeout=1.0)
+
+    finally:
+        live_file.close()
+
+    completed_at = datetime.now()
+    duration_ms = int((completed_at - started_at).total_seconds() * 1000)
+    output = "".join(output_lines)
+
+    # Write outcome - command is now 'completed'
+    outcome = OutcomeRecord(
+        attempt_id=attempt_id,
+        completed_at=completed_at,
+        exit_code=exit_code if not timed_out else None,
+        duration_ms=duration_ms,
+        timeout=timed_out,
+    )
+    store.write_outcome(outcome)
+
+    # Also write to invocations table for backward compatibility
+    # (blq_events_flat joins events with invocations, not attempts)
+    invocation = InvocationRecord(
+        id=attempt_id,  # Same ID so events can join
+        session_id=effective_session_id,
+        cmd=command,
+        cwd=cwd,
+        client_id=client_id,
+        timestamp=started_at,
+        duration_ms=duration_ms,
+        exit_code=exit_code if not timed_out else None,
+        executable=executable_path,
+        format_hint=format_hint if format_hint != "auto" else None,
+        hostname=hostname,
+        tag=source_name,
+        source_name=source_name,
+        source_type=source_type,
+        environment=environment or None,
+        platform=platform_name,
+        arch=arch,
+        git_commit=git_info.commit,
+        git_branch=git_info.branch,
+        git_dirty=git_info.dirty,
+        ci=ci_info,
+    )
+    store.write_invocation(invocation)
+
+    # Parse output for events
+    events = parse_log_content(output, format_hint)
+
+    # Write events
+    store.write_events(
+        attempt_id,
+        events,
+        client_id=client_id,
+        format_used=format_hint if format_hint != "auto" else None,
+        hostname=hostname,
+    )
+
+    # Finalize live output (move to blob storage) if keeping raw
+    if keep_raw:
+        store.finalize_live_output(attempt_id, "combined")
+
+    # Clean up live directory
+    store.cleanup_live_dir(attempt_id)
+
+    # Save raw output to .lq/raw/ if requested
+    if keep_raw:
+        raw_file = lq_dir / RAW_DIR / f"{run_id:03d}.log"
+        raw_file.parent.mkdir(parents=True, exist_ok=True)
+        raw_file.write_text(output)
+
+    store.close()
+
+    # Build structured result
+    error_events = [e for e in events if e.get("severity") == "error"]
+    warning_events = [e for e in events if e.get("severity") == "warning"]
+
+    if timed_out:
+        status = "TIMEOUT"
+    elif error_events:
+        status = "FAIL"
+    elif warning_events:
+        status = "WARN"
+    elif exit_code != 0:
+        status = "FAIL"
+    else:
+        status = "OK"
+
+    # Build output stats
+    tail_lines = 5
+    max_line_length = 120
+
+    def _truncate_line(ln: str) -> str:
+        stripped = ln.rstrip("\n\r")
+        if len(stripped) > max_line_length:
+            return stripped[:max_line_length] + "..."
+        return stripped
+
+    output_stats: dict[str, int | list[str]] = {
+        "lines": len(output_lines),
+        "bytes": len(output),
+        "tail": [_truncate_line(ln) for ln in output_lines[-tail_lines:]],
+    }
+
+    return RunResult(
+        run_id=run_id,
+        command=command,
+        status=status,
+        exit_code=exit_code,
+        started_at=started_at.isoformat(),
+        completed_at=completed_at.isoformat(),
+        duration_sec=duration_ms / 1000.0,
+        summary={
+            "total_events": len(events),
+            "errors": len(error_events),
+            "warnings": len(warning_events),
+        },
+        errors=[_make_event_summary(run_id, e) for e in error_events[:error_limit]],
+        warnings=[_make_event_summary(run_id, e) for e in warning_events[:error_limit]],
+        parquet_path=str(lq_dir / "blq.duckdb"),
+        output_stats=output_stats,
+    )
+
+
 def _execute_command(
     command: str,
     source_name: str,
@@ -156,6 +501,23 @@ def _execute_command(
     Returns:
         RunResult with execution details and parsed events
     """
+    # For BIRD mode, use live output streaming with attempts/outcomes pattern
+    if config.use_bird:
+        return _execute_with_live_output(
+            command=command,
+            source_name=source_name,
+            source_type=source_type,
+            config=config,
+            format_hint=format_hint,
+            quiet=quiet,
+            keep_raw=keep_raw,
+            error_limit=error_limit,
+            session_id=session_id,
+            capture_env_vars=capture_env_vars,
+            timeout=timeout,
+        )
+
+    # Legacy parquet mode - write everything at the end
     # Resolve keep_raw from config if not explicitly set
     if keep_raw is None:
         keep_raw = config.keep_raw

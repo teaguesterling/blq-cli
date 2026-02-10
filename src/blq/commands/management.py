@@ -9,10 +9,13 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import duckdb
 
+from blq.bird import BirdStore
 from blq.commands.core import (
     BlqConfig,
     EventRef,
@@ -55,23 +58,28 @@ def cmd_info(args: argparse.Namespace) -> None:
     """Show detailed information about a specific run.
 
     Accepts a run ref (e.g., 'test:5') or invocation_id (UUID).
+    Supports --tail, --head for output viewing and --follow for live streaming.
     """
     ref_arg = args.ref
+    tail_lines = getattr(args, "tail", None)
+    head_lines = getattr(args, "head", None)
+    follow = getattr(args, "follow", False)
 
     try:
         store = get_store_for_args(args)
+        config = BlqConfig.find()
 
         # Check if it's a UUID (invocation_id) or a run ref
         is_uuid = len(ref_arg) == 36 and ref_arg.count("-") == 4
 
+        # First try to find in completed runs (invocations)
         if is_uuid:
-            # Query by invocation_id
             result = store.sql(f"""
                 SELECT * FROM blq_load_runs()
                 WHERE invocation_id = '{ref_arg}'
             """).df()
+            attempt_id = ref_arg
         else:
-            # Parse as run ref
             try:
                 ref = EventRef.parse(ref_arg)
             except ValueError as e:
@@ -83,33 +91,209 @@ def cmd_info(args: argparse.Namespace) -> None:
                 WHERE run_id = {ref.run_id}
             """).df()
 
+        # Check if run is completed or still pending
+        run_status = "completed"
+        attempt_id = None
+
         if result.empty:
-            print(f"Run {ref_arg} not found", file=sys.stderr)
-            sys.exit(1)
+            # Not in completed runs - check pending attempts
+            if is_uuid:
+                attempt_result = store.sql(f"""
+                    SELECT * FROM blq_load_attempts()
+                    WHERE attempt_id = '{ref_arg}'
+                """).df()
+            else:
+                attempt_result = store.sql(f"""
+                    SELECT * FROM blq_load_attempts()
+                    WHERE run_id = {ref.run_id}
+                """).df()
 
-        run_data = result.to_dict(orient="records")[0]
+            if attempt_result.empty:
+                print(f"Run {ref_arg} not found", file=sys.stderr)
+                sys.exit(1)
 
-        # Get output details for this run
-        invocation_id = run_data.get("invocation_id")
-        if invocation_id:
-            outputs_result = store.sql(f"""
-                SELECT stream, byte_length
-                FROM outputs
-                WHERE invocation_id = '{invocation_id}'
-                ORDER BY stream
-            """).fetchall()
-            if outputs_result:
-                run_data["outputs"] = [
-                    {"stream": row[0], "bytes": row[1]} for row in outputs_result
-                ]
+            run_data = attempt_result.to_dict(orient="records")[0]
+            run_status = run_data.get("status", "pending")
+            attempt_id = str(run_data.get("attempt_id"))
+        else:
+            run_data = result.to_dict(orient="records")[0]
+            invocation_id = run_data.get("invocation_id")
+            attempt_id = str(invocation_id) if invocation_id else None
 
-        output_format = get_output_format(args)
-        detailed = getattr(args, "details", False) or getattr(args, "verbose", False)
-        print(format_run_details(run_data, output_format, detailed=detailed))
+            # Get output details for this run
+            if invocation_id:
+                outputs_result = store.sql(f"""
+                    SELECT stream, byte_length
+                    FROM outputs
+                    WHERE invocation_id = '{invocation_id}'
+                    ORDER BY stream
+                """).fetchall()
+                if outputs_result:
+                    run_data["outputs"] = [
+                        {"stream": row[0], "bytes": row[1]} for row in outputs_result
+                    ]
+
+        # Add status to run_data for display
+        run_data["status"] = run_status
+
+        # Handle --tail, --head, or --follow
+        if tail_lines or head_lines or follow:
+            _show_run_output(
+                config=config,
+                attempt_id=attempt_id,
+                run_status=run_status,
+                run_data=run_data,
+                tail_lines=tail_lines,
+                head_lines=head_lines,
+                follow=follow,
+            )
+        else:
+            # Just show run details
+            output_format = get_output_format(args)
+            detailed = getattr(args, "details", False) or getattr(args, "verbose", False)
+            print(format_run_details(run_data, output_format, detailed=detailed))
 
     except duckdb.Error as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+def _show_run_output(
+    config: BlqConfig | None,
+    attempt_id: str | None,
+    run_status: str,
+    run_data: dict,
+    tail_lines: int | None,
+    head_lines: int | None,
+    follow: bool,
+) -> None:
+    """Show run output (tail, head, or follow mode).
+
+    For running commands, reads from live output directory.
+    For completed commands, reads from blob storage.
+    """
+    if not config:
+        print("Error: Not in a blq project", file=sys.stderr)
+        sys.exit(1)
+
+    if not attempt_id:
+        print("Error: No attempt ID found for this run", file=sys.stderr)
+        sys.exit(1)
+
+    bird_store = BirdStore.open(config.lq_dir)
+
+    try:
+        if run_status == "pending":
+            # Running command - read from live output
+            _show_live_output(bird_store, attempt_id, run_data, tail_lines, head_lines, follow)
+        else:
+            # Completed command - read from blob storage
+            if follow:
+                print("Error: --follow only works for running commands", file=sys.stderr)
+                sys.exit(1)
+            _show_stored_output(bird_store, attempt_id, tail_lines, head_lines)
+    finally:
+        bird_store.close()
+
+
+def _show_live_output(
+    store: BirdStore,
+    attempt_id: str,
+    run_data: dict,
+    tail_lines: int | None,
+    head_lines: int | None,
+    follow: bool,
+) -> None:
+    """Show output from live directory (for running commands)."""
+    # Print run info header
+    source_name = run_data.get("source_name", "unknown")
+    cmd = run_data.get("command", "")
+    started_at = run_data.get("started_at", "")
+    print(f"[{source_name}] {cmd}", file=sys.stderr)
+    print(f"Started: {started_at} | Status: running", file=sys.stderr)
+    print("-" * 60, file=sys.stderr)
+
+    if follow:
+        # Stream output like tail -f
+        live_path = store.get_live_output_path(attempt_id, "combined")
+        if not live_path.exists():
+            print("(no output yet)", file=sys.stderr)
+            return
+
+        try:
+            with open(live_path) as f:
+                # First print existing content
+                if tail_lines:
+                    # Read all, then show tail
+                    lines = f.readlines()
+                    for line in lines[-tail_lines:]:
+                        sys.stdout.write(line)
+                else:
+                    # Print all existing content
+                    for line in f:
+                        sys.stdout.write(line)
+                sys.stdout.flush()
+
+                # Then follow new content
+                print("\n--- Following output (Ctrl+C to stop) ---", file=sys.stderr)
+                while True:
+                    line = f.readline()
+                    if line:
+                        sys.stdout.write(line)
+                        sys.stdout.flush()
+                    else:
+                        # Check if command is still running
+                        status = store.get_attempt_status(attempt_id)
+                        if status != "pending":
+                            print(f"\n--- Command finished (status: {status}) ---", file=sys.stderr)
+                            break
+                        time.sleep(0.1)
+        except KeyboardInterrupt:
+            print("\n--- Stopped following ---", file=sys.stderr)
+    else:
+        # Just read current content
+        content = store.read_live_output(attempt_id, "combined", tail=tail_lines)
+        if content:
+            if head_lines:
+                lines = content.split("\n")[:head_lines]
+                print("\n".join(lines))
+            else:
+                print(content, end="")
+        else:
+            print("(no output yet)")
+
+
+def _show_stored_output(
+    store: BirdStore,
+    attempt_id: str,
+    tail_lines: int | None,
+    head_lines: int | None,
+) -> None:
+    """Show output from blob storage (for completed commands)."""
+    # Get output from blob storage
+    content_bytes = store.get_output_content(attempt_id, "combined")
+    if not content_bytes:
+        # Try stdout if combined not available
+        content_bytes = store.get_output_content(attempt_id, "stdout")
+
+    if not content_bytes:
+        print("(no output stored)")
+        return
+
+    content = content_bytes.decode("utf-8", errors="replace")
+
+    if tail_lines:
+        lines = content.split("\n")
+        # Handle trailing newline
+        if lines and lines[-1] == "":
+            lines = lines[:-1]
+        output_lines = lines[-tail_lines:]
+        print("\n".join(output_lines))
+    elif head_lines:
+        lines = content.split("\n")[:head_lines]
+        print("\n".join(lines))
+    else:
+        print(content, end="")
 
 
 def cmd_last(args: argparse.Namespace) -> None:
@@ -340,16 +524,39 @@ def cmd_history(args: argparse.Namespace) -> None:
     """Show run history.
 
     Can filter by tag/ref (e.g., 'blq history test' or 'blq history -t test').
+    Can filter by status (e.g., 'blq history --status=running').
     """
     try:
         store = get_store_for_args(args)
 
         # Get filter from positional arg or --tag flag
         tag_filter = getattr(args, "ref", None) or getattr(args, "tag", None)
+        status_filter = getattr(args, "status", None)
         limit = get_default_limit(args)
 
-        if tag_filter:
-            # Filter by tag/source_name
+        # Map CLI status names to database status values
+        # "running" is user-friendly alias for "pending"
+        status_map = {"running": "pending", "completed": "completed", "orphaned": "orphaned"}
+        db_status = status_map.get(status_filter) if status_filter and status_filter != "all" else None
+
+        if status_filter and status_filter != "all":
+            # Use blq_history_status() macro for status filtering
+            if db_status:
+                status_sql = f"'{db_status}'"
+            else:
+                status_sql = "NULL"
+
+            if tag_filter:
+                result = store.sql(f"""
+                    SELECT * FROM blq_history_status({status_sql}, {limit})
+                    WHERE source_name = '{tag_filter}'
+                """).df()
+            else:
+                result = store.sql(f"""
+                    SELECT * FROM blq_history_status({status_sql}, {limit})
+                """).df()
+        elif tag_filter:
+            # Filter by tag/source_name only
             result = store.sql(f"""
                 SELECT * FROM blq_load_runs()
                 WHERE tag = '{tag_filter}' OR source_name = '{tag_filter}'
@@ -362,8 +569,11 @@ def cmd_history(args: argparse.Namespace) -> None:
         # Convert to list of dicts for formatting
         data = result.to_dict(orient="records")
 
-        if not data and tag_filter:
-            print(f"No runs found for '{tag_filter}'", file=sys.stderr)
+        if not data:
+            if status_filter:
+                print(f"No {status_filter} runs found", file=sys.stderr)
+            elif tag_filter:
+                print(f"No runs found for '{tag_filter}'", file=sys.stderr)
             return
 
         # Format and print

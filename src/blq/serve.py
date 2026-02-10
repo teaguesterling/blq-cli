@@ -1160,15 +1160,38 @@ def _info_impl(ref: str) -> dict[str, Any]:
         return {"error": str(e)}
 
 
-def _history_impl(limit: int = 20, source: str | None = None) -> dict[str, Any]:
-    """Implementation of history command."""
+def _history_impl(
+    limit: int = 20, source: str | None = None, status: str | None = None
+) -> dict[str, Any]:
+    """Implementation of history command.
+
+    Args:
+        limit: Max runs to return
+        source: Filter by source name
+        status: Filter by run status ('running', 'completed', 'orphaned')
+    """
     try:
         storage = _get_storage()
         if not storage.has_data():
             return {"runs": []}
 
-        # Build query with optional source filter
-        if source:
+        # Map user-friendly status names to database values
+        status_map = {"running": "pending", "completed": "completed", "orphaned": "orphaned"}
+        db_status = status_map.get(status) if status else None
+
+        # Use blq_history_status() for status filtering (includes pending attempts)
+        if db_status:
+            status_sql = f"'{db_status}'"
+            if source:
+                runs_df = storage.sql(f"""
+                    SELECT * FROM blq_history_status({status_sql}, {limit})
+                    WHERE source_name = '{source}'
+                """).df()
+            else:
+                runs_df = storage.sql(f"""
+                    SELECT * FROM blq_history_status({status_sql}, {limit})
+                """).df()
+        elif source:
             runs_df = storage.sql(f"""
                 SELECT * FROM blq_load_runs()
                 WHERE source_name = '{source}'
@@ -1181,15 +1204,25 @@ def _history_impl(limit: int = 20, source: str | None = None) -> dict[str, Any]:
         runs = []
 
         for _, row in runs_df.iterrows():
+            # Get counts (may be None for status-filtered results from blq_history_status)
             error_count = _safe_int(row.get("error_count")) or 0
             warning_count = _safe_int(row.get("warning_count")) or 0
 
-            if error_count > 0:
-                status_str = "FAIL"
-            elif warning_count > 0:
-                status_str = "WARN"
+            # For status-filtered results, use the status from the query
+            run_status = _to_json_safe(row.get("status"))
+
+            if run_status == "pending":
+                status_str = "RUNNING"
+            elif run_status == "orphaned":
+                status_str = "ORPHANED"
             else:
-                status_str = "OK"
+                # For completed runs, derive from error/warning counts
+                if error_count > 0:
+                    status_str = "FAIL"
+                elif warning_count > 0:
+                    status_str = "WARN"
+                else:
+                    status_str = "OK"
 
             # Build run_ref from tag and run_id (serial number from blq_load_runs)
             tag = _to_json_safe(row.get("tag"))
@@ -2064,17 +2097,20 @@ def _last_impl(
 
 
 @mcp.tool()
-def history(limit: int = 20, source: str | None = None) -> dict[str, Any]:
+def history(
+    limit: int = 20, source: str | None = None, status: str | None = None
+) -> dict[str, Any]:
     """Get run history.
 
     Args:
         limit: Max runs to return (default: 20)
         source: Filter to specific source name
+        status: Filter by run status ('running', 'completed', 'orphaned')
 
     Returns:
         Run history list
     """
-    return _history_impl(limit, source)
+    return _history_impl(limit, source, status)
 
 
 @mcp.tool()
