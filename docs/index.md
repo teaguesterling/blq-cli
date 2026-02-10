@@ -48,9 +48,10 @@ Logs are stored in `.lq/` in your project:
 
 ```
 .lq/
-├── logs/              # Parquet files (Hive-partitioned)
-├── raw/               # Raw log files (optional)
-├── commands.yaml      # Registered commands
+├── blq.duckdb         # DuckDB database
+├── blobs/             # Content-addressed blob storage
+├── config.toml        # Project configuration
+├── commands.toml      # Registered commands
 └── schema.sql         # SQL schema
 ```
 

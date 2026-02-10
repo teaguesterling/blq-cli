@@ -113,30 +113,85 @@ blq unregister old-command
 # Output: Unregistered command 'old-command'
 ```
 
-## Storage
+## Parameterized Commands
 
-Commands are stored in `.lq/commands.yaml`:
+Instead of registering multiple variations of a command, use templates with `{param}` placeholders:
 
-```yaml
-commands:
-  build:
-    cmd: make -j8
-    description: Build project
-    timeout: 300
-    capture: true
-  test:
-    cmd: pytest
-    description: Run tests
-    timeout: 300
-    format: pytest
-    capture: true
-  format:
-    cmd: black .
-    description: Format code
-    capture: false
+```bash
+# Instead of:
+blq register test-unit "pytest tests/unit/"
+blq register test-integration "pytest tests/integration/"
+blq register test-all "pytest tests/"
+
+# Use a parameterized template:
+# (edit .lq/commands.toml directly - see Storage below)
 ```
 
-You can edit this file directly for bulk changes.
+### Template Syntax
+
+In `.lq/commands.toml`, use `tpl` instead of `cmd` with `{param}` placeholders:
+
+```toml
+[commands.test]
+tpl = "pytest {path} {flags}"
+defaults = { path = "tests/", flags = "-v" }
+description = "Run tests"
+
+[commands.test-file]
+tpl = "pytest {file} -v --tb=short"
+description = "Test a single file"
+# No defaults = 'file' is required
+```
+
+### Running Parameterized Commands
+
+```bash
+# Use defaults
+blq run test
+# → pytest tests/ -v
+
+# Override path
+blq run test path=tests/unit/
+# → pytest tests/unit/ -v
+
+# Override both
+blq run test path=tests/unit/ flags="-vvs -x"
+# → pytest tests/unit/ -vvs -x
+
+# Required parameter
+blq run test-file file=tests/test_core.py
+# → pytest tests/test_core.py -v --tb=short
+
+# Extra args after ::
+blq run test :: --capture=no
+# → pytest tests/ -v --capture=no
+```
+
+Missing required parameters will show an error with valid parameter names.
+
+## Storage
+
+Commands are stored in `.lq/commands.toml`:
+
+```toml
+[commands.build]
+cmd = "make -j8"
+description = "Build project"
+timeout = 300
+
+[commands.test]
+tpl = "pytest {path} {flags}"
+defaults = { path = "tests/", flags = "-v" }
+description = "Run tests"
+format = "pytest"
+
+[commands.format]
+cmd = "black ."
+description = "Format code"
+capture = false
+```
+
+You can edit this file directly for bulk changes or to add parameterized commands.
 
 ## Auto-Detection
 
@@ -164,7 +219,7 @@ blq register deploy "./scripts/deploy.sh" --no-capture
 
 ### Team Standardization
 
-Share `.lq/commands.yaml` in version control:
+Share `.lq/commands.toml` in version control:
 ```bash
 # Team member clones repo
 git clone https://github.com/team/project
@@ -192,14 +247,28 @@ jobs:
 
 ### Multiple Build Configurations
 
+Using separate commands:
 ```bash
 blq register build-debug "make DEBUG=1"
 blq register build-release "make RELEASE=1"
 blq register build-sanitize "make SANITIZE=1"
 
-# Run specific configuration
 blq run build-debug
 blq run build-release
+```
+
+Or using a parameterized template (in `.lq/commands.toml`):
+```toml
+[commands.build]
+tpl = "make {flags}"
+defaults = { flags = "" }
+description = "Build with optional flags"
+```
+
+```bash
+blq run build flags="DEBUG=1"
+blq run build flags="RELEASE=1"
+blq run build  # default (no flags)
 ```
 
 ## Best Practices
@@ -209,4 +278,5 @@ blq run build-release
 3. **Set appropriate timeouts**: Increase for long builds
 4. **Use format hints**: When auto-detection struggles
 5. **Skip capture for speed**: Use `--no-capture` for formatters and cleaners
-6. **Version control**: Commit `.lq/commands.yaml` for team consistency
+6. **Version control**: Commit `.lq/commands.toml` for team consistency
+7. **Use templates**: Avoid duplicate commands - use `tpl` with `{param}` placeholders

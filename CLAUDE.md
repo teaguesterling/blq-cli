@@ -47,15 +47,16 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **MCP safe mode** (`--safe-mode`/`--disabled-tools` for `blq mcp serve`)
 - **Blob cleanup** in prune mode (orphaned content-addressed blobs)
 - **Query filter syntax** (`query(filter="severity=error ref_file~test")`)
+- **Parameterized commands** with `tpl` templates and `defaults` (see design doc)
+- **TOML config format** (`config.toml`, `commands.toml`)
 - Full mypy type checking compliance
-- 442 unit tests
+- 464+ unit tests
 - Comprehensive documentation (README, docs/)
 
 ### TODO
 
 **Features:**
 - [ ] Implement sync feature (see `docs/design-sync.md`) - Issue #21
-- [ ] Parameterized commands (avoid duplicate commands for variations like test subsets)
 - [ ] Plugin system for adding commands or extra fields to existing commands
 
 **Architecture:**

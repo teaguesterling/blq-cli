@@ -124,8 +124,11 @@ Run a registered command and capture its output. For ad-hoc commands, use `exec`
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `command` | string | Yes | Registered command name |
-| `args` | string[] | No | Additional arguments |
+| `args` | dict | No | Template parameters (for parameterized commands) |
+| `extra` | string[] | No | Additional passthrough arguments |
 | `timeout` | number | No | Timeout in seconds (default: 300) |
+
+For parameterized commands (templates with `{param}` placeholders), use `args` to provide parameter values:
 
 **Returns:**
 
@@ -151,13 +154,32 @@ Run a registered command and capture its output. For ad-hoc commands, use `exec`
 }
 ```
 
-**Example:**
+**Examples:**
 
 ```json
+// Simple command
 {
   "tool": "run",
   "arguments": {
     "command": "build"
+  }
+}
+
+// Parameterized command with args
+{
+  "tool": "run",
+  "arguments": {
+    "command": "test",
+    "args": {"path": "tests/unit/", "flags": "-vvs"}
+  }
+}
+
+// With extra passthrough args
+{
+  "tool": "run",
+  "arguments": {
+    "command": "test",
+    "extra": ["--capture=no"]
   }
 }
 ```
@@ -688,7 +710,8 @@ List all registered commands.
       "capture": true
     },
     "test": {
-      "cmd": "pytest -v",
+      "tpl": "pytest {path} {flags}",
+      "defaults": {"path": "tests/", "flags": "-v"},
       "description": "Run tests",
       "timeout": 600,
       "format": "auto",
@@ -697,6 +720,8 @@ List all registered commands.
   }
 }
 ```
+
+Template commands use `tpl` instead of `cmd`, with optional `defaults` for parameter values.
 
 **Example:**
 
@@ -1242,15 +1267,11 @@ For fine-grained control, disable specific tools:
 blq mcp serve --disabled-tools exec,clean
 ```
 
-**Via `.lq/config.yaml`:**
+**Via `.lq/config.toml`:**
 
-```yaml
-mcp:
-  disabled_tools:
-    - exec
-    - clean
-    - register_command
-    - unregister_command
+```toml
+[mcp]
+disabled_tools = ["exec", "clean", "register_command", "unregister_command"]
 ```
 
 **Via environment variable:**
@@ -1275,7 +1296,7 @@ When a disabled tool is called, the server returns an error:
 
 ```json
 {
-  "error": "Tool 'exec' is disabled. Enable it by removing from mcp.disabled_tools in .lq/config.yaml or BLQ_MCP_DISABLED_TOOLS environment variable."
+  "error": "Tool 'exec' is disabled. Enable it by removing from mcp.disabled_tools in .lq/config.toml or BLQ_MCP_DISABLED_TOOLS environment variable."
 }
 ```
 

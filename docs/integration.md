@@ -137,7 +137,7 @@ blq run test
 blq run lint
 ```
 
-Store `commands.yaml` in your repo for reproducibility.
+Store `commands.toml` in your repo for reproducibility.
 
 ## MCP Server Integration
 

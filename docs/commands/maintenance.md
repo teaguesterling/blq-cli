@@ -68,8 +68,8 @@ blq uses BIRD storage (DuckDB tables with content-addressed blob storage):
 │       │   └── abc123...def.bin
 │       └── cd/
 │           └── cde456...ghi.bin
-├── config.yaml          # Project configuration
-└── commands.yaml        # Registered commands
+├── config.toml          # Project configuration
+└── commands.toml        # Registered commands
 ```
 
 ### Database Tables

@@ -36,8 +36,8 @@ After initialization, your project will have:
 │   └── content/
 ├── raw/            # Optional raw log files (--keep-raw)
 ├── schema.sql      # SQL schema reference
-├── config.yaml     # Project configuration
-└── commands.yaml   # Registered commands
+├── config.toml     # Project configuration
+└── commands.toml   # Registered commands
 ```
 
 Additionally, `.lq/` is automatically added to `.gitignore` (use `--no-gitignore` to skip).
@@ -46,11 +46,11 @@ Additionally, `.lq/` is automatically added to `.gitignore` (use `--no-gitignore
 
 blq automatically detects your project identity from git:
 
-```yaml
-# .lq/config.yaml
-project:
-  namespace: github__username    # From git remote owner
-  project: myproject             # From git remote repo name
+```toml
+# .lq/config.toml
+[project]
+namespace = "github__username"    # From git remote owner
+project = "myproject"             # From git remote repo name
 ```
 
 Override with flags:

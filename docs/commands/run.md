@@ -48,6 +48,32 @@ blq run test
 blq r build  # Short alias
 ```
 
+### Running Parameterized Commands
+
+Commands can be templates with `{param}` placeholders (see [registry](registry.md) for setup):
+
+```bash
+# Use defaults
+blq run test
+# → pytest tests/ -v
+
+# Override parameters with key=value
+blq run test path=tests/unit/
+# → pytest tests/unit/ -v
+
+# Multiple parameters
+blq run test path=tests/unit/ flags="-vvs -x"
+# → pytest tests/unit/ -vvs -x
+
+# Required parameter (no default)
+blq run test-file file=tests/test_core.py
+# → pytest tests/test_core.py -v --tb=short
+
+# Extra passthrough args after ::
+blq run test :: --capture=no
+# → pytest tests/ -v --capture=no
+```
+
 ### Register and Run
 
 If a command isn't registered yet, use `--register` to register and run in one step:
