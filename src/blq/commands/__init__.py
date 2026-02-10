@@ -35,7 +35,7 @@ from blq.commands.management import (
 from blq.commands.mcp_cmd import cmd_mcp_install, cmd_mcp_serve
 from blq.commands.migrate import cmd_migrate
 from blq.commands.query_cmd import cmd_filter, cmd_query, cmd_shell, cmd_sql
-from blq.commands.registry import cmd_commands, cmd_register, cmd_unregister
+from blq.commands.registry import cmd_commands, cmd_register, cmd_suggest, cmd_unregister
 from blq.commands.report_cmd import cmd_report
 from blq.commands.sync_cmd import cmd_sync
 from blq.commands.watch_cmd import cmd_watch
@@ -93,6 +93,7 @@ __all__ = [
     # Registry
     "cmd_commands",
     "cmd_register",
+    "cmd_suggest",
     "cmd_unregister",
     # Sync
     "cmd_sync",

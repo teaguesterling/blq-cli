@@ -275,3 +275,129 @@ def cmd_unregister(args: argparse.Namespace) -> None:
     del commands[args.name]
     config.save_commands()
     print(f"Unregistered command '{args.name}'")
+
+
+def cmd_suggest(args: argparse.Namespace) -> None:
+    """Suggest a registered command that matches the given command string.
+
+    Used by Claude Code hooks to suggest using blq run instead of raw Bash.
+    Outputs nothing if no match found (exit 0), outputs suggestion if match found.
+    """
+
+    command = args.command
+
+    # Try to find config, silently exit if not initialized
+    config = BlqConfig.find()
+    if config is None:
+        return
+
+    commands = config.commands
+    if not commands:
+        return
+
+    normalized_input = _normalize_cmd(command)
+
+    # Check for exact match on cmd
+    for name, cmd in commands.items():
+        if cmd.cmd and _normalize_cmd(cmd.cmd) == normalized_input:
+            _output_suggestion(args, name, cmd, match_type="exact")
+            return
+
+    # Check for template match
+    for name, cmd in commands.items():
+        if cmd.is_template and cmd.tpl:
+            match_result = _match_template(cmd.tpl, command, cmd.defaults)
+            if match_result is not None:
+                _output_suggestion(args, name, cmd, match_type="template", params=match_result)
+                return
+
+    # No match found - output nothing
+
+
+def _match_template(template: str, command: str, defaults: dict[str, str]) -> dict[str, str] | None:
+    """Check if a command matches a template pattern.
+
+    Returns the extracted parameters if match, None otherwise.
+    """
+    import re
+
+    # Convert template to regex pattern
+    # {param} -> named capture group
+    pattern = re.escape(template)
+    param_names: list[str] = []
+
+    def replace_param(match: re.Match[str]) -> str:
+        # The escaped version looks like \\{param\\}
+        param = match.group(1)
+        param_names.append(param)
+        # Match non-whitespace sequences or quoted strings
+        return r'(\S+|"[^"]*"|\'[^\']*\')'
+
+    pattern = re.sub(r"\\{(\w+)\\}", replace_param, pattern)
+
+    # Try to match
+    match = re.fullmatch(pattern, command.strip())
+    if not match:
+        return None
+
+    # Extract parameters
+    params = {}
+    for i, param in enumerate(param_names):
+        value = match.group(i + 1)
+        # Strip quotes if present
+        if (value.startswith('"') and value.endswith('"')) or (
+            value.startswith("'") and value.endswith("'")
+        ):
+            value = value[1:-1]
+        params[param] = value
+
+    return params
+
+
+def _output_suggestion(
+    args: argparse.Namespace,
+    name: str,
+    cmd: RegisteredCommand,
+    match_type: str,
+    params: dict[str, str] | None = None,
+) -> None:
+    """Output the suggestion in the requested format."""
+    import json
+
+    output_json = getattr(args, "json", False)
+
+    # Build the suggested blq command
+    if params:
+        param_str = " ".join(f"{k}={v}" for k, v in params.items())
+        blq_cmd = f"blq run {name} {param_str}"
+    else:
+        blq_cmd = f"blq run {name}"
+
+    if output_json:
+        data = {
+            "match": True,
+            "name": name,
+            "match_type": match_type,
+            "blq_command": blq_cmd,
+            "mcp_tool": f'run(command="{name}")',
+            "original_cmd": cmd.cmd if cmd.cmd else cmd.tpl,
+            "is_template": cmd.is_template,
+            "tip": (
+                "Using the blq MCP run tool parses output into structured events, "
+                "reducing context usage. Query errors with events() or inspect()."
+            ),
+        }
+        if params:
+            data["params"] = params
+            # Also suggest MCP tool with params
+            params_str = ", ".join(f'{k}="{v}"' for k, v in params.items())
+            data["mcp_tool"] = f'run(command="{name}", {params_str})'
+        print(json.dumps(data))
+    else:
+        # Human-readable suggestion (CLI context)
+        print(f"Tip: This command is registered as '{name}'")
+        print(f"  Use: {blq_cmd}")
+        print(
+            "  blq parses output into structured events, reducing token usage "
+            "and enabling lookups via blq errors/inspect"
+        )

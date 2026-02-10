@@ -80,6 +80,7 @@ from blq.commands import (
     cmd_shell,
     cmd_sql,
     cmd_status,
+    cmd_suggest,
     cmd_summary,
     cmd_sync,
     cmd_unregister,
@@ -133,6 +134,7 @@ __all__ = [
     "cmd_query",
     "cmd_register",
     "cmd_run",
+    "cmd_suggest",
     "cmd_mcp_install",
     "cmd_mcp_serve",
     "cmd_shell",
@@ -403,6 +405,9 @@ def main() -> None:
     p_info.add_argument("ref", help="Run ref (e.g., 'test:5') or invocation_id (UUID)")
     p_info.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     p_info.add_argument("--details", "-d", action="store_true", help="Show all fields")
+    p_info.add_argument("--head", type=int, metavar="N", help="Show first N lines of output")
+    p_info.add_argument("--tail", type=int, metavar="N", help="Show last N lines of output")
+    p_info.add_argument("--follow", "-f", action="store_true", help="Follow output (like tail -f)")
     p_info.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_info.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
     p_info.set_defaults(func=cmd_info)
@@ -465,6 +470,12 @@ def main() -> None:
         "ref", nargs="?", help="Filter by tag or ref (e.g., 'test' or 'test:24')"
     )
     p_history.add_argument("--tag", "-t", help="Filter by tag name")
+    p_history.add_argument(
+        "--status",
+        "-s",
+        choices=["running", "completed", "orphaned", "all"],
+        help="Filter by status (running=pending, completed, orphaned, all)",
+    )
     p_history.add_argument("--limit", "-n", type=int, default=20, help="Max results")
     p_history.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_history.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
@@ -578,6 +589,19 @@ def main() -> None:
     )
     p_commands_unregister.add_argument("name", help="Command name to remove")
     p_commands_unregister.set_defaults(func=cmd_unregister)
+
+    # commands suggest (for Claude Code hooks)
+    p_commands_suggest = commands_subparsers.add_parser(
+        "suggest",
+        help="Suggest a registered command matching a given command string",
+    )
+    p_commands_suggest.add_argument(
+        "command", help="Command string to match against registered commands"
+    )
+    p_commands_suggest.add_argument(
+        "--json", "-j", action="store_true", help="Output as JSON (for hooks)"
+    )
+    p_commands_suggest.set_defaults(func=cmd_suggest)
 
     # Default: commands without subcommand shows list
     def commands_default(args: argparse.Namespace) -> None:
