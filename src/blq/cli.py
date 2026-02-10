@@ -215,8 +215,15 @@ def main() -> None:
 
     # init
     p_init = subparsers.add_parser("init", help="Initialize .lq directory")
-    p_init.add_argument(
+    mcp_group = p_init.add_mutually_exclusive_group()
+    mcp_group.add_argument(
         "--mcp", "-m", action="store_true", help="Create .mcp.json for MCP server discovery"
+    )
+    mcp_group.add_argument(
+        "--no-mcp",
+        action="store_true",
+        dest="no_mcp",
+        help="Don't create .mcp.json (overrides auto_mcp user config)",
     )
     p_init.add_argument("--project", "-p", help="Project name (overrides auto-detection)")
     p_init.add_argument("--namespace", "-n", help="Project namespace (overrides auto-detection)")
@@ -536,7 +543,7 @@ def main() -> None:
     )
     p_commands_register.add_argument("--description", "-d", help="Command description")
     p_commands_register.add_argument(
-        "--timeout", type=int, default=300, help="Timeout in seconds (default: 300)"
+        "--timeout", type=int, default=None, help="Timeout in seconds (default: no timeout)"
     )
     p_commands_register.add_argument("--format", "-f", default="auto", help="Log format hint")
     p_commands_register.add_argument(

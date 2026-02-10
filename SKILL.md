@@ -183,6 +183,8 @@ blq.register_command(
 )
 ```
 
+**Important: Don't specify timeouts** unless you have a specific reason. Commands run without timeout by default, which is correct for most build/test tasks. Specifying a timeout often causes problems when builds take longer than expected.
+
 ### Parameterized Commands
 
 Commands can be templates with `{param}` placeholders. Use `tpl` instead of `cmd`, with `defaults` for optional parameters:
@@ -272,6 +274,7 @@ This is the recommended pattern for agents - it ensures clean refs while being e
 - Use Bash to run builds when blq tools are available
 - Assume you can read source files - use blq's stored error context
 - Skip checking existing results - the user may have already run the build
+- Specify timeouts when registering commands - let builds run to completion
 
 ## Resetting State
 

@@ -215,7 +215,7 @@ def _run_impl(
     command: str,
     args: dict[str, str] | list[str] | None = None,
     extra: list[str] | None = None,
-    timeout: int = 300,
+    timeout: int | None = None,
 ) -> dict[str, Any]:
     """Implementation of run command (for registered commands).
 
@@ -374,7 +374,7 @@ def _find_matching_registered_command(full_cmd: str) -> tuple[str, list[str]] | 
 def _exec_impl(
     command: str,
     args: list[str] | None = None,
-    timeout: int = 300,
+    timeout: int | None = None,
 ) -> dict[str, Any]:
     """Implementation of exec command (for ad-hoc shell commands).
 
@@ -1314,7 +1314,7 @@ def _register_command_impl(
     name: str,
     cmd: str,
     description: str = "",
-    timeout: int = 300,
+    timeout: int | None = None,
     capture: bool = True,
     force: bool = False,
     format: str | None = None,
@@ -1486,7 +1486,7 @@ def run(
     command: str,
     args: dict[str, str] | list[str] | None = None,
     extra: list[str] | None = None,
-    timeout: int = 300,
+    timeout: int | None = None,
     # Batch mode parameters
     commands: list[str] | None = None,
     stop_on_failure: bool = True,
@@ -1500,7 +1500,7 @@ def run(
         args: Command arguments - either a dict of named args (recommended)
               or a list of CLI args for backward compatibility
         extra: Passthrough arguments appended to command
-        timeout: Timeout in seconds (default: 300)
+        timeout: Timeout in seconds (default: no timeout)
         commands: List of command names for batch mode (overrides `command`)
         stop_on_failure: In batch mode, stop after first failure (default: true)
 
@@ -1539,7 +1539,7 @@ def run(
 def exec(
     command: str,
     args: list[str] | None = None,
-    timeout: int = 300,
+    timeout: int | None = None,
 ) -> dict[str, Any]:
     """Execute an ad-hoc shell command and capture its output.
 
@@ -1553,7 +1553,7 @@ def exec(
     Args:
         command: Shell command to run
         args: Additional arguments to append
-        timeout: Timeout in seconds (default: 300)
+        timeout: Timeout in seconds (default: no timeout)
 
     Returns:
         Run result with status, errors, and warnings. If a registered command
@@ -2096,7 +2096,7 @@ def register_command(
     name: str,
     cmd: str,
     description: str = "",
-    timeout: int = 300,
+    timeout: int | None = None,
     capture: bool = True,
     force: bool = False,
     format: str | None = None,
@@ -2114,7 +2114,7 @@ def register_command(
         name: Command name (e.g., 'build', 'test')
         cmd: Command to run
         description: Command description
-        timeout: Timeout in seconds (default: 300)
+        timeout: Timeout in seconds (default: no timeout)
         capture: Whether to capture and parse logs (default: true)
         force: Overwrite existing command if it exists
         format: Log format for parsing (auto-detected from command if not specified)

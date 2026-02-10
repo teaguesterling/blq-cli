@@ -683,16 +683,29 @@ class BlqConfig:
     def load(cls, lq_dir: Path) -> BlqConfig:
         """Load configuration from an existing .lq directory.
 
+        Merges user-level defaults (from ~/.config/blq/config.toml) with
+        project-level config (from .lq/config.toml).
+
         Args:
             lq_dir: Path to the .lq directory
 
         Returns:
             BlqConfig loaded from config.toml (or defaults)
         """
+        from blq.user_config import UserConfig
+
         config_path = lq_dir / CONFIG_FILE
 
-        # Start with defaults
+        # Load user config for defaults
+        user_config = UserConfig.load()
+
+        # Start with defaults + user config additions
         capture_env = DEFAULT_CAPTURE_ENV.copy()
+        # Add user-level extra capture env vars
+        for var in user_config.extra_capture_env:
+            if var not in capture_env:
+                capture_env.append(var)
+
         namespace = None
         project = None
         storage_mode = "bird"  # Default to BIRD mode
@@ -701,10 +714,14 @@ class BlqConfig:
         if config_path.exists():
             data = load_toml(config_path)
 
-            # Load capture_env
+            # Load capture_env (project config overrides defaults completely if set)
             loaded_env = data.get("capture_env")
             if isinstance(loaded_env, list):
                 capture_env = loaded_env
+                # Still add user-level extras to project config
+                for var in user_config.extra_capture_env:
+                    if var not in capture_env:
+                        capture_env.append(var)
 
             # Load project info
             project_data = data.get("project", {})
@@ -903,7 +920,7 @@ class RegisteredCommand:
     tpl: str | None = None  # Template with {param} placeholders
     defaults: dict[str, str] = field(default_factory=dict)  # Default values for tpl
     description: str = ""
-    timeout: int = 300
+    timeout: int | None = None  # No timeout by default
     format: str = "auto"
     capture: bool = True  # Whether to capture and parse logs (default: True)
     capture_env: list[str] = field(default_factory=list)  # Additional env vars
@@ -990,7 +1007,8 @@ class RegisteredCommand:
             d["cmd"] = self.cmd
 
         d["description"] = self.description
-        d["timeout"] = self.timeout
+        if self.timeout is not None:
+            d["timeout"] = self.timeout
         d["format"] = self.format
 
         if not self.capture:
@@ -1196,7 +1214,7 @@ def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
                 tpl=config.get("tpl"),  # Template if present
                 defaults=defaults,
                 description=config.get("description", ""),
-                timeout=config.get("timeout", 300),
+                timeout=config.get("timeout"),  # None = no timeout
                 format=config.get("format", "auto"),
                 capture=config.get("capture", True),
                 capture_env=capture_env,
