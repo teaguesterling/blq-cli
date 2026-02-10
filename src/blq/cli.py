@@ -756,9 +756,7 @@ def main() -> None:
     p_hooks_install.set_defaults(func=cmd_hooks_install)
 
     # hooks uninstall (new name, was 'remove')
-    p_hooks_uninstall = hooks_subparsers.add_parser(
-        "uninstall", help="Remove installed hooks"
-    )
+    p_hooks_uninstall = hooks_subparsers.add_parser("uninstall", help="Remove installed hooks")
     p_hooks_uninstall.add_argument(
         "target", nargs="?", default="git", help="Target to uninstall from (default: git)"
     )
@@ -778,9 +776,7 @@ def main() -> None:
     p_hooks_status.set_defaults(func=cmd_hooks_status)
 
     # hooks run
-    p_hooks_run = hooks_subparsers.add_parser(
-        "run", help="Run pre-commit hook commands"
-    )
+    p_hooks_run = hooks_subparsers.add_parser("run", help="Run pre-commit hook commands")
     p_hooks_run.add_argument(
         "commands", nargs="*", help="Commands to run (default: configured pre-commit commands)"
     )

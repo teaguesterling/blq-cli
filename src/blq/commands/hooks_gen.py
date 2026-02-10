@@ -11,7 +11,7 @@ import hashlib
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from jinja2 import Environment, PackageLoader
 
@@ -90,7 +90,7 @@ def generate_hook_script(cmd: RegisteredCommand) -> str:
     defaults_str = ", ".join(f"{k}={v}" for k, v in defaults.items())
 
     # Build context
-    context = {
+    context: dict[str, Any] = {
         "command_name": cmd.name,
         "blq_version": get_blq_version(),
         "checksum": checksum,
@@ -188,7 +188,7 @@ def extract_checksum_from_script(content: str) -> str | None:
 
     Returns None if not found.
     """
-    match = re.search(r'^# Checksum: ([a-f0-9]+)', content, re.MULTILINE)
+    match = re.search(r"^# Checksum: ([a-f0-9]+)", content, re.MULTILINE)
     if match:
         return match.group(1)
 
