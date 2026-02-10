@@ -36,9 +36,9 @@ commands to be parameterized at runtime rather than being static strings.
 
 ### Example 1: All Keyword-Only
 
-```yaml
-build:
-  cmd: "make -j{jobs=4} {target=all}"
+```toml
+[commands.build]
+cmd = "make -j{jobs=4} {target=all}"
 ```
 
 ```bash
@@ -52,9 +52,9 @@ blq run build jobs=8 clean test    → make -j8 all clean test # passthrough
 
 ### Example 2: Mixed Modes
 
-```yaml
-test:
-  cmd: "pytest {path:=tests/} -v --timeout={timeout=30}"
+```toml
+[commands.test]
+cmd = "pytest {path:=tests/} -v --timeout={timeout=30}"
 ```
 
 ```bash
@@ -67,9 +67,9 @@ blq run test unit/ -k foo          → pytest unit/ -v --timeout=30 -k foo
 
 ### Example 3: Multiple Positional
 
-```yaml
-deploy:
-  cmd: "kubectl apply -f {file:} -n {namespace:=default}"
+```toml
+[commands.deploy]
+cmd = "kubectl apply -f {file:} -n {namespace:=default}"
 ```
 
 ```bash
@@ -82,9 +82,9 @@ blq run deploy                         → ERROR: Missing required argument 'fil
 
 ### Example 4: Passthrough Control
 
-```yaml
-docker:
-  cmd: "docker {command:=run} {image:}"
+```toml
+[commands.docker]
+cmd = "docker {command:=run} {image:}"
 ```
 
 ```bash
@@ -135,25 +135,24 @@ Examples:
 
 All args are passed by name in MCP. The `extra` array handles passthrough.
 
-## commands.yaml Schema
+## commands.toml Schema
 
-```yaml
-commands:
-  build:
-    cmd: "make -j{jobs=4} {target=all}"
-    description: "Build the project"
-    timeout: 300
-    capture: true
+```toml
+[commands.build]
+cmd = "make -j{jobs=4} {target=all}"
+description = "Build the project"
+timeout = 300
+capture = true
 
-  test:
-    cmd: "pytest {path:=tests/} -v"
-    description: "Run tests"
-    timeout: 600
+[commands.test]
+cmd = "pytest {path:=tests/} -v"
+description = "Run tests"
+timeout = 600
 
-  deploy:
-    cmd: "kubectl apply -f {file:} -n {namespace:=default}"
-    description: "Deploy to Kubernetes"
-    timeout: 120
+[commands.deploy]
+cmd = "kubectl apply -f {file:} -n {namespace:=default}"
+description = "Deploy to Kubernetes"
+timeout = 120
 ```
 
 ## Implementation Notes

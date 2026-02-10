@@ -134,7 +134,7 @@ With `--mcp`, creates `.mcp.json` for AI agent integration:
 Use `--force` to update config files without losing data:
 
 ```bash
-blq init --force              # Update schema.sql, config.yaml
+blq init --force              # Update schema.sql, config.toml
 blq init --force --detect     # Also re-detect commands
 ```
 

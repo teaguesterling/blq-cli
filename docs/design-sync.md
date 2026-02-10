@@ -6,12 +6,12 @@ The sync feature allows aggregating lq logs from multiple machines/projects to a
 
 ## Project Identification
 
-Projects are identified by `namespace` and `project` stored in `.lq/config.yaml`:
+Projects are identified by `namespace` and `project` stored in `.lq/config.toml`:
 
-```yaml
-project:
-  namespace: github__teaguesterling   # provider__owner format
-  project: lq
+```toml
+[project]
+namespace = "github__teaguesterling"   # provider__owner format
+project = "lq"
 ```
 
 ### Detection at `blq init`
@@ -101,16 +101,16 @@ Global flags work with: `errors`, `warnings`, `query`, `filter`, `status`, `hist
 
 ## Configuration
 
-```yaml
-# .lq/config.yaml
-project:
-  namespace: github__teaguesterling
-  project: lq
+```toml
+# .lq/config.toml
+[project]
+namespace = "github__teaguesterling"
+project = "lq"
 
-sync:
-  destination: ~/.lq/projects/       # or s3://bucket/lq/
-  auto: false                        # auto-sync after each run?
-  include_raw: false                 # sync .lq/raw/ as well?
+[sync]
+destination = "~/.lq/projects/"       # or s3://bucket/lq/
+auto = false                          # auto-sync after each run?
+include_raw = false                   # sync .lq/raw/ as well?
 ```
 
 ## Implementation Phases
@@ -119,7 +119,7 @@ sync:
 - [x] Detect namespace/project from git remote
 - [x] Include provider prefix in namespace
 - [x] Fallback to filesystem path tokenization
-- [x] Store in config.yaml at init
+- [x] Store in config.toml at init
 
 ### Phase 2: Local Sync ✅
 - [x] `blq sync` command
@@ -239,6 +239,6 @@ blq compact --dry-run
 ## Security Considerations
 
 - S3 credentials via environment variables (AWS_ACCESS_KEY_ID, etc.)
-- No credentials stored in config.yaml
+- No credentials stored in config.toml
 - Consider signed URLs for temporary access
 - Bucket policies for multi-tenant setups

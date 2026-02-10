@@ -34,15 +34,14 @@ blq run --capture build    # explicit capture (override config)
 
 Config default per-command:
 
-```yaml
-commands:
-  build:
-    cmd: "make -j8"
-    capture: true         # default (can omit)
+```toml
+[commands.build]
+cmd = "make -j8"
+capture = true         # default (can omit)
 
-  format:
-    cmd: "black ."
-    capture: false        # default to no capture for this command
+[commands.format]
+cmd = "black ."
+capture = false        # default to no capture for this command
 ```
 
 ### Precedence
@@ -70,12 +69,12 @@ blq init --project myapp --namespace myteam
 
 Overrides auto-detection from git remote or filesystem path.
 
-Stored in `.lq/config.yaml`:
+Stored in `.lq/config.toml`:
 
-```yaml
-project:
-  namespace: myteam
-  project: myapp
+```toml
+[project]
+namespace = "myteam"
+project = "myapp"
 ```
 
 ### 2b. Command Auto-Detection
@@ -109,8 +108,8 @@ blq init --mcp --detect --project myapp --namespace myorg
 
 Creates:
 - `.lq/` directory with schema
-- `.lq/config.yaml` with project info
-- `.lq/commands.yaml` with detected commands
+- `.lq/config.toml` with project info
+- `.lq/commands.toml` with detected commands
 - `.mcp.json` for MCP server discovery
 
 ---
@@ -166,14 +165,12 @@ Returns:
 
 ## Future: Template Parameters (Deferred)
 
-```yaml
-commands:
-  test:
-    cmd: "pytest {file} -v"
-    args:
-      file:
-        description: "Test file or directory"
-        default: "."
+```toml
+[commands.test]
+tpl = "pytest {file} -v"
+
+[commands.test.defaults]
+file = "."
 ```
 
 Usage: `blq run test file=tests/unit/`
