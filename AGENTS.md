@@ -103,16 +103,19 @@ Registered commands can have **placeholders** that accept arguments at runtime:
 
 #### Example Commands
 
-```yaml
-# commands.yaml
-test:
-  cmd: "pytest {path:=tests/} -v --timeout={timeout=30}"
+```toml
+# commands.toml
+[commands.test]
+tpl = "pytest {path} -v --timeout={timeout}"
+defaults = { path = "tests/", timeout = "30" }
 
-deploy:
-  cmd: "kubectl apply -f {file:} -n {namespace:=default}"
+[commands.deploy]
+tpl = "kubectl apply -f {file} -n {namespace}"
+defaults = { namespace = "default" }
 
-build:
-  cmd: "make -j{jobs=4} {target=all}"
+[commands.build]
+tpl = "make -j{jobs} {target}"
+defaults = { jobs = "4", target = "all" }
 ```
 
 #### Passing Arguments
@@ -172,14 +175,12 @@ blq run pytest               → Creates run_id=4 with test results
 
 ```
 .lq/
-├── logs/                          # All runs stored here
-│   └── date=2024-01-15/
-│       └── source=build/
-│           ├── 001_make_103000.parquet    # run_id=1
-│           ├── 002_make_110000.parquet    # run_id=2
-│           └── 003_pytest_140000.parquet  # run_id=4
+├── blq.duckdb                     # DuckDB database
+├── blobs/                         # Content-addressed blob storage
+│   └── content/
 ├── raw/                           # Optional raw logs (--keep-raw)
-└── commands.yaml                  # Registered commands
+├── config.toml                    # Project configuration
+└── commands.toml                  # Registered commands
 ```
 
 ### Run Metadata

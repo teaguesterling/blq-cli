@@ -315,12 +315,10 @@ blq mcp serve --transport sse  # HTTP/SSE transport
 Tools available: `run`, `exec`, `query`, `errors`, `warnings`, `events`, `event`, `context`, `output`, `status`, `info`, `history`, `diff`, `register_command`, `unregister_command`, `list_commands`, `reset`
 
 **Security:** Disable sensitive tools via config:
-```yaml
-# .lq/config.yaml
-mcp:
-  disabled_tools:
-    - exec
-    - reset
+```toml
+# .lq/config.toml
+[mcp]
+disabled_tools = ["exec", "reset"]
 ```
 
 See [MCP Guide](docs/mcp.md) for details.
@@ -380,7 +378,8 @@ blq uses [BIRD](https://magic-bird-shq.readthedocs.io/en/latest/bird_spec/) (Buf
 │       └── ab/
 │           └── {hash}.bin
 ├── raw/           # Optional raw logs (--keep-raw)
-├── commands.yaml  # Registered commands
+├── config.toml    # Project configuration
+├── commands.toml  # Registered commands
 └── schema.sql     # SQL schema reference
 ```
 
