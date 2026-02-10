@@ -1,93 +1,102 @@
 # Maintenance Commands
 
-blq provides commands for managing log storage and cleaning up old data.
+blq provides commands for managing log storage and cleaning up data.
 
-## prune - Remove Old Logs
+## clean - Database Cleanup
 
-Delete log files older than a specified number of days.
+The `blq clean` command provides several modes for database maintenance.
 
 ```bash
-blq prune                     # Remove logs older than 30 days
-blq prune --older-than 7      # Remove logs older than 7 days
-blq prune --dry-run           # Preview what would be removed
+blq clean data                    # Clear run data, keep config
+blq clean prune --days 30         # Remove data older than 30 days
+blq clean schema                  # Recreate database schema
+blq clean full                    # Full reinitialization
 ```
+
+### Modes
+
+| Mode | Description |
+|------|-------------|
+| `data` | Clear all run data (invocations, events, outputs). Config and commands preserved. |
+| `prune` | Remove data older than N days. Includes orphaned blob cleanup. |
+| `schema` | Recreate database schema. All data lost, config files preserved. |
+| `full` | Delete and recreate entire .lq directory. Everything reset. |
 
 ### Options
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--older-than DAYS` | `-d` | Days to keep (default: 30) |
-| `--dry-run` | | Show what would be removed without deleting |
+| `--confirm` | `-y` | Confirm destructive operation (required) |
+| `--days N` | | For prune: days to keep (required for prune mode) |
+| `--dry-run` | | For prune: preview what would be removed |
 
-### Output
+### Examples
 
 ```bash
-$ blq prune --older-than 14 --dry-run
-Would remove: .lq/logs/date=2024-01-01
-Would remove: .lq/logs/date=2024-01-02
-Would remove: .lq/logs/date=2024-01-03
+# Clear all run data but keep commands
+$ blq clean data --confirm
+Cleared all run data. Config and commands preserved.
 
-Dry run: would remove 3 date partitions
+# Remove data older than 30 days
+$ blq clean prune --days 30 --confirm
+Removed 15 invocations and 243 events. Freed 12 blobs (4.2 MB).
 
-$ blq prune --older-than 14
-Removed: .lq/logs/date=2024-01-01
-Removed: .lq/logs/date=2024-01-02
-Removed: .lq/logs/date=2024-01-03
-```
+# Preview what prune would remove
+$ blq clean prune --days 7 --dry-run
+Found 42 invocations and 1,203 events older than 7 days.
+Dry run - no changes made.
 
-If no logs are old enough:
-```bash
-$ blq prune --older-than 7
-No logs older than 7 days
+# Recreate database schema
+$ blq clean schema --confirm
+Recreated database schema. Config files preserved.
+
+# Full reinitialization
+$ blq clean full --confirm
+Fully reinitialized .lq directory.
 ```
 
 ## Storage Structure
 
-blq stores logs using Hive partitioning:
+blq uses BIRD storage (DuckDB tables with content-addressed blob storage):
 
 ```
 .lq/
-├── logs/
-│   ├── date=2024-01-15/
-│   │   └── source=build/
-│   │       └── 001_make_103000.parquet
-│   ├── date=2024-01-16/
-│   │   └── source=test/
-│   │       └── 002_pytest_091500.parquet
-│   └── ...
-├── raw/              # Optional: raw log files
-├── config.yaml       # Project configuration
-├── commands.yaml     # Registered commands
-└── schema.sql        # SQL schema and macros
+├── blq.duckdb           # DuckDB database (tables, views, macros)
+├── blobs/
+│   └── content/         # Content-addressed blob storage
+│       ├── ab/
+│       │   └── abc123...def.bin
+│       └── cd/
+│           └── cde456...ghi.bin
+├── config.yaml          # Project configuration
+└── commands.yaml        # Registered commands
 ```
 
-The `prune` command removes entire date partitions (directories) based on the date in the directory name.
+### Database Tables
+
+| Table | Description |
+|-------|-------------|
+| `sessions` | Invoker sessions (shell, CLI, MCP) |
+| `invocations` | Command executions with metadata |
+| `outputs` | Captured stdout/stderr (references blobs) |
+| `events` | Parsed diagnostics (errors, warnings) |
+| `blob_registry` | Content-addressed blob tracking |
 
 ## Use Cases
 
 ### Regular Cleanup
 
-Add to cron or CI for automatic cleanup:
+Add to cron for automatic cleanup:
 ```bash
-# Weekly cleanup of logs older than 30 days
-0 0 * * 0 cd /path/to/project && blq prune --older-than 30
+# Weekly cleanup of data older than 30 days
+0 0 * * 0 cd /path/to/project && blq clean prune --days 30 --confirm
 ```
 
 ### Before Releases
 
-Clean up old logs before packaging or archiving:
+Clean up old data before packaging:
 ```bash
-blq prune --older-than 7
-git archive --prefix=project/ HEAD > release.tar
-```
-
-### Disk Space Recovery
-
-Check what would be removed before cleaning:
-```bash
-blq prune --dry-run --older-than 3
-# Review output
-blq prune --older-than 3
+blq clean prune --days 7 --confirm
 ```
 
 ### CI Environment
@@ -96,37 +105,44 @@ Keep CI storage lean:
 ```yaml
 # .github/workflows/ci.yml
 - name: Cleanup old logs
-  run: blq prune --older-than 1
+  run: blq clean prune --days 1 --confirm
 ```
+
+### Development Reset
+
+Start fresh during development:
+```bash
+blq clean data --confirm
+```
+
+## Blob Cleanup
+
+The `prune` mode automatically cleans up orphaned blobs - content-addressed files that are no longer referenced by any output record. This happens after deleting old invocations.
+
+Blob cleanup:
+1. Finds blobs in `blob_registry` not referenced by `outputs`
+2. Deletes the blob files from disk
+3. Removes entries from `blob_registry`
+4. Cleans up empty subdirectories
 
 ## Best Practices
 
-1. **Use dry-run first**: Always preview with `--dry-run` before bulk deletion
-2. **Balance retention**: Keep enough history for trend analysis, but not so much it wastes space
+1. **Use --confirm**: All destructive operations require explicit confirmation
+2. **Preview with --dry-run**: Check what prune would remove before executing
 3. **Automate cleanup**: Use cron or CI to prevent unbounded growth
-4. **Consider project needs**: Active development may benefit from longer retention
+4. **Balance retention**: Keep enough history for analysis, but not indefinitely
 
-## Manual Cleanup
+## Manual Database Access
 
-For more granular control, you can manually manage the `.lq/logs/` directory:
+For advanced operations, access the database directly:
 
 ```bash
-# See storage usage
-du -sh .lq/logs/
+# Open DuckDB shell
+duckdb .lq/blq.duckdb
 
-# See logs by date
-ls -la .lq/logs/
+# View storage stats
+duckdb .lq/blq.duckdb "SELECT COUNT(*) FROM invocations"
 
-# Remove specific dates
-rm -rf .lq/logs/date=2024-01-01
-
-# Remove specific source
-rm -rf .lq/logs/*/source=old-build/
+# Query using blq macros
+duckdb .lq/blq.duckdb "SELECT * FROM blq_status()"
 ```
-
-## Future Commands
-
-Planned maintenance features:
-- `blq vacuum` - Compact and optimize parquet files
-- `blq export` - Export logs to external storage
-- `blq archive` - Archive old logs before deletion

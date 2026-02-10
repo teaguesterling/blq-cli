@@ -33,6 +33,8 @@ These options apply to all commands:
 |---------|-------------|---------------|
 | `errors` | Show recent errors | [errors](errors.md) |
 | `warnings` | Show recent warnings | [errors](errors.md) |
+| `info` | Show details for a specific run | [status](status.md) |
+| `inspect` | Show event details with log/source context | [errors](errors.md) |
 | `event` | Show details for a specific event | [errors](errors.md) |
 | `context` | Show log context around an event | [errors](errors.md) |
 
@@ -74,7 +76,7 @@ These options apply to all commands:
 
 | Command | Description | Documentation |
 |---------|-------------|---------------|
-| `prune` | Remove old log files | [maintenance](maintenance.md) |
+| `clean` | Database cleanup (data, prune, schema, full) | [maintenance](maintenance.md) |
 
 ### MCP Server
 

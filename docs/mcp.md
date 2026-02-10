@@ -53,6 +53,22 @@ blq mcp serve [OPTIONS]
 |--------|-------|-------------|
 | `--transport TYPE` | `-t` | Transport type: `stdio` or `sse` (default: stdio) |
 | `--port PORT` | `-p` | Port for SSE transport (default: 8080) |
+| `--safe-mode` | `-S` | Disable state-modifying tools (exec, clean, register/unregister) |
+| `--disabled-tools LIST` | `-D` | Comma-separated list of tools to disable |
+
+#### Safe Mode
+
+Safe mode (`--safe-mode` or `-S`) disables tools that can modify state:
+- `exec` - No arbitrary command execution
+- `clean` - No data deletion
+- `register_command` - No registry modification
+- `unregister_command` - No registry modification
+
+```bash
+blq mcp serve --safe-mode              # Disable all state-modifying tools
+blq mcp serve -D exec,clean            # Disable specific tools
+blq mcp serve -S -D custom_tool        # Combine both
+```
 
 ### Transport Types
 
@@ -76,28 +92,24 @@ The blq MCP server exposes:
 
 All tools are namespaced under the `blq` server, so `run` becomes `blq.run` when accessed by agents.
 
-### Available Tools
+### Available Tools (Consolidated API)
 
 | Tool | Description |
 |------|-------------|
-| `run` | Run a registered command |
+| `run` | Run registered command(s) - supports batch mode via `commands` param |
 | `exec` | Execute ad-hoc shell command (detects registered command prefixes) |
-| `query` | Query logs with SQL |
-| `errors` | Get recent errors |
-| `warnings` | Get recent warnings |
-| `event` | Get event details |
-| `context` | Get log context around event |
+| `query` | Query events with SQL or filter expressions |
+| `events` | Get events with severity/run filters - supports batch mode via `run_ids` param |
+| `inspect` | Get event details with log/source context - supports batch mode via `refs` param |
 | `output` | Get raw stdout/stderr for a run |
 | `status` | Get status summary |
+| `info` | Get detailed run info (omit `ref` for most recent, `context=N` for inline errors) |
 | `history` | Get run history |
 | `diff` | Compare errors between runs |
-| `register_command` | Register a new command (idempotent) |
+| `commands` | List all registered commands |
+| `register_command` | Register a new command (idempotent, with `run_now` option) |
 | `unregister_command` | Remove a registered command |
-| `list_commands` | List all registered commands |
-| `reset` | Reset or reinitialize the database |
-| `batch_run` | Run multiple commands in sequence |
-| `batch_errors` | Get errors from multiple runs |
-| `batch_event` | Get details for multiple events |
+| `clean` | Database cleanup (modes: data, prune, schema, full) |
 
 ---
 
@@ -192,14 +204,34 @@ Execute an ad-hoc shell command and capture its output.
 
 ### query
 
-Query stored log events with SQL.
+Query stored log events with SQL or simple filter expressions.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `sql` | string | Yes | SQL query against lq_events view |
+| `sql` | string | No* | SQL query against blq_load_events() |
+| `filter` | string | No* | Simple filter expressions (alternative to SQL) |
 | `limit` | number | No | Max rows to return (default: 100) |
+
+*Either `sql` or `filter` must be provided.
+
+**Filter Syntax:**
+
+The `filter` parameter supports simple expressions as an alternative to raw SQL:
+
+| Syntax | Meaning | Example |
+|--------|---------|---------|
+| `key=value` | Exact match | `severity=error` |
+| `key=v1,v2` | Multiple values (OR) | `severity=error,warning` |
+| `key~pattern` | Contains (ILIKE) | `ref_file~test` |
+| `key!=value` | Not equal | `tool_name!=mypy` |
+
+Multiple filters are AND'd together (space or comma separated):
+
+```json
+{"filter": "severity=error ref_file~test"}
+```
 
 **Returns:**
 
@@ -214,14 +246,32 @@ Query stored log events with SQL.
 }
 ```
 
-**Example:**
+**Examples:**
 
 ```json
+// Using SQL
 {
   "tool": "query",
   "arguments": {
-    "sql": "SELECT ref_file, COUNT(*) as count FROM lq_events WHERE severity='error' GROUP BY ref_file ORDER BY count DESC",
+    "sql": "SELECT ref_file, COUNT(*) as count FROM blq_load_events() WHERE severity='error' GROUP BY ref_file",
     "limit": 10
+  }
+}
+
+// Using filter syntax
+{
+  "tool": "query",
+  "arguments": {
+    "filter": "severity=error",
+    "limit": 10
+  }
+}
+
+// Multiple filters
+{
+  "tool": "query",
+  "arguments": {
+    "filter": "severity=error,warning ref_file~test"
   }
 }
 ```
@@ -659,39 +709,77 @@ List all registered commands.
 
 ---
 
-### reset
+### clean
 
-Reset or reinitialize the blq database. This is a potentially destructive operation.
+Database cleanup and maintenance. This is a potentially destructive operation.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `mode` | string | No | Reset level: "data" (clear runs but keep config), "schema" (recreate database), or "full" (delete .lq directory). Default: "data" |
+| `mode` | string | No | Cleanup mode (see below). Default: "data" |
 | `confirm` | boolean | No | Must be true to proceed (safety check). Default: false |
+| `days` | number | No | For prune mode: remove data older than N days |
+
+**Modes:**
+
+| Mode | Description |
+|------|-------------|
+| `data` | Clear run data, keep config and commands |
+| `prune` | Remove data older than N days (requires `days` parameter) |
+| `schema` | Recreate database schema (clears all data, keeps config files) |
+| `full` | Delete and recreate entire .lq directory |
 
 **Returns:**
 
 ```json
 {
   "success": true,
-  "message": "Reset complete (data mode)"
+  "message": "Cleared all run data. Config and commands preserved.",
+  "mode": "data"
 }
 ```
 
-**Example:**
+For prune mode, also returns cleanup stats:
 
 ```json
 {
-  "tool": "reset",
+  "success": true,
+  "message": "Removed data older than 30 days.",
+  "mode": "prune",
+  "removed": {
+    "invocations": 15,
+    "events": 243,
+    "blobs": 12,
+    "bytes_freed": 1048576
+  }
+}
+```
+
+**Examples:**
+
+```json
+// Clear all data
+{
+  "tool": "clean",
   "arguments": {
     "mode": "data",
     "confirm": true
   }
 }
+
+// Prune old data
+{
+  "tool": "clean",
+  "arguments": {
+    "mode": "prune",
+    "days": 30,
+    "confirm": true
+  }
+}
 ```
 
-**Security Note:** This tool can be disabled via configuration. See [Security Controls](#security-controls) below.
+**Security Note:** This tool can be disabled via configuration or `--safe-mode`. See [Security Controls](#security-controls) below.
 
 ---
 
@@ -1134,16 +1222,33 @@ This creates:
 
 blq allows disabling sensitive MCP tools for security. This is useful when running the MCP server in untrusted environments or when you want to limit agent capabilities.
 
-### Disabling Tools
+### Safe Mode (Recommended)
 
-Tools can be disabled via configuration file or environment variable:
+The easiest way to secure the MCP server is to use safe mode:
+
+```bash
+blq mcp serve --safe-mode
+```
+
+This disables all state-modifying tools: `exec`, `clean`, `register_command`, `unregister_command`.
+
+### Disabling Specific Tools
+
+For fine-grained control, disable specific tools:
+
+**Via CLI:**
+
+```bash
+blq mcp serve --disabled-tools exec,clean
+```
 
 **Via `.lq/config.yaml`:**
 
 ```yaml
 mcp:
   disabled_tools:
-    - reset
+    - exec
+    - clean
     - register_command
     - unregister_command
 ```
@@ -1151,7 +1256,7 @@ mcp:
 **Via environment variable:**
 
 ```bash
-export BLQ_MCP_DISABLED_TOOLS="reset,register_command,unregister_command"
+export BLQ_MCP_DISABLED_TOOLS="exec,clean,register_command,unregister_command"
 blq mcp serve
 ```
 
@@ -1161,7 +1266,8 @@ Consider disabling these tools in production/CI environments:
 
 | Tool | Risk | Recommendation |
 |------|------|----------------|
-| `reset` | Deletes data | Disable in production |
+| `exec` | Runs arbitrary commands | Disable in untrusted environments |
+| `clean` | Deletes data | Disable in production |
 | `register_command` | Modifies registry | Disable if commands are fixed |
 | `unregister_command` | Modifies registry | Disable if commands are fixed |
 
@@ -1169,7 +1275,7 @@ When a disabled tool is called, the server returns an error:
 
 ```json
 {
-  "error": "Tool 'reset' is disabled by configuration"
+  "error": "Tool 'exec' is disabled. Enable it by removing from mcp.disabled_tools in .lq/config.yaml or BLQ_MCP_DISABLED_TOOLS environment variable."
 }
 ```
 
