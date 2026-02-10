@@ -4,7 +4,7 @@ blq commands module.
 This module provides modular command implementations for the blq CLI.
 """
 
-from blq.commands.ci_cmd import cmd_ci_check, cmd_ci_comment
+from blq.commands.ci_cmd import cmd_ci_check, cmd_ci_comment, cmd_ci_generate
 from blq.commands.clean_cmd import cmd_clean
 from blq.commands.events import cmd_context, cmd_event, cmd_inspect
 from blq.commands.execution import cmd_capture, cmd_exec, cmd_import, cmd_run
@@ -48,6 +48,7 @@ __all__ = [
     # CI
     "cmd_ci_check",
     "cmd_ci_comment",
+    "cmd_ci_generate",
     # Report
     "cmd_report",
     # Execution

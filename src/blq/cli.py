@@ -47,6 +47,7 @@ from blq.commands import (
     cmd_capture,
     cmd_ci_check,
     cmd_ci_comment,
+    cmd_ci_generate,
     cmd_commands,
     cmd_completions,
     cmd_context,
@@ -112,6 +113,7 @@ __all__ = [
     "cmd_capture",
     "cmd_ci_check",
     "cmd_ci_comment",
+    "cmd_ci_generate",
     "cmd_commands",
     "cmd_report",
     "cmd_completions",
@@ -818,6 +820,29 @@ def main() -> None:
         "--baseline", "-b", help="Baseline for diff (run ID, branch, or commit)"
     )
     p_ci_comment.set_defaults(func=cmd_ci_comment)
+
+    # ci generate
+    p_ci_generate = ci_subparsers.add_parser(
+        "generate", help="Generate standalone shell scripts for CI"
+    )
+    p_ci_generate.add_argument(
+        "commands",
+        nargs="*",
+        help="Commands to generate scripts for (default: all)",
+    )
+    p_ci_generate.add_argument(
+        "--output", "-o", default=".", help="Output directory for scripts (default: .)"
+    )
+    p_ci_generate.add_argument(
+        "--shell", "-s", default="bash", choices=["bash", "sh", "zsh"], help="Shell to use"
+    )
+    p_ci_generate.add_argument(
+        "--force", "-f", action="store_true", help="Overwrite existing scripts"
+    )
+    p_ci_generate.add_argument(
+        "--dry-run", "-n", action="store_true", help="Show scripts without writing"
+    )
+    p_ci_generate.set_defaults(func=cmd_ci_generate)
 
     def ci_help(args: argparse.Namespace) -> None:
         """Show help for ci command."""

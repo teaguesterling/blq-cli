@@ -14,10 +14,15 @@ from blq.commands.ci_cmd import (
     _format_json_output,
     _format_location,
     _format_pr_comment,
+    _generate_script,
+    _generate_simple_script,
+    _generate_template_script,
     _get_github_context,
     cmd_ci_check,
     cmd_ci_comment,
+    cmd_ci_generate,
 )
+from blq.commands.core import RegisteredCommand
 from blq.github import GitHubClient
 
 
@@ -700,3 +705,316 @@ class TestCmdCiComment:
 
         captured = capsys.readouterr()
         assert "Created comment" in captured.out
+
+
+class TestGenerateSimpleScript:
+    """Tests for simple command script generation."""
+
+    def test_generates_bash_script(self):
+        """Generate a bash script for a simple command."""
+        cmd = RegisteredCommand(
+            name="lint",
+            cmd="ruff check .",
+            description="Run linter",
+        )
+        script = _generate_simple_script(cmd, shell="bash")
+
+        assert "#!/usr/bin/env bash" in script
+        assert "# Command: lint" in script
+        assert "# Description: Run linter" in script
+        assert "CMD='ruff check .'" in script
+        assert "set -euo pipefail" in script
+
+    def test_generates_sh_script(self):
+        """Generate a sh script."""
+        cmd = RegisteredCommand(name="test", cmd="pytest")
+        script = _generate_simple_script(cmd, shell="sh")
+
+        assert "#!/usr/bin/env sh" in script
+
+    def test_handles_single_quotes(self):
+        """Handle commands with single quotes."""
+        cmd = RegisteredCommand(
+            name="echo",
+            cmd="echo 'hello world'",
+        )
+        script = _generate_simple_script(cmd)
+
+        # Should escape single quotes properly
+        assert "echo" in script
+
+
+class TestGenerateTemplateScript:
+    """Tests for parameterized template script generation."""
+
+    def test_generates_template_script(self):
+        """Generate script for template command."""
+        cmd = RegisteredCommand(
+            name="test",
+            tpl="pytest {path} {flags}",
+            defaults={"path": "tests/", "flags": "-v"},
+            description="Run tests",
+        )
+        script = _generate_template_script(cmd)
+
+        assert "#!/usr/bin/env bash" in script
+        assert "# Template: pytest {path} {flags}" in script
+        assert "path='tests/'" in script
+        assert "flags='-v'" in script
+        assert "--path)" in script
+        assert "--flags)" in script
+
+    def test_includes_required_param_check(self):
+        """Include check for required parameters."""
+        cmd = RegisteredCommand(
+            name="test-file",
+            tpl="pytest {file} -v",
+            defaults={},  # file is required
+            description="Test a file",
+        )
+        script = _generate_template_script(cmd)
+
+        assert '--file <value>' in script
+        assert 'if [ -z "$file" ]' in script
+        assert "Error: --file is required" in script
+
+    def test_includes_usage_function(self):
+        """Include usage/help function."""
+        cmd = RegisteredCommand(
+            name="build",
+            tpl="make -j{jobs} {target}",
+            defaults={"jobs": "4"},
+        )
+        script = _generate_template_script(cmd)
+
+        assert "usage()" in script
+        assert "-h|--help)" in script
+        assert "(required)" in script  # target is required
+        assert "(default: 4)" in script  # jobs has default
+
+
+class TestGenerateScript:
+    """Tests for _generate_script dispatcher."""
+
+    def test_dispatches_to_simple(self):
+        """Dispatch to simple script generator for cmd."""
+        cmd = RegisteredCommand(name="lint", cmd="ruff check .")
+        script = _generate_script(cmd)
+
+        # Simple script doesn't have usage()
+        assert "usage()" not in script
+        assert "CMD='ruff check .'" in script
+
+    def test_dispatches_to_template(self):
+        """Dispatch to template script generator for tpl."""
+        cmd = RegisteredCommand(
+            name="test",
+            tpl="pytest {path}",
+            defaults={"path": "tests/"},
+        )
+        script = _generate_script(cmd)
+
+        # Template script has usage()
+        assert "usage()" in script
+        assert "--path)" in script
+
+
+class TestCmdCiGenerate:
+    """Tests for cmd_ci_generate command."""
+
+    def test_generate_creates_scripts(self, initialized_project, tmp_path):
+        """Generate creates executable scripts."""
+        # Register a command
+        from blq.commands.core import BlqConfig
+
+        config = BlqConfig.find()
+        config._commands = {
+            "test": RegisteredCommand(
+                name="test",
+                cmd="pytest -v",
+                description="Run tests",
+            )
+        }
+        config.save_commands()
+
+        output_dir = tmp_path / "scripts"
+        args = argparse.Namespace(
+            commands=["test"],
+            output=str(output_dir),
+            shell="bash",
+            force=False,
+            dry_run=False,
+        )
+
+        cmd_ci_generate(args)
+
+        script_path = output_dir / "test.sh"
+        assert script_path.exists()
+        assert (script_path.stat().st_mode & 0o111) != 0  # Is executable
+        content = script_path.read_text()
+        assert "pytest -v" in content
+
+    def test_generate_dry_run(self, initialized_project, capsys):
+        """Dry run shows scripts without writing."""
+        from blq.commands.core import BlqConfig
+
+        config = BlqConfig.find()
+        config._commands = {
+            "lint": RegisteredCommand(name="lint", cmd="ruff check .")
+        }
+        config.save_commands()
+
+        args = argparse.Namespace(
+            commands=["lint"],
+            output=".",
+            shell="bash",
+            force=False,
+            dry_run=True,
+        )
+
+        cmd_ci_generate(args)
+
+        captured = capsys.readouterr()
+        assert "lint.sh" in captured.out
+        assert "ruff check ." in captured.out
+        assert "[DRY RUN]" in captured.out
+
+    def test_generate_skips_existing(self, initialized_project, tmp_path, capsys):
+        """Skip existing scripts without --force."""
+        from blq.commands.core import BlqConfig
+
+        config = BlqConfig.find()
+        config._commands = {
+            "test": RegisteredCommand(name="test", cmd="pytest")
+        }
+        config.save_commands()
+
+        # Create existing script
+        output_dir = tmp_path / "scripts"
+        output_dir.mkdir()
+        (output_dir / "test.sh").write_text("# existing")
+
+        args = argparse.Namespace(
+            commands=["test"],
+            output=str(output_dir),
+            shell="bash",
+            force=False,
+            dry_run=False,
+        )
+
+        cmd_ci_generate(args)
+
+        captured = capsys.readouterr()
+        assert "Skipped" in captured.out
+        # Original content preserved
+        assert (output_dir / "test.sh").read_text() == "# existing"
+
+    def test_generate_force_overwrites(self, initialized_project, tmp_path):
+        """--force overwrites existing scripts."""
+        from blq.commands.core import BlqConfig
+
+        config = BlqConfig.find()
+        config._commands = {
+            "test": RegisteredCommand(name="test", cmd="pytest")
+        }
+        config.save_commands()
+
+        # Create existing script
+        output_dir = tmp_path / "scripts"
+        output_dir.mkdir()
+        (output_dir / "test.sh").write_text("# existing")
+
+        args = argparse.Namespace(
+            commands=["test"],
+            output=str(output_dir),
+            shell="bash",
+            force=True,
+            dry_run=False,
+        )
+
+        cmd_ci_generate(args)
+
+        # New content written
+        content = (output_dir / "test.sh").read_text()
+        assert "pytest" in content
+        assert "# existing" not in content
+
+    def test_generate_template_command(self, initialized_project, tmp_path):
+        """Generate script for template command."""
+        from blq.commands.core import BlqConfig
+
+        config = BlqConfig.find()
+        config._commands = {
+            "test": RegisteredCommand(
+                name="test",
+                tpl="pytest {path} {flags}",
+                defaults={"path": "tests/", "flags": "-v"},
+            )
+        }
+        config.save_commands()
+
+        output_dir = tmp_path / "scripts"
+        args = argparse.Namespace(
+            commands=["test"],
+            output=str(output_dir),
+            shell="bash",
+            force=False,
+            dry_run=False,
+        )
+
+        cmd_ci_generate(args)
+
+        content = (output_dir / "test.sh").read_text()
+        assert "--path)" in content
+        assert "--flags)" in content
+        assert "path='tests/'" in content
+
+    def test_generate_all_commands(self, initialized_project, tmp_path, capsys):
+        """Generate scripts for all commands when none specified."""
+        from blq.commands.core import BlqConfig
+
+        config = BlqConfig.find()
+        config._commands = {
+            "lint": RegisteredCommand(name="lint", cmd="ruff check ."),
+            "test": RegisteredCommand(name="test", cmd="pytest"),
+        }
+        config.save_commands()
+
+        output_dir = tmp_path / "scripts"
+        args = argparse.Namespace(
+            commands=[],  # Empty = all
+            output=str(output_dir),
+            shell="bash",
+            force=False,
+            dry_run=False,
+        )
+
+        cmd_ci_generate(args)
+
+        assert (output_dir / "lint.sh").exists()
+        assert (output_dir / "test.sh").exists()
+        captured = capsys.readouterr()
+        assert "Generated 2 script(s)" in captured.out
+
+    def test_generate_unknown_command_error(self, initialized_project, capsys):
+        """Error on unknown command names."""
+        from blq.commands.core import BlqConfig
+
+        config = BlqConfig.find()
+        config._commands = {"lint": RegisteredCommand(name="lint", cmd="ruff")}
+        config.save_commands()
+
+        args = argparse.Namespace(
+            commands=["unknown"],
+            output=".",
+            shell="bash",
+            force=False,
+            dry_run=False,
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_ci_generate(args)
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "Unknown commands: unknown" in captured.err
