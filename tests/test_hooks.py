@@ -232,6 +232,58 @@ class TestHooksStatus:
         assert "[installed]" in captured.out
         assert "pre-commit" in captured.out
 
+    def test_status_shows_ci_workflows(self, initialized_git_project, capsys):
+        """Status shows CI workflow installation status."""
+        from blq.commands.hooks_cmd import cmd_hooks_status
+
+        cmd_hooks_status(argparse.Namespace())
+
+        captured = capsys.readouterr()
+        # Should show CI workflow section
+        assert "CI Workflows:" in captured.out
+        assert "github" in captured.out
+        assert "gitlab" in captured.out
+        assert "drone" in captured.out
+
+    def test_status_shows_stale_scripts_section(self, initialized_git_project, capsys):
+        """Status shows stale scripts summary when scripts are stale."""
+        from blq.commands.core import BlqConfig
+        from blq.commands.hooks_cmd import cmd_hooks_status
+        from blq.commands.hooks_gen import write_hook_script
+        from blq.commands.registry import cmd_register
+
+        # Register and generate a script
+        reg_args = argparse.Namespace(
+            name="mytest",
+            cmd=["echo", "original"],
+            description="Test",
+            timeout=300,
+            capture=True,
+            format="",
+            force=False,
+            run=False,
+            template=False,
+            default=[],
+        )
+        cmd_register(reg_args)
+
+        config = BlqConfig.ensure()
+        cmd = config.commands["mytest"]
+        write_hook_script(cmd, config.lq_dir, force=True)
+
+        # Modify the command to make the script stale
+        reg_args.cmd = ["echo", "modified"]
+        reg_args.force = True
+        cmd_register(reg_args)
+
+        capsys.readouterr()  # Clear output
+
+        cmd_hooks_status(argparse.Namespace())
+
+        captured = capsys.readouterr()
+        # Should show stale indicator
+        assert "[stale]" in captured.out
+
 
 class TestHooksAdd:
     """Tests for hooks-add command."""

@@ -432,24 +432,25 @@ The import process will:
 
 ## Migration Path
 
-### Phase 1: Script Generation
+### Phase 1: Script Generation ✅
 - Implement `blq hooks generate`
 - Generate `.lq/hooks/*.sh` scripts using Jinja2 templates
 - Update `.gitignore` handling
 
-### Phase 2: Git Integration
+### Phase 2: Git Integration ✅
 - Update `blq hooks install git` to use new scripts
 - Deprecate direct hook template (PRECOMMIT_HOOK_TEMPLATE)
 - Maintain backward compatibility
 
-### Phase 3: CI Workflow Generation
+### Phase 3: CI Workflow Generation ✅
 - Implement GitHub Actions generator (`blq hooks install github`)
 - Implement GitLab CI generator (`blq hooks install gitlab`)
+- Implement Drone CI generator (`blq hooks install drone`)
 - Keep existing `blq ci` commands (check, comment) unchanged
 
-### Phase 4: Polish
-- Add `blq hooks status` enhancements
-- Documentation
+### Phase 4: Polish ✅
+- Add `blq hooks status` enhancements (shows CI workflow status, stale scripts)
+- Documentation (SKILL.md updated)
 - (Future) `blq ci import` for importing external CI logs
 
 ## File Changes

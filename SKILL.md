@@ -369,11 +369,34 @@ blq hooks install git test --hook=pre-push
 ### Installing to CI Workflows
 
 ```bash
-# Generate .github/workflows/blq-checks.yml
+# GitHub Actions: .github/workflows/blq.yml
 blq hooks install github lint test
 
-# Generate .gitlab-ci.blq.yml
+# GitLab CI: .gitlab-ci.blq.yml (include in your .gitlab-ci.yml)
 blq hooks install gitlab lint test
+
+# Drone CI: .drone.blq.yml
+blq hooks install drone lint test
+```
+
+### Checking Hook Status
+
+```bash
+blq hooks status
+# Shows:
+# - Generated hook scripts and their status (ok/stale/orphan)
+# - Git hook installations (pre-commit, pre-push)
+# - CI workflow installations (github, gitlab, drone)
+```
+
+### Uninstalling Hooks
+
+```bash
+blq hooks uninstall git              # Remove git pre-commit hook
+blq hooks uninstall git --hook=pre-push
+blq hooks uninstall github           # Remove GitHub workflow
+blq hooks uninstall gitlab           # Remove GitLab CI config
+blq hooks uninstall drone            # Remove Drone CI config
 ```
 
 ## MCP Resources
