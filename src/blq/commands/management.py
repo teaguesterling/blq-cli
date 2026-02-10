@@ -525,8 +525,8 @@ _blq_completions() {
     case "${COMP_WORDS[1]}" in
         run|r)
             # Complete registered command names
-            if [[ -f .lq/commands.yaml ]]; then
-                local registered=$(grep -E "^[a-zA-Z]" .lq/commands.yaml 2>/dev/null | cut -d: -f1)
+            if [[ -f .lq/commands.toml ]]; then
+                local registered=$(grep -E '^\[commands\.' .lq/commands.toml 2>/dev/null | sed 's/\[commands\.\(.*\)\]/\1/')
                 COMPREPLY=( $(compgen -W "${registered}" -- "${cur}") )
             fi
             ;;
@@ -646,10 +646,10 @@ _blq() {
             case "${words[1]}" in
                 run|r)
                     # Complete registered commands
-                    if [[ -f .lq/commands.yaml ]]; then
+                    if [[ -f .lq/commands.toml ]]; then
                         local -a registered
-                        local cmd="grep -E '^[a-zA-Z]' .lq/commands.yaml 2>/dev/null"
-                        registered=(${(f)"$($cmd | cut -d: -f1)"})
+                        local cmd="grep -E '^\[commands\.' .lq/commands.toml 2>/dev/null | sed 's/\[commands\.\(.*\)\]/\1/'"
+                        registered=(${(f)"$(eval $cmd)"})
                         _describe -t registered 'registered command' registered
                     fi
                     ;;

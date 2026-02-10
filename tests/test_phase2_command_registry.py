@@ -61,7 +61,7 @@ class TestLoadSaveCommands:
     """Tests for loading and saving commands via BlqConfig."""
 
     def test_load_empty_directory(self, lq_dir):
-        """Load returns empty dict when no commands.yaml exists."""
+        """Load returns empty dict when no commands.toml exists."""
         config = BlqConfig.load(lq_dir)
         assert config.commands == {}
 
@@ -93,19 +93,19 @@ class TestLoadSaveCommands:
         assert loaded["test"].cmd == "pytest -v"
         assert loaded["test"].timeout == 600
 
-    def test_save_creates_yaml_file(self, lq_dir):
-        """Save creates commands.yaml file."""
+    def test_save_creates_toml_file(self, lq_dir):
+        """Save creates commands.toml file."""
         config = BlqConfig.load(lq_dir)
         config._commands = {
             "build": RegisteredCommand(name="build", cmd="make"),
         }
         config.save_commands()
 
-        yaml_path = lq_dir / "commands.yaml"
-        assert yaml_path.exists()
-        content = yaml_path.read_text()
-        assert "commands:" in content
-        assert "build:" in content
+        toml_path = lq_dir / "commands.toml"
+        assert toml_path.exists()
+        content = toml_path.read_text()
+        assert "[commands.build]" in content
+        assert 'cmd = "make"' in content
 
     def test_load_preserves_format(self, lq_dir):
         """Load preserves custom format hints."""
@@ -123,13 +123,13 @@ class TestLoadSaveCommands:
         assert config2.commands["lint"].format == "eslint_json"
 
     def test_save_empty_commands(self, lq_dir):
-        """Save empty commands dict creates valid yaml."""
+        """Save empty commands dict creates valid toml."""
         config = BlqConfig.load(lq_dir)
         config._commands = {}
         config.save_commands()
 
-        yaml_path = lq_dir / "commands.yaml"
-        assert yaml_path.exists()
+        toml_path = lq_dir / "commands.toml"
+        assert toml_path.exists()
 
         config2 = BlqConfig.load(lq_dir)
         assert config2.commands == {}

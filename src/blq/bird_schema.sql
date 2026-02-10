@@ -11,7 +11,7 @@
 --   │       ├── ab/
 --   │       │   └── {hash}--{hint}.bin
 --   │       └── ...
---   └── config.yaml
+--   └── config.toml
 --
 -- BIRD spec: https://github.com/teaguesterling/magic/blob/main/docs/bird_spec.md
 

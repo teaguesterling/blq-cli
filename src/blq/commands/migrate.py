@@ -258,7 +258,7 @@ def cmd_migrate(args: argparse.Namespace) -> None:
     if invocations > 0 or events > 0:
         config.storage_mode = "bird"
         config.save()
-        print("Updated config.yaml to use BIRD storage mode")
+        print("Updated config.toml to use BIRD storage mode")
 
     if not keep_parquet:
         print()

@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 
 import pytest
-import yaml
 
 from blq.commands.core import BlqConfig
+from blq.config_format import load_toml, save_toml
 from blq.commands.events import cmd_inspect
 from blq.output import format_status, read_source_context
 
@@ -24,10 +24,10 @@ class TestSourceLookupConfig:
     def test_source_lookup_disabled(self, initialized_project):
         """Source lookup can be disabled in config."""
         # Write config with source_lookup disabled
-        config_path = Path(".lq/config.yaml")
-        existing = yaml.safe_load(config_path.read_text()) or {}
+        config_path = Path(".lq/config.toml")
+        existing = load_toml(config_path)
         existing["source_lookup"] = {"enabled": False}
-        config_path.write_text(yaml.dump(existing))
+        save_toml(config_path, existing)
 
         # Reload config
         config = BlqConfig.load(Path(".lq"))
@@ -35,10 +35,10 @@ class TestSourceLookupConfig:
 
     def test_source_lookup_custom_ref_root(self, initialized_project):
         """Source lookup can use custom ref_root."""
-        config_path = Path(".lq/config.yaml")
-        existing = yaml.safe_load(config_path.read_text()) or {}
+        config_path = Path(".lq/config.toml")
+        existing = load_toml(config_path)
         existing["source_lookup"] = {"enabled": True, "ref_root": "./src"}
-        config_path.write_text(yaml.dump(existing))
+        save_toml(config_path, existing)
 
         config = BlqConfig.load(Path(".lq"))
         assert config.source_lookup_enabled is True

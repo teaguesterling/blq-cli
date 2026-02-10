@@ -69,7 +69,7 @@ def cmd_sync(args: argparse.Namespace) -> None:
     # Validate project info exists
     if not config.namespace or not config.project:
         print("Error: Project namespace/project not configured.", file=sys.stderr)
-        print("Run 'blq init --namespace X --project Y' or set in .lq/config.yaml", file=sys.stderr)
+        print("Run 'blq init --namespace X --project Y' or set in .lq/config.toml", file=sys.stderr)
         sys.exit(1)
 
     # Get sync parameters

@@ -142,23 +142,22 @@ Each `blq run` captures comprehensive execution context:
 
 ### Environment Capture
 
-Configurable in `.lq/config.yaml`:
-```yaml
-capture_env:
-  - PATH
-  - VIRTUAL_ENV
-  - CC
-  - CXX
-  # ... (30+ defaults)
+Configurable in `.lq/config.toml`:
+```toml
+capture_env = [
+    "PATH",
+    "VIRTUAL_ENV",
+    "CC",
+    "CXX",
+    # ... (30+ defaults)
+]
 ```
 
-Per-command overrides in `commands.yaml`:
-```yaml
-commands:
-  build:
-    cmd: "make -j8"
-    capture_env:
-      - EXTRA_VAR
+Per-command overrides in `commands.toml`:
+```toml
+[commands.build]
+cmd = "make -j8"
+capture_env = ["EXTRA_VAR"]
 ```
 
 ### CI Auto-Detection
@@ -171,12 +170,12 @@ SELECT ci['provider'], ci['run_id'] FROM blq_load_events() WHERE ci IS NOT NULL
 
 ## Project Identification
 
-Detected at `blq init` and stored in `.lq/config.yaml`:
+Detected at `blq init` and stored in `.lq/config.toml`:
 
-```yaml
-project:
-  namespace: teaguesterling  # from git remote owner
-  project: blq               # from git remote repo
+```toml
+[project]
+namespace = "teaguesterling"  # from git remote owner
+project = "blq"               # from git remote repo
 ```
 
 Fallback for non-git projects uses filesystem path:
@@ -203,11 +202,10 @@ Fallback for non-git projects uses filesystem path:
 | `docker-compose.yml` | docker-up, docker-build |
 
 Commands can have `capture: false` for fast execution without log parsing:
-```yaml
-commands:
-  format:
-    cmd: "black ."
-    capture: false  # Skip log capture
+```toml
+[commands.format]
+cmd = "black ."
+capture = false  # Skip log capture
 ```
 
 Runtime override: `blq run --no-capture <cmd>` or `blq run --capture <cmd>`
@@ -280,13 +278,10 @@ blq mcp serve -D exec,clean         # Disable specific tools
 blq mcp serve -S -D custom_tool     # Combine safe mode with additional tools
 ```
 
-Or via `.lq/config.yaml`:
-```yaml
-mcp:
-  disabled_tools:
-    - clean
-    - register_command
-    - unregister_command
+Or via `.lq/config.toml`:
+```toml
+[mcp]
+disabled_tools = ["clean", "register_command", "unregister_command"]
 ```
 
 Or via environment: `BLQ_MCP_DISABLED_TOOLS=clean,exec`
@@ -390,16 +385,15 @@ ruff format src/blq/
 
 ### Config Options
 
-Key `.lq/config.yaml` options:
-```yaml
-storage:
-  keep_raw: true              # Always keep raw output
+Key `.lq/config.toml` options:
+```toml
+[storage]
+keep_raw = true               # Always keep raw output
 
-source_lookup:
-  enabled: true               # Enable source context in inspect
-  ref_root: "."               # Root for resolving file paths
+[source_lookup]
+enabled = true                # Enable source context in inspect
+ref_root = "."                # Root for resolving file paths
 
-mcp:
-  disabled_tools:             # Security: disable sensitive tools
-    - clean
+[mcp]
+disabled_tools = ["clean"]    # Security: disable sensitive tools
 ```

@@ -14,7 +14,7 @@ Security:
         blq mcp serve --safe-mode    # Disables exec, clean, register_command, unregister_command
         blq mcp serve -D exec,clean  # Disable specific tools
 
-    Or via .lq/config.yaml:
+    Or via .lq/config.toml:
         mcp:
           disabled_tools:
             - exec
@@ -87,7 +87,7 @@ def _init_disabled_tools(
     if env_disabled:
         disabled.update(t.strip() for t in env_disabled.split(",") if t.strip())
 
-    # Check .lq/config.yaml
+    # Check .lq/config.toml
     try:
         from blq.cli import BlqConfig
 
@@ -123,7 +123,7 @@ def _check_tool_enabled(tool_name: str) -> None:
     if tool_name in disabled:
         raise PermissionError(
             f"Tool '{tool_name}' is disabled. "
-            f"Enable it by removing from mcp.disabled_tools in .lq/config.yaml "
+            f"Enable it by removing from mcp.disabled_tools in .lq/config.toml "
             f"or BLQ_MCP_DISABLED_TOOLS environment variable."
         )
 

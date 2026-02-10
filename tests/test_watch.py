@@ -216,16 +216,15 @@ class TestWatchConfig:
         assert watch_config.clear_screen is False
         assert watch_config.quiet is False
 
-    def test_watch_config_from_yaml(self, initialized_project):
-        """WatchConfig is loaded from config.yaml."""
+    def test_watch_config_from_toml(self, initialized_project):
+        """WatchConfig is loaded from config.toml."""
         config = BlqConfig.find()
 
         # Write custom watch config
         config_path = config.config_path
-        import yaml
+        from blq.config_format import load_toml, save_toml
 
-        with open(config_path) as f:
-            data = yaml.safe_load(f) or {}
+        data = load_toml(config_path)
 
         data["watch"] = {
             "debounce_ms": 1000,
@@ -235,8 +234,7 @@ class TestWatchConfig:
             "quiet": True,
         }
 
-        with open(config_path, "w") as f:
-            yaml.dump(data, f)
+        save_toml(config_path, data)
 
         # Reload config
         config._watch_config = None

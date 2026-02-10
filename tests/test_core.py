@@ -647,8 +647,8 @@ class TestCmdCompletions:
         cmd_completions(args)
 
         captured = capsys.readouterr()
-        # Should reference commands.yaml for registered command completion
-        assert "commands.yaml" in captured.out
+        # Should reference commands.toml for registered command completion
+        assert "commands.toml" in captured.out
 
 
 # ============================================================================
@@ -735,18 +735,17 @@ class TestBlqConfigLoad:
         config = BlqConfig.load(lq_dir)
         assert config.lq_dir == lq_dir
 
-    def test_load_reads_config_yaml(self, lq_dir):
-        """Load reads settings from config.yaml."""
-        # Create config.yaml with custom settings
+    def test_load_reads_config_toml(self, lq_dir):
+        """Load reads settings from config.toml."""
+        # Create config.toml with custom settings
         config_content = """
-capture_env:
-  - CUSTOM_VAR
-  - ANOTHER_VAR
-project:
-  namespace: test_ns
-  project: test_proj
+capture_env = ["CUSTOM_VAR", "ANOTHER_VAR"]
+
+[project]
+namespace = "test_ns"
+project = "test_proj"
 """
-        (lq_dir / "config.yaml").write_text(config_content)
+        (lq_dir / "config.toml").write_text(config_content)
 
         config = BlqConfig.load(lq_dir)
         assert config.capture_env == ["CUSTOM_VAR", "ANOTHER_VAR"]
@@ -754,9 +753,9 @@ project:
         assert config.project == "test_proj"
 
     def test_load_uses_defaults_when_no_config(self, lq_dir):
-        """Load uses defaults when config.yaml doesn't exist."""
-        # Ensure no config.yaml
-        config_path = lq_dir / "config.yaml"
+        """Load uses defaults when config.toml doesn't exist."""
+        # Ensure no config.toml
+        config_path = lq_dir / "config.toml"
         if config_path.exists():
             config_path.unlink()
 
@@ -784,8 +783,8 @@ class TestBlqConfigEnsure:
 class TestBlqConfigSave:
     """Tests for BlqConfig save methods."""
 
-    def test_save_writes_config_yaml(self, lq_dir):
-        """Save writes settings to config.yaml."""
+    def test_save_writes_config_toml(self, lq_dir):
+        """Save writes settings to config.toml."""
         config = BlqConfig(
             lq_dir=lq_dir,
             capture_env=["TEST_VAR"],
@@ -795,13 +794,12 @@ class TestBlqConfigSave:
         config.save()
 
         # Read back and verify
-        import yaml
+        from blq.config_format import load_toml
 
-        config_path = lq_dir / "config.yaml"
+        config_path = lq_dir / "config.toml"
         assert config_path.exists()
 
-        with open(config_path) as f:
-            data = yaml.safe_load(f)
+        data = load_toml(config_path)
 
         assert data["capture_env"] == ["TEST_VAR"]
         assert data["project"]["namespace"] == "save_ns"
@@ -812,22 +810,22 @@ class TestBlqConfigCommands:
     """Tests for BlqConfig commands property."""
 
     def test_commands_empty_by_default(self, lq_dir):
-        """Commands is empty when no commands.yaml."""
+        """Commands is empty when no commands.toml."""
         config = BlqConfig(lq_dir=lq_dir)
         assert config.commands == {}
 
-    def test_commands_loads_from_yaml(self, lq_dir):
-        """Commands loads from commands.yaml."""
-        # Create commands.yaml
+    def test_commands_loads_from_toml(self, lq_dir):
+        """Commands loads from commands.toml."""
+        # Create commands.toml
         commands_content = """
-commands:
-  build:
-    cmd: "make"
-    description: "Build project"
-  test:
-    cmd: "pytest"
+[commands.build]
+cmd = "make"
+description = "Build project"
+
+[commands.test]
+cmd = "pytest"
 """
-        (lq_dir / "commands.yaml").write_text(commands_content)
+        (lq_dir / "commands.toml").write_text(commands_content)
 
         config = BlqConfig(lq_dir=lq_dir)
         assert "build" in config.commands
@@ -845,7 +843,7 @@ commands:
         assert config._commands is not None
 
     def test_save_commands(self, lq_dir):
-        """Save commands to commands.yaml."""
+        """Save commands to commands.toml."""
         config = BlqConfig(lq_dir=lq_dir)
 
         # Modify commands
@@ -857,10 +855,9 @@ commands:
         config.save_commands()
 
         # Read back and verify
-        import yaml
+        from blq.config_format import load_toml
 
-        with open(lq_dir / "commands.yaml") as f:
-            data = yaml.safe_load(f)
+        data = load_toml(lq_dir / "commands.toml")
 
         assert "new_cmd" in data["commands"]
         assert data["commands"]["new_cmd"]["cmd"] == "echo hello"

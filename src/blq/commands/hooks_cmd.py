@@ -121,11 +121,9 @@ def cmd_hooks_install(args: argparse.Namespace) -> None:
         print(f"Configured commands: {', '.join(commands)}")
     else:
         print("No commands configured yet.")
-        print("Add commands to .lq/config.yaml:")
-        print("  hooks:")
-        print("    pre-commit:")
-        print("      - lint")
-        print("      - test")
+        print("Add commands to .lq/config.toml:")
+        print('  [hooks]')
+        print('  pre-commit = ["lint", "test"]')
 
 
 def cmd_hooks_remove(args: argparse.Namespace) -> None:

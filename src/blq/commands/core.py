@@ -20,7 +20,13 @@ from typing import TYPE_CHECKING, Any
 
 import duckdb
 import pandas as pd  # type: ignore[import-untyped]
-import yaml  # type: ignore[import-untyped]
+
+from blq.config_format import (
+    COMMANDS_FILE,
+    CONFIG_FILE,
+    load_toml,
+    save_toml,
+)
 
 if TYPE_CHECKING:
     pass
@@ -34,8 +40,9 @@ LOGS_DIR = "logs"
 RAW_DIR = "raw"
 SCHEMA_FILE = "schema.sql"
 DB_FILE = "blq.duckdb"
-COMMANDS_FILE = "commands.yaml"
-CONFIG_FILE = "config.yaml"
+# Re-export from config_format for compatibility
+# COMMANDS_FILE = "commands.toml"
+# CONFIG_FILE = "config.toml"
 GLOBAL_LQ_DIR = Path.home() / ".lq"
 PROJECTS_DIR = "projects"
 GLOBAL_PROJECTS_PATH = GLOBAL_LQ_DIR / PROJECTS_DIR
@@ -435,7 +442,7 @@ class BlqConfig:
     into a single configuration object. It provides:
 
     - Core path management (lq_dir and derived paths)
-    - Settings from config.yaml (capture_env, namespace, project)
+    - Settings from config.toml (capture_env, namespace, project)
     - Lazy-loaded command registry
     - Factory methods for finding/loading configuration
 
@@ -455,7 +462,7 @@ class BlqConfig:
     # Core path (everything derives from this)
     lq_dir: Path
 
-    # Settings from config.yaml
+    # Settings from config.toml
     capture_env: list[str] = field(default_factory=lambda: DEFAULT_CAPTURE_ENV.copy())
     namespace: str | None = None
     project: str | None = None
@@ -504,12 +511,12 @@ class BlqConfig:
 
     @property
     def config_path(self) -> Path:
-        """Path to config file (.lq/config.yaml)."""
+        """Path to config file (.lq/config.toml)."""
         return self.lq_dir / CONFIG_FILE
 
     @property
     def commands_path(self) -> Path:
-        """Path to commands file (.lq/commands.yaml)."""
+        """Path to commands file (.lq/commands.toml)."""
         return self.lq_dir / COMMANDS_FILE
 
     @property
@@ -519,7 +526,7 @@ class BlqConfig:
 
     @property
     def commands(self) -> dict:
-        """Lazy-load commands from commands.yaml.
+        """Lazy-load commands from commands.toml.
 
         Returns:
             Dict mapping command names to RegisteredCommand instances.
@@ -540,10 +547,9 @@ class BlqConfig:
             Dict with hooks configuration, or empty dict if not configured.
         """
         if self._hooks_config is None:
-            # Load from config.yaml
+            # Load from config.toml
             if self.config_path.exists():
-                with open(self.config_path) as f:
-                    data = yaml.safe_load(f) or {}
+                data = load_toml(self.config_path)
                 self._hooks_config = data.get("hooks", {})
             else:
                 self._hooks_config = {}
@@ -557,10 +563,9 @@ class BlqConfig:
             WatchConfig with watch settings.
         """
         if self._watch_config is None:
-            # Load from config.yaml
+            # Load from config.toml
             if self.config_path.exists():
-                with open(self.config_path) as f:
-                    data = yaml.safe_load(f) or {}
+                data = load_toml(self.config_path)
                 watch_data = data.get("watch", {})
                 self._watch_config = WatchConfig(
                     debounce_ms=watch_data.get("debounce_ms", 500),
@@ -593,10 +598,9 @@ class BlqConfig:
             - disabled_tools: List of tool names to disable
         """
         if self._mcp_config is None:
-            # Load from config.yaml
+            # Load from config.toml
             if self.config_path.exists():
-                with open(self.config_path) as f:
-                    data = yaml.safe_load(f) or {}
+                data = load_toml(self.config_path)
                 self._mcp_config = data.get("mcp", {})
             else:
                 self._mcp_config = {}
@@ -627,8 +631,7 @@ class BlqConfig:
         """Load source_lookup config if not already loaded."""
         if self._source_lookup is None:
             if self.config_path.exists():
-                with open(self.config_path) as f:
-                    data = yaml.safe_load(f) or {}
+                data = load_toml(self.config_path)
                 self._source_lookup = data.get("source_lookup", {})
             else:
                 self._source_lookup = {}
@@ -650,8 +653,7 @@ class BlqConfig:
         """Load storage config if not already loaded."""
         if self._storage_config is None:
             if self.config_path.exists():
-                with open(self.config_path) as f:
-                    data = yaml.safe_load(f) or {}
+                data = load_toml(self.config_path)
                 self._storage_config = data.get("storage", {})
             else:
                 self._storage_config = {}
@@ -685,7 +687,7 @@ class BlqConfig:
             lq_dir: Path to the .lq directory
 
         Returns:
-            BlqConfig loaded from config.yaml (or defaults)
+            BlqConfig loaded from config.toml (or defaults)
         """
         config_path = lq_dir / CONFIG_FILE
 
@@ -693,12 +695,11 @@ class BlqConfig:
         capture_env = DEFAULT_CAPTURE_ENV.copy()
         namespace = None
         project = None
-        storage_mode = "parquet"  # Default to v1 mode for backward compatibility
+        storage_mode = "bird"  # Default to BIRD mode
 
-        # Load from config.yaml if it exists
+        # Load from config.toml if it exists
         if config_path.exists():
-            with open(config_path) as f:
-                data = yaml.safe_load(f) or {}
+            data = load_toml(config_path)
 
             # Load capture_env
             loaded_env = data.get("capture_env")
@@ -712,7 +713,7 @@ class BlqConfig:
 
             # Load storage mode
             storage_data = data.get("storage", {})
-            storage_mode = storage_data.get("mode", "parquet")
+            storage_mode = storage_data.get("mode", "bird")
 
         return cls(
             lq_dir=lq_dir,
@@ -745,11 +746,11 @@ class BlqConfig:
         return config
 
     def save(self) -> None:
-        """Save configuration to config.yaml."""
+        """Save configuration to config.toml."""
         data: dict[str, Any] = {"capture_env": self.capture_env}
 
         # Include storage mode
-        if self.storage_mode != "parquet":
+        if self.storage_mode != "bird":
             data["storage"] = {"mode": self.storage_mode}
 
         # Include project info if present
@@ -764,11 +765,10 @@ class BlqConfig:
         if self._hooks_config:
             data["hooks"] = self._hooks_config
 
-        with open(self.config_path, "w") as f:
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        save_toml(self.config_path, data)
 
     def save_commands(self) -> None:
-        """Save commands to commands.yaml."""
+        """Save commands to commands.toml."""
         if self._commands is not None:
             _save_commands_impl(self.lq_dir, self._commands)
 
@@ -884,23 +884,115 @@ def detect_format_from_command(cmd: str) -> str:
 
 @dataclass
 class RegisteredCommand:
-    """A registered command in the commands.yaml file."""
+    """A registered command in the commands.toml file.
+
+    Commands can be simple (cmd) or parameterized templates (tpl):
+
+    Simple command:
+        [commands.lint]
+        cmd = "ruff check ."
+
+    Template command:
+        [commands.test]
+        tpl = "pytest {path} {flags}"
+        defaults = { path = "tests/", flags = "-v" }
+    """
 
     name: str
-    cmd: str
+    cmd: str | None = None  # Simple command (no substitution)
+    tpl: str | None = None  # Template with {param} placeholders
+    defaults: dict[str, str] = field(default_factory=dict)  # Default values for tpl
     description: str = ""
     timeout: int = 300
     format: str = "auto"
     capture: bool = True  # Whether to capture and parse logs (default: True)
-    capture_env: list[str] = field(default_factory=list)  # Additional env vars for this command
+    capture_env: list[str] = field(default_factory=list)  # Additional env vars
+
+    @property
+    def is_template(self) -> bool:
+        """Whether this is a parameterized template command."""
+        return self.tpl is not None
+
+    @property
+    def template(self) -> str:
+        """Get the command template (tpl if set, else cmd)."""
+        if self.tpl is not None:
+            return self.tpl
+        return self.cmd or ""
+
+    def required_params(self) -> set[str]:
+        """Get parameters without defaults (required)."""
+        if not self.is_template or not self.tpl:
+            return set()
+        # Find all {param} placeholders (simple str.format style)
+        all_params = set(re.findall(r"\{(\w+)\}", self.tpl))
+        return all_params - set(self.defaults.keys())
+
+    def render(
+        self,
+        args: dict[str, str],
+        extra: list[str] | None = None,
+    ) -> str:
+        """Render template with provided args + defaults.
+
+        Args:
+            args: Named arguments to substitute
+            extra: Extra arguments to append
+
+        Returns:
+            Expanded command string
+
+        Raises:
+            ValueError: If required params missing or unknown args provided
+        """
+        if not self.is_template or not self.tpl:
+            result = self.cmd or ""
+            if extra:
+                result = result + " " + " ".join(extra)
+            return result
+
+        # Find all placeholders
+        all_params = set(re.findall(r"\{(\w+)\}", self.tpl))
+
+        # Check for unknown args
+        for name in args:
+            if name not in all_params:
+                valid_args = ", ".join(sorted(all_params))
+                raise ValueError(f"Unknown argument '{name}'. Valid arguments: {valid_args}")
+
+        # Merge defaults with provided args
+        merged = {**self.defaults, **args}
+
+        # Check for missing required params
+        missing = all_params - set(merged.keys())
+        if missing:
+            raise ValueError(f"Missing required params: {missing}")
+
+        # Use str.format for substitution (handles {{}} escaping)
+        result = self.tpl.format(**merged)
+
+        # Append extra args
+        if extra:
+            result = result + " " + " ".join(extra)
+
+        return result
 
     def to_dict(self) -> dict[str, Any]:
-        d = {
-            "cmd": self.cmd,
-            "description": self.description,
-            "timeout": self.timeout,
-            "format": self.format,
-        }
+        """Convert to dictionary for serialization."""
+        d: dict[str, Any] = {}
+
+        # Use tpl if template, else cmd
+        if self.is_template:
+            d["tpl"] = self.tpl
+            if self.defaults:
+                d["defaults"] = self.defaults
+        else:
+            d["cmd"] = self.cmd
+
+        d["description"] = self.description
+        d["timeout"] = self.timeout
+        d["format"] = self.format
+
         if not self.capture:
             d["capture"] = False
         if self.capture_env:
@@ -1040,21 +1132,36 @@ def format_command_help(cmd: RegisteredCommand) -> str:
     Returns:
         Formatted help string
     """
-    placeholders = parse_placeholders(cmd.cmd)
-    lines = [f"{cmd.name}: {cmd.cmd}"]
+    template = cmd.template
+    lines = [f"{cmd.name}: {template}"]
 
     if cmd.description:
         lines.append(f"  {cmd.description}")
 
-    if placeholders:
-        lines.append("")
-        lines.append("Arguments:")
-        for p in placeholders:
-            mode = "positional or keyword" if p.positional else "keyword-only"
-            if p.default is not None:
-                lines.append(f"  {p.name:<16} {mode}, default: {p.default}")
-            else:
-                lines.append(f"  {p.name:<16} {mode}, required")
+    # For template commands with tpl, show params from defaults
+    if cmd.is_template:
+        # Find all {param} placeholders
+        all_params = set(re.findall(r"\{(\w+)\}", template))
+        if all_params:
+            lines.append("")
+            lines.append("Arguments:")
+            for name in sorted(all_params):
+                if name in cmd.defaults:
+                    lines.append(f"  {name:<16} default: {cmd.defaults[name]}")
+                else:
+                    lines.append(f"  {name:<16} required")
+    else:
+        # For cmd with inline placeholders, use existing parse_placeholders
+        placeholders = parse_placeholders(template)
+        if placeholders:
+            lines.append("")
+            lines.append("Arguments:")
+            for p in placeholders:
+                mode = "positional or keyword" if p.positional else "keyword-only"
+                if p.default is not None:
+                    lines.append(f"  {p.name:<16} {mode}, default: {p.default}")
+                else:
+                    lines.append(f"  {p.name:<16} {mode}, required")
 
     return "\n".join(lines)
 
@@ -1065,22 +1172,29 @@ def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
     if not commands_path.exists():
         return {}
 
-    with open(commands_path) as f:
-        data = yaml.safe_load(f) or {}
+    data = load_toml(commands_path)
 
     commands = {}
     for name, config in data.get("commands", {}).items():
         if isinstance(config, str):
-            # Simple format: name: "command"
+            # Simple format: name = "command"
             commands[name] = RegisteredCommand(name=name, cmd=config)
         else:
             # Full format with options
             capture_env = config.get("capture_env", [])
             if not isinstance(capture_env, list):
                 capture_env = []
+
+            # Get defaults dict, ensuring it's a dict
+            defaults = config.get("defaults", {})
+            if not isinstance(defaults, dict):
+                defaults = {}
+
             commands[name] = RegisteredCommand(
                 name=name,
-                cmd=config.get("cmd", ""),
+                cmd=config.get("cmd"),  # None if not present
+                tpl=config.get("tpl"),  # Template if present
+                defaults=defaults,
                 description=config.get("description", ""),
                 timeout=config.get("timeout", 300),
                 format=config.get("format", "auto"),
@@ -1094,8 +1208,7 @@ def _save_commands_impl(lq_dir: Path, commands: dict[str, RegisteredCommand]) ->
     """Internal implementation of save_commands."""
     commands_path = lq_dir / COMMANDS_FILE
     data = {"commands": {name: cmd.to_dict() for name, cmd in commands.items()}}
-    with open(commands_path, "w") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    save_toml(commands_path, data)
 
 
 # ============================================================================

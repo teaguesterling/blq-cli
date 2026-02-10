@@ -634,10 +634,10 @@ def _detect_and_register_commands(lq_dir: Path, auto_yes: bool, mode: str = DETE
 
 
 def _ensure_commands_file(lq_dir: Path, verbose: bool = False) -> None:
-    """Ensure commands.yaml exists, creating empty one if needed."""
+    """Ensure commands.toml exists, creating empty one if needed."""
     commands_path = lq_dir / COMMANDS_FILE
     if not commands_path.exists():
-        commands_path.write_text("# blq registered commands\ncommands: {}\n")
+        commands_path.write_text("# blq registered commands\n[commands]\n")
         if verbose:
             print(f"  Created {COMMANDS_FILE}")
 
@@ -818,9 +818,9 @@ def _reinit_config_files(lq_dir: Path, args: argparse.Namespace) -> None:
 
     config = BlqConfig(lq_dir=lq_dir, namespace=namespace, project=project)
     config.save()
-    print(f"  Updated config.yaml (project: {namespace}/{project})")
+    print(f"  Updated config.toml (project: {namespace}/{project})")
 
-    # Ensure commands.yaml exists
+    # Ensure commands.toml exists
     _ensure_commands_file(lq_dir, verbose=True)
 
 
@@ -845,7 +845,7 @@ def cmd_init(args: argparse.Namespace) -> None:
             print(f".lq already exists at {lq_dir}")
             print("  Use --force to reinitialize config files")
 
-        # Always ensure commands.yaml exists
+        # Always ensure commands.toml exists
         _ensure_commands_file(lq_dir)
 
         # Still try to install extensions if they're missing
@@ -907,7 +907,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     )
     config.save()
 
-    # Create empty commands.yaml
+    # Create empty commands.toml
     _ensure_commands_file(lq_dir)
 
     print(f"Initialized .lq at {lq_dir}")
@@ -919,7 +919,7 @@ def cmd_init(args: argparse.Namespace) -> None:
         print("  blq.duckdb    - Database with views and macros")
     print("  raw/          - Raw log files (optional)")
     print("  schema.sql    - SQL schema (reference)")
-    print("  commands.yaml - Registered commands")
+    print("  commands.toml - Registered commands")
     if namespace and project:
         print(f"  project       - {namespace}/{project}")
     if use_bird:

@@ -530,7 +530,7 @@ class TestBirdInit:
         assert (lq_dir / "blq.duckdb").exists()
         assert (lq_dir / "blobs" / "content").exists()
         assert (lq_dir / "schema.sql").exists()
-        assert (lq_dir / "config.yaml").exists()
+        assert (lq_dir / "config.toml").exists()
 
     def test_init_sets_bird_storage_mode(self, bird_initialized_dir):
         """Default blq init sets storage mode to bird."""
