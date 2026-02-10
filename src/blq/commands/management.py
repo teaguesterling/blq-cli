@@ -497,7 +497,7 @@ def cmd_completions(args: argparse.Namespace) -> None:
 
 def _bash_completion() -> str:
     """Generate bash completion script."""
-    return """# blq bash completion
+    return r"""# blq bash completion
 # Add to ~/.bashrc or ~/.bash_completion:
 #   eval "$(blq completions bash)"
 # Or save to a file:
@@ -586,7 +586,7 @@ complete -F _blq_completions blq
 
 def _zsh_completion() -> str:
     """Generate zsh completion script."""
-    return """#compdef blq
+    return r"""#compdef blq
 # blq zsh completion
 # Add to ~/.zshrc:
 #   eval "$(blq completions zsh)"
