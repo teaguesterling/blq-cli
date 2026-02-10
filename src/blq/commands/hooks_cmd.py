@@ -122,7 +122,7 @@ def cmd_hooks_install(args: argparse.Namespace) -> None:
     else:
         print("No commands configured yet.")
         print("Add commands to .lq/config.toml:")
-        print('  [hooks]')
+        print("  [hooks]")
         print('  pre-commit = ["lint", "test"]')
 
 
