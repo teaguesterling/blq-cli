@@ -542,3 +542,131 @@ class TestLoadSaveTemplateCommands:
         # cmd should not appear at top level (description can contain "cmd" as text)
         assert "[commands.test]" in content
         assert "cmd =" not in content
+
+
+class TestRunTemplateCommand:
+    """Tests for running template commands via cmd_run."""
+
+    def test_run_template_command_with_defaults(self, lq_dir, monkeypatch):
+        """Running a template command should expand template with defaults."""
+        import argparse
+        from unittest.mock import MagicMock, patch
+
+        from blq.commands.core import BlqConfig
+
+        # Set up a template command
+        config = BlqConfig.load(lq_dir)
+        config._commands = {
+            "greet": RegisteredCommand(
+                name="greet",
+                tpl="echo Hello {name}",
+                defaults={"name": "World"},
+                description="Greet someone",
+            ),
+        }
+        config.save_commands()
+
+        monkeypatch.chdir(lq_dir.parent)
+
+        # Mock _execute_command to capture the command that would be run
+        with patch("blq.commands.execution._execute_command") as mock_exec:
+            mock_exec.return_value = MagicMock(
+                exit_code=0,
+                output="",
+                started_at=None,
+                completed_at=None,
+                timed_out=False,
+            )
+
+            from blq.commands.execution import cmd_run
+
+            args = argparse.Namespace(
+                command=["greet"],
+                name=None,
+                json=False,
+                markdown=False,
+                csv=False,
+                quiet=True,
+                summary=False,
+                verbose=False,
+                include_warnings=False,
+                error_limit=None,
+                keep_raw=False,
+                format=None,
+                timeout=None,
+                capture=None,
+                register=False,
+                positional_args=None,
+            )
+
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_run(args)
+
+            assert exc_info.value.code == 0
+
+            # Verify _execute_command was called with the expanded command
+            mock_exec.assert_called_once()
+            call_kwargs = mock_exec.call_args[1]
+            assert call_kwargs["command"] == "echo Hello World"
+
+    def test_run_template_command_with_args(self, lq_dir, monkeypatch):
+        """Running a template command with args should override defaults."""
+        import argparse
+        from unittest.mock import MagicMock, patch
+
+        from blq.commands.core import BlqConfig
+
+        # Set up a template command
+        config = BlqConfig.load(lq_dir)
+        config._commands = {
+            "greet": RegisteredCommand(
+                name="greet",
+                tpl="echo Hello {name}",
+                defaults={"name": "World"},
+                description="Greet someone",
+            ),
+        }
+        config.save_commands()
+
+        monkeypatch.chdir(lq_dir.parent)
+
+        # Mock _execute_command to capture the command that would be run
+        with patch("blq.commands.execution._execute_command") as mock_exec:
+            mock_exec.return_value = MagicMock(
+                exit_code=0,
+                output="",
+                started_at=None,
+                completed_at=None,
+                timed_out=False,
+            )
+
+            from blq.commands.execution import cmd_run
+
+            args = argparse.Namespace(
+                command=["greet", "name=Claude"],
+                name=None,
+                json=False,
+                markdown=False,
+                csv=False,
+                quiet=True,
+                summary=False,
+                verbose=False,
+                include_warnings=False,
+                error_limit=None,
+                keep_raw=False,
+                format=None,
+                timeout=None,
+                capture=None,
+                register=False,
+                positional_args=None,
+            )
+
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_run(args)
+
+            assert exc_info.value.code == 0
+
+            # Verify _execute_command was called with the expanded command
+            mock_exec.assert_called_once()
+            call_kwargs = mock_exec.call_args[1]
+            assert call_kwargs["command"] == "echo Hello Claude"

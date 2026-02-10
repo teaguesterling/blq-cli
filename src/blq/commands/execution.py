@@ -535,9 +535,13 @@ def cmd_run(args: argparse.Namespace) -> None:
         positional_limit = getattr(args, "positional_args", None)
         named_args, positional_args, extra_args = _parse_command_args(cmd_args, positional_limit)
 
+        # Merge command defaults with provided args (defaults first, then user args override)
+        merged_args = {**reg_cmd.defaults, **named_args}
+
         # Expand command template with arguments
+        # Use template property which returns tpl for template commands, cmd otherwise
         try:
-            command = expand_command(reg_cmd.cmd, named_args, positional_args, extra_args)
+            command = expand_command(reg_cmd.template, merged_args, positional_args, extra_args)
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
             print("", file=sys.stderr)
