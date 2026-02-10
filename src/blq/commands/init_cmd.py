@@ -38,7 +38,14 @@ DETECT_AUTO = "auto"
 
 MCP_CONFIG_FILE = ".mcp.json"
 GITIGNORE_FILE = ".gitignore"
-GITIGNORE_ENTRY = ".lq/"
+GITIGNORE_ENTRY = ".lq/"  # Legacy single-line entry
+
+# New multi-line gitignore pattern that tracks hooks and config
+GITIGNORE_PATTERN = """# blq
+.lq/*
+!.lq/hooks/
+!.lq/config.toml
+!.lq/commands.toml"""
 
 MCP_CONFIG_TEMPLATE = """{
   "mcpServers": {
@@ -465,7 +472,12 @@ def _write_mcp_config(path: Path) -> None:
 
 
 def _add_to_gitignore(cwd: Path) -> bool:
-    """Add .lq/ to .gitignore if not already present.
+    """Add .lq/ pattern to .gitignore if not already present.
+
+    The pattern ignores .lq/* but tracks:
+    - .lq/hooks/ (portable hook scripts)
+    - .lq/config.toml (project configuration)
+    - .lq/commands.toml (registered commands)
 
     Args:
         cwd: Current working directory
@@ -480,23 +492,28 @@ def _add_to_gitignore(cwd: Path) -> bool:
         content = gitignore_path.read_text()
         lines = content.splitlines()
 
-        # Check for existing .lq entry (with or without trailing slash)
+        # Check for existing .lq entry (legacy or new pattern)
         for line in lines:
             stripped = line.strip()
-            if stripped in (".lq", ".lq/", "/.lq", "/.lq/"):
-                return False  # Already present
+            if stripped in (".lq", ".lq/", "/.lq", "/.lq/", ".lq/*"):
+                # Already has some form of .lq ignore
+                # Check if it's the new pattern with exceptions
+                if "!.lq/hooks/" in content:
+                    return False  # Already has new pattern
+                # Has legacy pattern - could upgrade, but leave as-is for now
+                return False
 
-        # Add .lq/ to the end
+        # Add new pattern to the end
         if content and not content.endswith("\n"):
             content += "\n"
-        content += f"{GITIGNORE_ENTRY}\n"
+        content += f"\n{GITIGNORE_PATTERN}\n"
         gitignore_path.write_text(content)
-        print(f"  Added {GITIGNORE_ENTRY} to {GITIGNORE_FILE}")
+        print(f"  Added .lq/ pattern to {GITIGNORE_FILE}")
         return True
     else:
-        # Create new .gitignore with .lq/
-        gitignore_path.write_text(f"{GITIGNORE_ENTRY}\n")
-        print(f"  Created {GITIGNORE_FILE} with {GITIGNORE_ENTRY}")
+        # Create new .gitignore with pattern
+        gitignore_path.write_text(f"{GITIGNORE_PATTERN}\n")
+        print(f"  Created {GITIGNORE_FILE} with .lq/ pattern")
         return True
 
 

@@ -670,3 +670,159 @@ class TestRunTemplateCommand:
             mock_exec.assert_called_once()
             call_kwargs = mock_exec.call_args[1]
             assert call_kwargs["command"] == "echo Hello Claude"
+
+
+class TestTemplateArgParsing:
+    """Tests for parsing template arguments with --param=value syntax."""
+
+    def test_parse_double_dash_param(self):
+        """--param=value should be parsed as named argument."""
+        named, positional, extra = _parse_command_args(["--path=tests/", "--flags=-v"])
+        assert named == {"path": "tests/", "flags": "-v"}
+        assert positional == []
+        assert extra == []
+
+    def test_parse_mixed_param_styles(self):
+        """Both key=value and --key=value should work."""
+        named, positional, extra = _parse_command_args(["path=tests/", "--flags=-v"])
+        assert named == {"path": "tests/", "flags": "-v"}
+        assert positional == []
+        assert extra == []
+
+    def test_parse_passthrough_with_double_dash(self):
+        """-- should separate template args from passthrough."""
+        named, positional, extra = _parse_command_args(["--path=tests/", "--", "-v", "-x"])
+        assert named == {"path": "tests/"}
+        assert positional == []
+        assert extra == ["-v", "-x"]
+
+    def test_parse_positional_then_passthrough(self):
+        """Positional args before -- should fill placeholders."""
+        named, positional, extra = _parse_command_args(["tests/unit/", "--", "-v"])
+        assert named == {}
+        assert positional == ["tests/unit/"]
+        assert extra == ["-v"]
+
+    def test_parse_all_styles_combined(self):
+        """Combined positional, named (both styles), and passthrough."""
+        named, positional, extra = _parse_command_args(
+            [
+                "tests/",
+                "--flags=-v",
+                "timeout=30",
+                "--",
+                "-x",
+                "--tb=short",
+            ]
+        )
+        assert named == {"flags": "-v", "timeout": "30"}
+        assert positional == ["tests/"]
+        assert extra == ["-x", "--tb=short"]
+
+    def test_legacy_double_colon_still_works(self):
+        """:: separator should still work for backward compatibility."""
+        named, positional, extra = _parse_command_args(["--path=tests/", "::", "-v"])
+        assert named == {"path": "tests/"}
+        assert extra == ["-v"]
+
+
+class TestDryRun:
+    """Tests for --dry-run flag."""
+
+    def test_dry_run_shows_expanded_command(self, lq_dir, monkeypatch, capsys):
+        """--dry-run should print expanded command and exit without running."""
+        import argparse
+
+        from blq.commands.core import BlqConfig
+
+        # Set up a template command
+        config = BlqConfig.load(lq_dir)
+        config._commands = {
+            "test": RegisteredCommand(
+                name="test",
+                tpl="pytest {path} {flags}",
+                defaults={"path": "tests/", "flags": "-v"},
+                description="Run tests",
+            ),
+        }
+        config.save_commands()
+
+        monkeypatch.chdir(lq_dir.parent)
+
+        from blq.commands.execution import cmd_run
+
+        args = argparse.Namespace(
+            command=["test", "--path=unit/"],
+            name=None,
+            json=False,
+            markdown=False,
+            csv=False,
+            quiet=False,
+            summary=False,
+            verbose=False,
+            include_warnings=False,
+            error_limit=None,
+            keep_raw=False,
+            format=None,
+            timeout=None,
+            capture=None,
+            register=False,
+            positional_args=None,
+            dry_run=True,
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_run(args)
+
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert "pytest unit/ -v" in captured.out
+
+    def test_dry_run_with_passthrough(self, lq_dir, monkeypatch, capsys):
+        """--dry-run should show passthrough args in command."""
+        import argparse
+
+        from blq.commands.core import BlqConfig
+
+        # Set up a template command
+        config = BlqConfig.load(lq_dir)
+        config._commands = {
+            "test": RegisteredCommand(
+                name="test",
+                tpl="pytest {path}",
+                defaults={"path": "tests/"},
+                description="Run tests",
+            ),
+        }
+        config.save_commands()
+
+        monkeypatch.chdir(lq_dir.parent)
+
+        from blq.commands.execution import cmd_run
+
+        args = argparse.Namespace(
+            command=["test", "--", "-v", "-x"],
+            name=None,
+            json=False,
+            markdown=False,
+            csv=False,
+            quiet=False,
+            summary=False,
+            verbose=False,
+            include_warnings=False,
+            error_limit=None,
+            keep_raw=False,
+            format=None,
+            timeout=None,
+            capture=None,
+            register=False,
+            positional_args=None,
+            dry_run=True,
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_run(args)
+
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert "pytest tests/ -v -x" in captured.out

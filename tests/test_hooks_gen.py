@@ -542,6 +542,182 @@ class TestGeneratedScriptExecution:
         assert "blq:meta" not in result.stdout
 
 
+class TestGitHookInstallation:
+    """Tests for git hook installation with new v2 system."""
+
+    def test_install_git_creates_hook_file(self, initialized_project):
+        """Installing to git creates .git/hooks/pre-commit."""
+        import subprocess
+
+        from blq.commands.hooks_cmd import cmd_hooks_install
+        from blq.commands.registry import cmd_register
+
+        # Initialize git repo
+        subprocess.run(["git", "init"], capture_output=True)
+
+        # Register a command
+        reg_args = argparse.Namespace(
+            name="mytest",
+            cmd=["echo", "test"],
+            description="",
+            timeout=300,
+            capture=True,
+            format="",
+            force=False,
+            run=False,
+        )
+        cmd_register(reg_args)
+
+        # Install to git
+        args = argparse.Namespace(
+            target="git",
+            commands=["mytest"],
+            hook="pre-commit",
+            force=False,
+        )
+        cmd_hooks_install(args)
+
+        hook_path = initialized_project / ".git" / "hooks" / "pre-commit"
+        assert hook_path.exists()
+        assert hook_path.stat().st_mode & 0o111  # Executable
+
+    def test_install_git_hook_calls_scripts(self, initialized_project):
+        """Git hook calls .lq/hooks/*.sh scripts."""
+        import subprocess
+
+        from blq.commands.hooks_cmd import cmd_hooks_install
+        from blq.commands.registry import cmd_register
+
+        subprocess.run(["git", "init"], capture_output=True)
+
+        reg_args = argparse.Namespace(
+            name="mytest",
+            cmd=["echo", "test"],
+            description="",
+            timeout=300,
+            capture=True,
+            format="",
+            force=False,
+            run=False,
+        )
+        cmd_register(reg_args)
+
+        args = argparse.Namespace(
+            target="git",
+            commands=["mytest"],
+            hook="pre-commit",
+            force=False,
+        )
+        cmd_hooks_install(args)
+
+        hook_path = initialized_project / ".git" / "hooks" / "pre-commit"
+        content = hook_path.read_text()
+        assert ".lq/hooks/mytest.sh" in content
+        assert "blq-managed-hook" in content
+
+    def test_install_git_generates_scripts(self, initialized_project):
+        """Installing to git auto-generates missing scripts."""
+        import subprocess
+
+        from blq.commands.core import BlqConfig
+        from blq.commands.hooks_cmd import cmd_hooks_install
+        from blq.commands.registry import cmd_register
+
+        subprocess.run(["git", "init"], capture_output=True)
+
+        reg_args = argparse.Namespace(
+            name="mytest",
+            cmd=["echo", "test"],
+            description="",
+            timeout=300,
+            capture=True,
+            format="",
+            force=False,
+            run=False,
+        )
+        cmd_register(reg_args)
+
+        config = BlqConfig.ensure()
+        # Script doesn't exist yet
+        assert not (config.lq_dir / "hooks" / "mytest.sh").exists()
+
+        args = argparse.Namespace(
+            target="git",
+            commands=["mytest"],
+            hook="pre-commit",
+            force=False,
+        )
+        cmd_hooks_install(args)
+
+        # Script should now exist
+        assert (config.lq_dir / "hooks" / "mytest.sh").exists()
+
+    def test_install_git_pre_push(self, initialized_project):
+        """Can install to pre-push hook."""
+        import subprocess
+
+        from blq.commands.hooks_cmd import cmd_hooks_install
+        from blq.commands.registry import cmd_register
+
+        subprocess.run(["git", "init"], capture_output=True)
+
+        reg_args = argparse.Namespace(
+            name="mytest",
+            cmd=["echo", "test"],
+            description="",
+            timeout=300,
+            capture=True,
+            format="",
+            force=False,
+            run=False,
+        )
+        cmd_register(reg_args)
+
+        args = argparse.Namespace(
+            target="git",
+            commands=["mytest"],
+            hook="pre-push",
+            force=False,
+        )
+        cmd_hooks_install(args)
+
+        hook_path = initialized_project / ".git" / "hooks" / "pre-push"
+        assert hook_path.exists()
+        content = hook_path.read_text()
+        assert "pre-push" in content
+
+
+class TestLegacyHooksDeprecation:
+    """Tests for legacy hooks deprecation."""
+
+    def test_legacy_install_shows_warning(self, initialized_project, capsys):
+        """Legacy install shows deprecation note."""
+        import subprocess
+        import warnings
+
+        from blq.commands.hooks_cmd import cmd_hooks_install
+
+        subprocess.run(["git", "init"], capture_output=True)
+
+        # Call with no commands (legacy mode)
+        args = argparse.Namespace(
+            target="git",
+            commands=[],
+            hook="pre-commit",
+            force=False,
+        )
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            cmd_hooks_install(args)
+            # Check for deprecation warning
+            deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
+            assert len(deprecation_warnings) >= 1
+
+        captured = capsys.readouterr()
+        assert "Consider using" in captured.err or "blq hooks install git" in captured.err
+
+
 class TestCmdHooksGenerate:
     """Tests for blq hooks generate command."""
 

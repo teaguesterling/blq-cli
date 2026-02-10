@@ -86,7 +86,7 @@ class TestBlqConfigEnsureInitialized:
 class TestCmdInit:
     """Tests for lq init command."""
 
-    def _make_init_args(self, parquet: bool = True):
+    def _make_init_args(self, parquet: bool = True, gitignore: bool = True):
         """Create args namespace for cmd_init."""
         args = argparse.Namespace()
         args.mcp = False
@@ -97,6 +97,7 @@ class TestCmdInit:
         args.parquet = parquet
         args.namespace = None
         args.project = None
+        args.gitignore = gitignore
         return args
 
     def test_creates_lq_directory(self, chdir_temp, capsys):
@@ -138,6 +139,70 @@ class TestCmdInit:
 
         captured = capsys.readouterr()
         assert "Initialized .lq" in captured.out
+
+    def test_creates_gitignore_with_pattern(self, chdir_temp, capsys):
+        """Create .gitignore with new multi-line pattern that tracks hooks."""
+        args = self._make_init_args(parquet=False, gitignore=True)
+        cmd_init(args)
+
+        gitignore = chdir_temp / ".gitignore"
+        assert gitignore.exists()
+        content = gitignore.read_text()
+
+        # New pattern ignores .lq/* but tracks specific files
+        assert ".lq/*" in content
+        assert "!.lq/hooks/" in content
+        assert "!.lq/config.toml" in content
+        assert "!.lq/commands.toml" in content
+
+    def test_gitignore_disabled_skips_file(self, chdir_temp, capsys):
+        """Skip .gitignore creation when --no-gitignore is passed."""
+        args = self._make_init_args(parquet=False, gitignore=False)
+        cmd_init(args)
+
+        gitignore = chdir_temp / ".gitignore"
+        assert not gitignore.exists()
+
+    def test_gitignore_appends_to_existing(self, chdir_temp, capsys):
+        """Append pattern to existing .gitignore."""
+        gitignore = chdir_temp / ".gitignore"
+        gitignore.write_text("node_modules/\n*.pyc\n")
+
+        args = self._make_init_args(parquet=False, gitignore=True)
+        cmd_init(args)
+
+        content = gitignore.read_text()
+        # Should preserve existing content
+        assert "node_modules/" in content
+        assert "*.pyc" in content
+        # And add new pattern
+        assert ".lq/*" in content
+        assert "!.lq/hooks/" in content
+
+    def test_gitignore_skips_if_legacy_pattern_exists(self, chdir_temp, capsys):
+        """Don't modify .gitignore if legacy .lq/ pattern already present."""
+        gitignore = chdir_temp / ".gitignore"
+        gitignore.write_text("node_modules/\n.lq/\n")
+
+        args = self._make_init_args(parquet=False, gitignore=True)
+        cmd_init(args)
+
+        content = gitignore.read_text()
+        # Should not add new pattern
+        assert content == "node_modules/\n.lq/\n"
+
+    def test_gitignore_skips_if_new_pattern_exists(self, chdir_temp, capsys):
+        """Don't modify .gitignore if new pattern already present."""
+        existing_content = "# blq\n.lq/*\n!.lq/hooks/\n!.lq/config.toml\n"
+        gitignore = chdir_temp / ".gitignore"
+        gitignore.write_text(existing_content)
+
+        args = self._make_init_args(parquet=False, gitignore=True)
+        cmd_init(args)
+
+        content = gitignore.read_text()
+        # Should not duplicate pattern
+        assert content == existing_content
 
 
 class TestGetNextRunId:

@@ -201,7 +201,23 @@ def cmd_hooks_install(args: argparse.Namespace) -> None:
 
 
 def _cmd_hooks_install_legacy(args: argparse.Namespace) -> None:
-    """Legacy install behavior: use PRECOMMIT_HOOK_TEMPLATE."""
+    """Legacy install behavior: use PRECOMMIT_HOOK_TEMPLATE.
+
+    DEPRECATED: This mode is deprecated. Use:
+        blq hooks install git <command> [command...]
+    instead.
+    """
+    import warnings
+
+    warnings.warn(
+        "Legacy hooks install is deprecated. Use: blq hooks install git <commands...>",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    print(
+        "Note: Consider using 'blq hooks install git <commands>' for portable hook scripts.",
+        file=sys.stderr,
+    )
     config = BlqConfig.ensure()
 
     # Find git directory

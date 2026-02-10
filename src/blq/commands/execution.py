@@ -420,6 +420,12 @@ def _parse_command_args(
 ) -> tuple[dict[str, str], list[str], list[str]]:
     """Parse CLI arguments into named args, positional args, and extra args.
 
+    Supports multiple syntax styles:
+    - key=value: Named argument
+    - --key=value: Named argument (CLI-style)
+    - positional: Positional argument for placeholders
+    - -- or ::: Separator for passthrough args
+
     Args:
         cli_args: List of CLI arguments after the command name
         positional_limit: If set, only use this many positional args for placeholders
@@ -434,18 +440,27 @@ def _parse_command_args(
     positional_args: list[str] = []
     extra_args: list[str] = []
 
-    # Check for :: separator
-    if "::" in cli_args:
+    # Check for passthrough separator (-- or :: for backward compatibility)
+    main_args = cli_args
+    if "--" in cli_args:
+        separator_idx = cli_args.index("--")
+        main_args = cli_args[:separator_idx]
+        extra_args = cli_args[separator_idx + 1 :]
+    elif "::" in cli_args:
+        # Legacy separator for backward compatibility
         separator_idx = cli_args.index("::")
         main_args = cli_args[:separator_idx]
         extra_args = cli_args[separator_idx + 1 :]
-    else:
-        main_args = cli_args
 
     # Parse main args into named and positional
     for arg in main_args:
-        if "=" in arg and not arg.startswith("-"):
-            # Named argument: key=value
+        if arg.startswith("--") and "=" in arg:
+            # CLI-style named argument: --key=value
+            key_value = arg[2:]  # Remove --
+            key, value = key_value.split("=", 1)
+            named_args[key] = value
+        elif "=" in arg and not arg.startswith("-"):
+            # Simple named argument: key=value
             key, value = arg.split("=", 1)
             named_args[key] = value
         else:
@@ -581,6 +596,14 @@ def cmd_run(args: argparse.Namespace) -> None:
     # Runtime flag overrides command config
     if args.capture is not None:
         should_capture = args.capture
+
+    # Handle dry-run mode: show expanded command and exit
+    dry_run = getattr(args, "dry_run", False)
+    if dry_run:
+        print(f"Command: {command}")
+        if source_name != cmd_name:
+            print(f"Source: {source_name}")
+        sys.exit(0)
 
     # Determine output mode
     structured_output = args.json or args.markdown

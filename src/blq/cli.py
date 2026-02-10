@@ -276,6 +276,11 @@ def main() -> None:
     )
     p_run.add_argument("--verbose", "-v", action="store_true", help="Show all blq status messages")
     p_run.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show expanded command without running it",
+    )
+    p_run.add_argument(
         "--include-warnings",
         "-w",
         action="store_true",
