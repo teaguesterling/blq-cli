@@ -608,6 +608,15 @@ def _detect_and_register_commands(lq_dir: Path, auto_yes: bool, mode: str = DETE
         print("\n  No build systems detected.")
         return
 
+    # Check if CI files exist (for hooks warning)
+    cwd = Path.cwd()
+    has_ci_files = (
+        (cwd / ".github" / "workflows").exists()
+        or (cwd / ".gitlab-ci.yml").exists()
+        or (cwd / ".circleci").exists()
+        or (cwd / "Jenkinsfile").exists()
+    )
+
     # Load existing config to avoid duplicates
     config = BlqConfig.load(lq_dir)
     existing = config.commands
@@ -620,6 +629,14 @@ def _detect_and_register_commands(lq_dir: Path, auto_yes: bool, mode: str = DETE
     print(f"\n  Detected {len(new_commands)} command(s):")
     for name, cmd, desc in new_commands:
         print(f"    {name}: {cmd}")
+
+    # Warn about hooks if CI files detected
+    if has_ci_files:
+        print(
+            "\n  Note: Some commands may have been detected from CI config files."
+            "\n        Adding these to git hooks could duplicate CI checks."
+            "\n        See 'blq hooks --help' for more information."
+        )
 
     if auto_yes:
         # Auto-register all

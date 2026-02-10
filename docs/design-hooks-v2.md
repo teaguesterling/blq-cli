@@ -504,6 +504,21 @@ filter = { type = "string" }  # Shell string escaping
 
 For now, all parameters are treated as strings with basic shell escaping.
 
+## Auto-Detect and Hooks Considerations
+
+When using `blq init --detect`, commands may be discovered from multiple sources:
+
+- **CI config files** (GitHub Actions, GitLab CI, etc.): These commands already run in CI pipelines. Adding them to git hooks creates duplicate checks.
+- **Local build files** (Makefile, package.json scripts, pyproject.toml): These are good candidates for pre-commit hooks since they represent local development tasks.
+
+**Best practice:** Be selective when adding auto-detected commands to hooks. Consider:
+- Commands from CI configs → likely redundant as hooks
+- Commands from Makefile/package.json → good hook candidates
+- Fast checks (lint, format) → good for pre-commit
+- Slow checks (full test suite) → better left to CI
+
+`blq init --detect` will warn when CI files are detected, reminding users to be mindful when adding commands to hooks.
+
 ## Open Questions
 
 1. **Template engine**: Jinja2 is the obvious choice (already common in Python). Confirm this is acceptable.

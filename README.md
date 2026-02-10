@@ -232,6 +232,8 @@ blq commands
 
 **Format auto-detection:** When registering commands, blq automatically detects the appropriate log format based on the command (e.g., `mypy` → `mypy_text`, `pytest` → `pytest_text`).
 
+**Hooks and CI-detected commands:** When using `--detect`, blq may discover commands from CI config files (GitHub Actions, GitLab CI, etc.). Be aware that adding these to git hooks via `blq hooks add` could duplicate checks that already run in CI. Commands detected from local build files (Makefile, package.json scripts) are generally better candidates for pre-commit hooks.
+
 ## CI Integration
 
 blq provides commands for CI/CD pipeline integration:
