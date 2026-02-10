@@ -48,10 +48,10 @@ from blq.storage import BlqStorage
 # Tools that modify state and can be disabled for security (--safe-mode / -S)
 # These are the tools disabled when running in safe mode
 SAFE_MODE_DISABLED_TOOLS = {
-    "exec",               # Can run arbitrary commands
-    "clean",              # Can delete data
-    "register_command",   # Can modify command registry
-    "unregister_command", # Can modify command registry
+    "exec",  # Can run arbitrary commands
+    "clean",  # Can delete data
+    "register_command",  # Can modify command registry
+    "unregister_command",  # Can modify command registry
 }
 
 # Cache for disabled tools (loaded once at startup)
@@ -90,6 +90,7 @@ def _init_disabled_tools(
     # Check .lq/config.yaml
     try:
         from blq.cli import BlqConfig
+
         config = BlqConfig.find()
         if config and hasattr(config, "mcp_config"):
             mcp_config = config.mcp_config or {}
@@ -358,7 +359,7 @@ def _find_matching_registered_command(full_cmd: str) -> tuple[str, list[str]] | 
             # Check if full command starts with registered command
             if normalized_full.startswith(normalized_registered):
                 # Extract extra args
-                remainder = normalized_full[len(normalized_registered):].strip()
+                remainder = normalized_full[len(normalized_registered) :].strip()
                 if remainder:
                     extra_args = remainder.split()
                 else:
@@ -521,7 +522,9 @@ def _query_impl(
 
         if not sql:
             return {
-                "columns": [], "rows": [], "row_count": 0,
+                "columns": [],
+                "rows": [],
+                "row_count": 0,
                 "error": "Either sql or filter must be provided",
             }
 
@@ -1116,10 +1119,7 @@ def _info_impl(ref: str) -> dict[str, Any]:
                 WHERE invocation_id = '{invocation_id}'
                 ORDER BY stream
             """).fetchall()
-            outputs = [
-                {"stream": r[0], "bytes": r[1]}
-                for r in outputs_result
-            ]
+            outputs = [{"stream": r[0], "bytes": r[1]} for r in outputs_result]
 
         return {
             "run_ref": run_ref,
@@ -1640,11 +1640,13 @@ def events(
             )
             event_count = len(result.get("events", []))
             total_events += event_count
-            runs.append({
-                "run_id": rid,
-                "event_count": event_count,
-                "events": result.get("events", []),
-            })
+            runs.append(
+                {
+                    "run_id": rid,
+                    "event_count": event_count,
+                    "events": result.get("events", []),
+                }
+            )
 
         return {
             "runs": runs,
@@ -1795,8 +1797,12 @@ def info(
 
     # If additional output/events requested, fetch them
     needs_extra = (
-        head is not None or tail is not None or errors or warnings
-        or severity or context is not None
+        head is not None
+        or tail is not None
+        or errors
+        or warnings
+        or severity
+        or context is not None
     )
     if needs_extra:
         run_serial = result.get("run_serial")
@@ -1856,21 +1862,15 @@ def info(
                             category = event.get("category") or "other"
 
                             # Track category counts
-                            errors_by_category[category] = (
-                                errors_by_category.get(category, 0) + 1
-                            )
+                            errors_by_category[category] = errors_by_category.get(category, 0) + 1
 
                             # Use short ref: "test:47:242" -> "47:242"
                             parts = full_ref.split(":")
-                            short_ref = (
-                                ":".join(parts[-2:]) if len(parts) >= 2 else full_ref
-                            )
+                            short_ref = ":".join(parts[-2:]) if len(parts) >= 2 else full_ref
 
                             # Build location
                             location = (
-                                f"{ref_file}:{ref_line}"
-                                if ref_file and ref_line
-                                else ref_file
+                                f"{ref_file}:{ref_line}" if ref_file and ref_line else ref_file
                             )
 
                             compact_event: dict[str, Any] = {
@@ -1885,9 +1885,7 @@ def info(
                                 context_lines = []
                                 for i in range(start, end):
                                     prefix = ">>> " if i == log_line - 1 else "    "
-                                    context_lines.append(
-                                        f"{prefix}{i + 1:4d} | {log_lines[i]}"
-                                    )
+                                    context_lines.append(f"{prefix}{i + 1:4d} | {log_lines[i]}")
                                 compact_event["context"] = "\n".join(context_lines)
 
                             events_list.append(compact_event)
@@ -2205,6 +2203,7 @@ def _clean_impl(
             db_path = lq_dir / "blq.duckdb"
             if db_path.exists():
                 import duckdb
+
                 conn = duckdb.connect(str(db_path))
                 conn.execute("DELETE FROM events")
                 conn.execute("DELETE FROM outputs")
@@ -2235,6 +2234,7 @@ def _clean_impl(
                 return {"success": False, "error": "No database found", "mode": mode}
 
             import duckdb
+
             conn = duckdb.connect(str(db_path))
 
             # Count what will be removed
@@ -2252,26 +2252,35 @@ def _clean_impl(
                     "removed": {"invocations": 0, "events": 0},
                 }
 
-            result = conn.execute("""
+            result = conn.execute(
+                """
                 SELECT COUNT(*) FROM events e
                 JOIN invocations i ON e.invocation_id = i.id
                 WHERE i.timestamp < ?
-            """, [cutoff_str]).fetchone()
+            """,
+                [cutoff_str],
+            ).fetchone()
             event_count = result[0] if result else 0
 
             # Delete events first
-            conn.execute("""
+            conn.execute(
+                """
                 DELETE FROM events WHERE invocation_id IN (
                     SELECT id FROM invocations WHERE timestamp < ?
                 )
-            """, [cutoff_str])
+            """,
+                [cutoff_str],
+            )
 
             # Delete outputs
-            conn.execute("""
+            conn.execute(
+                """
                 DELETE FROM outputs WHERE invocation_id IN (
                     SELECT id FROM invocations WHERE timestamp < ?
                 )
-            """, [cutoff_str])
+            """,
+                [cutoff_str],
+            )
 
             # Delete invocations
             conn.execute("DELETE FROM invocations WHERE timestamp < ?", [cutoff_str])
@@ -2287,6 +2296,7 @@ def _clean_impl(
 
             # Clean up orphaned blobs
             from blq.bird import BirdStore
+
             store = BirdStore.open(lq_dir)
             blobs_deleted, bytes_freed = store.cleanup_orphaned_blobs()
             store.close()
@@ -2318,6 +2328,7 @@ def _clean_impl(
 
             # Recreate database with schema
             from blq.bird import BirdStore
+
             store = BirdStore.open(lq_dir)
             store.close()
 
@@ -2380,8 +2391,6 @@ def clean(
     """
     _check_tool_enabled("clean")
     return _clean_impl(mode, confirm, days)
-
-
 
 
 # ============================================================================
@@ -2480,6 +2489,7 @@ def resource_guide() -> str:
     """Agent usage guide for blq MCP tools."""
     try:
         from importlib import resources
+
         guide = resources.files("blq").joinpath("SKILL.md").read_text()
         return guide
     except Exception:

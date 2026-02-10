@@ -25,7 +25,7 @@ BIRD_SCHEMA_VERSION = "2.0.0"
 
 # Storage thresholds (per BIRD spec)
 DEFAULT_INLINE_THRESHOLD = 4096  # 4KB - outputs smaller than this are stored inline
-MAX_INLINE_THRESHOLD = 1048576   # 1MB - max recommended for inline storage per spec
+MAX_INLINE_THRESHOLD = 1048576  # 1MB - max recommended for inline storage per spec
 
 
 @dataclass
@@ -420,9 +420,7 @@ class BirdStore:
         Returns:
             Next sequential run number
         """
-        result = self._conn.execute(
-            "SELECT COUNT(*) FROM invocations"
-        ).fetchone()
+        result = self._conn.execute("SELECT COUNT(*) FROM invocations").fetchone()
         return (result[0] if result else 0) + 1
 
     # =========================================================================
@@ -617,9 +615,7 @@ class BirdStore:
 
         return relative_path
 
-    def _register_blob(
-        self, content_hash: str, byte_length: int, storage_path: str
-    ) -> None:
+    def _register_blob(self, content_hash: str, byte_length: int, storage_path: str) -> None:
         """Register or update blob in registry."""
         try:
             # Try insert
@@ -791,8 +787,14 @@ class BirdStore:
         ).fetchall()
 
         columns = [
-            "id", "session_id", "timestamp", "duration_ms", "cmd", "exit_code",
-            "source_name", "source_type"
+            "id",
+            "session_id",
+            "timestamp",
+            "duration_ms",
+            "cmd",
+            "exit_code",
+            "source_name",
+            "source_type",
         ]
         return [dict(zip(columns, row)) for row in result]
 

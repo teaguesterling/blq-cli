@@ -384,9 +384,7 @@ def main() -> None:
 
     # info - detailed info about a specific run
     p_info = subparsers.add_parser("info", help="Show detailed info about a run")
-    p_info.add_argument(
-        "ref", help="Run ref (e.g., 'test:5') or invocation_id (UUID)"
-    )
+    p_info.add_argument("ref", help="Run ref (e.g., 'test:5') or invocation_id (UUID)")
     p_info.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     p_info.add_argument("--details", "-d", action="store_true", help="Show all fields")
     p_info.add_argument("--json", "-j", action="store_true", help="Output as JSON")
@@ -411,8 +409,9 @@ def main() -> None:
     # events (main command for viewing events with severity filter)
     p_events = subparsers.add_parser("events", help="Show events (errors, warnings, info)")
     p_events.add_argument(
-        "--severity", "-S",
-        help="Filter by severity (error, warning, info, or comma-separated list)"
+        "--severity",
+        "-S",
+        help="Filter by severity (error, warning, info, or comma-separated list)",
     )
     p_events.add_argument("--source", "-s", help="Filter by source")
     p_events.add_argument("--limit", "-n", type=int, default=20, help="Max results")
@@ -639,6 +638,7 @@ def main() -> None:
     )
 
     from blq.commands.clean_cmd import cmd_clean
+
     p_clean.set_defaults(func=cmd_clean)
 
     # query (with alias 'q')
@@ -720,24 +720,18 @@ def main() -> None:
     hooks_subparsers = p_hooks.add_subparsers(dest="hooks_command", help="Hooks subcommands")
 
     # hooks install
-    p_hooks_install = hooks_subparsers.add_parser(
-        "install", help="Install git pre-commit hook"
-    )
+    p_hooks_install = hooks_subparsers.add_parser("install", help="Install git pre-commit hook")
     p_hooks_install.add_argument(
         "--force", "-f", action="store_true", help="Overwrite existing hook"
     )
     p_hooks_install.set_defaults(func=cmd_hooks_install)
 
     # hooks remove
-    p_hooks_remove = hooks_subparsers.add_parser(
-        "remove", help="Remove git pre-commit hook"
-    )
+    p_hooks_remove = hooks_subparsers.add_parser("remove", help="Remove git pre-commit hook")
     p_hooks_remove.set_defaults(func=cmd_hooks_remove)
 
     # hooks status
-    p_hooks_status = hooks_subparsers.add_parser(
-        "status", help="Show git hook status"
-    )
+    p_hooks_status = hooks_subparsers.add_parser("status", help="Show git hook status")
     p_hooks_status.set_defaults(func=cmd_hooks_status)
 
     # hooks run
@@ -747,16 +741,12 @@ def main() -> None:
     p_hooks_run.set_defaults(func=cmd_hooks_run)
 
     # hooks add
-    p_hooks_add = hooks_subparsers.add_parser(
-        "add", help="Add a command to pre-commit hook"
-    )
+    p_hooks_add = hooks_subparsers.add_parser("add", help="Add a command to pre-commit hook")
     p_hooks_add.add_argument("command", help="Command name to add")
     p_hooks_add.set_defaults(func=cmd_hooks_add)
 
     # hooks list
-    p_hooks_list = hooks_subparsers.add_parser(
-        "list", help="List commands in pre-commit hook"
-    )
+    p_hooks_list = hooks_subparsers.add_parser("list", help="List commands in pre-commit hook")
     p_hooks_list.set_defaults(func=cmd_hooks_list)
 
     # =========================================================================
@@ -766,32 +756,34 @@ def main() -> None:
     p_watch = subparsers.add_parser(
         "watch", aliases=["w"], help="Watch for changes and re-run commands"
     )
+    p_watch.add_argument("commands", nargs="*", help="Commands to run (default: all registered)")
     p_watch.add_argument(
-        "commands", nargs="*", help="Commands to run (default: all registered)"
+        "--include",
+        "-i",
+        action="append",
+        default=[],
+        help="Glob patterns to watch (can be repeated)",
     )
     p_watch.add_argument(
-        "--include", "-i", action="append", default=[],
-        help="Glob patterns to watch (can be repeated)"
+        "--exclude",
+        "-e",
+        action="append",
+        default=[],
+        help="Glob patterns to ignore (can be repeated)",
     )
     p_watch.add_argument(
-        "--exclude", "-e", action="append", default=[],
-        help="Glob patterns to ignore (can be repeated)"
+        "--debounce",
+        "-d",
+        type=int,
+        default=None,
+        help="Debounce delay in milliseconds (default: 500)",
     )
     p_watch.add_argument(
-        "--debounce", "-d", type=int, default=None,
-        help="Debounce delay in milliseconds (default: 500)"
+        "--quiet", "-q", action="store_true", help="Suppress command output, show only status"
     )
+    p_watch.add_argument("--clear", "-c", action="store_true", help="Clear screen between runs")
     p_watch.add_argument(
-        "--quiet", "-q", action="store_true",
-        help="Suppress command output, show only status"
-    )
-    p_watch.add_argument(
-        "--clear", "-c", action="store_true",
-        help="Clear screen between runs"
-    )
-    p_watch.add_argument(
-        "--once", action="store_true",
-        help="Run once on startup then exit (useful for testing)"
+        "--once", action="store_true", help="Run once on startup then exit (useful for testing)"
     )
     p_watch.set_defaults(func=cmd_watch)
 
@@ -803,38 +795,27 @@ def main() -> None:
     ci_subparsers = p_ci.add_subparsers(dest="ci_command", help="CI subcommand")
 
     # ci check
-    p_ci_check = ci_subparsers.add_parser(
-        "check", help="Check for new errors vs baseline"
+    p_ci_check = ci_subparsers.add_parser("check", help="Check for new errors vs baseline")
+    p_ci_check.add_argument(
+        "--baseline", "-b", help="Baseline (run ID, branch name, or commit SHA)"
     )
     p_ci_check.add_argument(
-        "--baseline", "-b",
-        help="Baseline (run ID, branch name, or commit SHA)"
+        "--fail-on-any", action="store_true", help="Fail if any errors (no baseline comparison)"
     )
-    p_ci_check.add_argument(
-        "--fail-on-any", action="store_true",
-        help="Fail if any errors (no baseline comparison)"
-    )
-    p_ci_check.add_argument(
-        "--json", "-j", action="store_true",
-        help="Output as JSON"
-    )
+    p_ci_check.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_ci_check.set_defaults(func=cmd_ci_check)
 
     # ci comment
-    p_ci_comment = ci_subparsers.add_parser(
-        "comment", help="Post error summary as PR comment"
-    )
+    p_ci_comment = ci_subparsers.add_parser("comment", help="Post error summary as PR comment")
     p_ci_comment.add_argument(
-        "--update", "-u", action="store_true",
-        help="Update existing comment instead of creating new"
+        "--update",
+        "-u",
+        action="store_true",
+        help="Update existing comment instead of creating new",
     )
+    p_ci_comment.add_argument("--diff", "-d", action="store_true", help="Include diff vs baseline")
     p_ci_comment.add_argument(
-        "--diff", "-d", action="store_true",
-        help="Include diff vs baseline"
-    )
-    p_ci_comment.add_argument(
-        "--baseline", "-b",
-        help="Baseline for diff (run ID, branch, or commit)"
+        "--baseline", "-b", help="Baseline for diff (run ID, branch, or commit)"
     )
     p_ci_comment.set_defaults(func=cmd_ci_comment)
 
@@ -851,33 +832,23 @@ def main() -> None:
     p_report = subparsers.add_parser(
         "report", help="Generate markdown report of build/test results"
     )
+    p_report.add_argument("--run", "-r", type=int, help="Run ID to report on (default: latest)")
     p_report.add_argument(
-        "--run", "-r", type=int,
-        help="Run ID to report on (default: latest)"
+        "--baseline", "-b", help="Baseline for comparison (run ID or branch name)"
+    )
+    p_report.add_argument("--output", "-o", help="Output file (default: stdout)")
+    p_report.add_argument("--warnings", "-w", action="store_true", help="Include warning details")
+    p_report.add_argument(
+        "--summary-only",
+        "-s",
+        action="store_true",
+        help="Summary only, no individual error details",
     )
     p_report.add_argument(
-        "--baseline", "-b",
-        help="Baseline for comparison (run ID or branch name)"
+        "--error-limit", "-n", type=int, default=20, help="Max errors to include (default: 20)"
     )
     p_report.add_argument(
-        "--output", "-o",
-        help="Output file (default: stdout)"
-    )
-    p_report.add_argument(
-        "--warnings", "-w", action="store_true",
-        help="Include warning details"
-    )
-    p_report.add_argument(
-        "--summary-only", "-s", action="store_true",
-        help="Summary only, no individual error details"
-    )
-    p_report.add_argument(
-        "--error-limit", "-n", type=int, default=20,
-        help="Max errors to include (default: 20)"
-    )
-    p_report.add_argument(
-        "--file-limit", "-f", type=int, default=10,
-        help="Max files in breakdown (default: 10)"
+        "--file-limit", "-f", type=int, default=10, help="Max files in breakdown (default: 10)"
     )
     p_report.set_defaults(func=cmd_report)
 

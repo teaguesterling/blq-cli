@@ -55,11 +55,7 @@ def cmd_mcp_install(args: argparse.Namespace) -> None:
         print(f"Updated {mcp_file} with blq server")
     else:
         # Create new file
-        config = {
-            "mcpServers": {
-                "blq": blq_config
-            }
-        }
+        config = {"mcpServers": {"blq": blq_config}}
 
         with open(mcp_file, "w") as f:
             json.dump(config, f, indent=2)

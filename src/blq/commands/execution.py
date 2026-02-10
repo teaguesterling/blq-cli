@@ -56,9 +56,9 @@ def _print_run_summary(
     """
     # Status indicators
     status_icons = {
-        "OK": "\033[32m✓\033[0m",      # Green checkmark
-        "FAIL": "\033[31m✗\033[0m",    # Red X
-        "WARN": "\033[33m⚠\033[0m",    # Yellow warning
+        "OK": "\033[32m✓\033[0m",  # Green checkmark
+        "FAIL": "\033[31m✗\033[0m",  # Red X
+        "WARN": "\033[33m⚠\033[0m",  # Yellow warning
         "TIMEOUT": "\033[35m⏱\033[0m",  # Magenta clock
     }
     icon = status_icons.get(result.status, "?")
@@ -77,14 +77,16 @@ def _print_run_summary(
     counts_str = ", ".join(counts) if counts else "no issues"
 
     # Print header line
-    print(f"\n{icon} {run_ref} | {result.status} | {result.duration_sec:.1f}s | {counts_str}",
-          file=sys.stderr)
+    print(
+        f"\n{icon} {run_ref} | {result.status} | {result.duration_sec:.1f}s | {counts_str}",
+        file=sys.stderr,
+    )
 
     # Print events if requested and there are any
     if show_events and (result.errors or result.warnings):
         events = result.errors[:max_events]
         if result.warnings and len(events) < max_events:
-            events.extend(result.warnings[:max_events - len(events)])
+            events.extend(result.warnings[: max_events - len(events)])
 
         for e in events:
             # Truncate message to fit on one line
@@ -647,12 +649,14 @@ def cmd_exec(args: argparse.Namespace) -> None:
 
     # Build command from args - properly quote for shell
     import shlex
+
     command = shlex.join(cmd_args)
     # Use provided name, or extract basename of first command token
     if args.name:
         source_name = args.name
     else:
         import os
+
         first_token = cmd_args[0]
         source_name = os.path.basename(first_token)
 

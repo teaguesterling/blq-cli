@@ -142,9 +142,7 @@ class TestCmdInspect:
         captured = capsys.readouterr()
         assert "not found" in captured.err
 
-    def test_json_output(
-        self, initialized_project, sample_build_script, run_adhoc_command, capsys
-    ):
+    def test_json_output(self, initialized_project, sample_build_script, run_adhoc_command, capsys):
         """JSON output includes context fields."""
         run_adhoc_command([str(sample_build_script)])
         capsys.readouterr()

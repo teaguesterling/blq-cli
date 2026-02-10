@@ -131,9 +131,9 @@ def _collect_report_data(
             new_fps = current_fps - baseline_fps
             fixed_fps = baseline_fps - current_fps
 
-            data.new_errors = [
-                e for e in data.top_errors if e.get("fingerprint") in new_fps
-            ][:error_limit]
+            data.new_errors = [e for e in data.top_errors if e.get("fingerprint") in new_fps][
+                :error_limit
+            ]
             data.fixed_errors = (
                 baseline_errors_df[baseline_errors_df["fingerprint"].isin(fixed_fps)]
                 .head(error_limit)
@@ -227,17 +227,13 @@ def _generate_markdown_report(
         lines.append("|--------|----------|---------|-------|")
 
         error_delta_str = f"+{error_delta}" if error_delta > 0 else str(error_delta)
-        warning_delta_str = (
-            f"+{warning_delta}" if warning_delta > 0 else str(warning_delta)
-        )
+        warning_delta_str = f"+{warning_delta}" if warning_delta > 0 else str(warning_delta)
 
         lines.append(
-            f"| Errors | {data.baseline_errors} | {data.total_errors} "
-            f"| {error_delta_str} |"
+            f"| Errors | {data.baseline_errors} | {data.total_errors} | {error_delta_str} |"
         )
         lines.append(
-            f"| Warnings | {data.baseline_warnings} | {data.total_warnings} "
-            f"| {warning_delta_str} |"
+            f"| Warnings | {data.baseline_warnings} | {data.total_warnings} | {warning_delta_str} |"
         )
         lines.append("")
 

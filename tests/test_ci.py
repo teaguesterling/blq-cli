@@ -341,9 +341,7 @@ class TestFormatJsonOutput:
             current_run_id=2,
             baseline_errors=5,
             current_errors=6,
-            fixed=[
-                {"ref_file": "a.py", "ref_line": 1, "message": "fixed", "fingerprint": "fp1"}
-            ],
+            fixed=[{"ref_file": "a.py", "ref_line": 1, "message": "fixed", "fingerprint": "fp1"}],
             new_errors=[
                 {"ref_file": "b.py", "ref_line": 2, "message": "new", "fingerprint": "fp2"}
             ],
@@ -659,9 +657,7 @@ class TestCmdCiComment:
 
         import pandas as pd
 
-        mock_runs_df = pd.DataFrame(
-            {"run_id": [1], "git_branch": ["main"], "git_commit": [None]}
-        )
+        mock_runs_df = pd.DataFrame({"run_id": [1], "git_branch": ["main"], "git_commit": [None]})
         mock_errors_df = pd.DataFrame(
             [{"fingerprint": "fp1", "ref_file": "a.py", "ref_line": 1, "message": "test"}]
         )

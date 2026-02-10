@@ -100,11 +100,14 @@ def _clean_prune(lq_dir: Path, days: int, confirm: bool, dry_run: bool) -> None:
     ).fetchone()
     invocation_count = result[0] if result else 0
 
-    result = conn.execute("""
+    result = conn.execute(
+        """
         SELECT COUNT(*) FROM events e
         JOIN invocations i ON e.invocation_id = i.id
         WHERE i.timestamp < ?
-    """, [cutoff_str]).fetchone()
+    """,
+        [cutoff_str],
+    ).fetchone()
     event_count = result[0] if result else 0
 
     if invocation_count == 0:
@@ -126,18 +129,24 @@ def _clean_prune(lq_dir: Path, days: int, confirm: bool, dry_run: bool) -> None:
         sys.exit(1)
 
     # Delete events first (foreign key constraint)
-    conn.execute("""
+    conn.execute(
+        """
         DELETE FROM events WHERE invocation_id IN (
             SELECT id FROM invocations WHERE timestamp < ?
         )
-    """, [cutoff_str])
+    """,
+        [cutoff_str],
+    )
 
     # Delete outputs
-    conn.execute("""
+    conn.execute(
+        """
         DELETE FROM outputs WHERE invocation_id IN (
             SELECT id FROM invocations WHERE timestamp < ?
         )
-    """, [cutoff_str])
+    """,
+        [cutoff_str],
+    )
 
     # Delete invocations
     conn.execute("DELETE FROM invocations WHERE timestamp < ?", [cutoff_str])
@@ -153,6 +162,7 @@ def _clean_prune(lq_dir: Path, days: int, confirm: bool, dry_run: bool) -> None:
 
     # Clean up orphaned blobs
     from blq.bird import BirdStore
+
     store = BirdStore.open(lq_dir)
     blobs_deleted, bytes_freed = store.cleanup_orphaned_blobs()
     store.close()
@@ -186,6 +196,7 @@ def _clean_schema(lq_dir: Path, confirm: bool) -> None:
 
     # Recreate database with schema
     from blq.bird import BirdStore
+
     store = BirdStore.open(lq_dir)
     store.close()
 

@@ -18,7 +18,7 @@ from blq.commands.core import BlqConfig
 HOOK_MARKER = "# blq-managed-hook"
 
 # Pre-commit hook script template
-PRECOMMIT_HOOK_TEMPLATE = f'''#!/bin/sh
+PRECOMMIT_HOOK_TEMPLATE = f"""#!/bin/sh
 {HOOK_MARKER}
 # blq pre-commit hook - auto-generated
 # To remove: blq hooks-remove
@@ -29,7 +29,7 @@ blq hooks-run
 # Always exit 0 (non-blocking mode)
 # Future: exit with error count if block_on_new_errors is enabled
 exit 0
-'''
+"""
 
 
 def _find_git_dir() -> Path | None:
@@ -264,7 +264,7 @@ def cmd_hooks_add(args: argparse.Namespace) -> None:
     # Verify command is registered
     if cmd_name not in config.commands:
         print(f"Warning: '{cmd_name}' is not a registered command.", file=sys.stderr)
-        print("Register it first with: blq register {cmd_name} \"<command>\"", file=sys.stderr)
+        print('Register it first with: blq register {cmd_name} "<command>"', file=sys.stderr)
 
     # Load current hooks config
     hooks_config = config.hooks_config.copy() if config.hooks_config else {}

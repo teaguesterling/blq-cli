@@ -1381,6 +1381,7 @@ def get_store_for_args(args):
         import warnings
 
         from blq.query import LogStore
+
         warnings.warn(
             "Raw parquet mode is deprecated. Use 'blq migrate --to-bird' to convert.",
             DeprecationWarning,

@@ -139,9 +139,7 @@ class BlqStorage:
         if lq_path.exists():
             return lq_path
 
-        raise FileNotFoundError(
-            ".lq directory not found. Run 'blq init' to initialize."
-        )
+        raise FileNotFoundError(".lq directory not found. Run 'blq init' to initialize.")
 
     def close(self) -> None:
         """Close the storage connection."""
@@ -236,9 +234,7 @@ class BlqStorage:
         Returns:
             Relation with run details (may be empty if not found)
         """
-        return self._conn.sql(
-            f"SELECT * FROM blq_load_runs() WHERE run_id = {run_id}"
-        )
+        return self._conn.sql(f"SELECT * FROM blq_load_runs() WHERE run_id = {run_id}")
 
     def latest_run_id(self) -> int | None:
         """Get the ID of the most recent run.
@@ -246,9 +242,7 @@ class BlqStorage:
         Returns:
             Latest run_id or None if no runs
         """
-        result = self._conn.sql(
-            "SELECT MAX(run_id) FROM blq_load_runs()"
-        ).fetchone()
+        result = self._conn.sql("SELECT MAX(run_id) FROM blq_load_runs()").fetchone()
         return result[0] if result and result[0] is not None else None
 
     # =========================================================================
@@ -293,9 +287,7 @@ class BlqStorage:
 
         return self._conn.sql(sql)
 
-    def errors(
-        self, run_id: int | None = None, limit: int = 20
-    ) -> duckdb.DuckDBPyRelation:
+    def errors(self, run_id: int | None = None, limit: int = 20) -> duckdb.DuckDBPyRelation:
         """Get error events.
 
         Args:
@@ -307,9 +299,7 @@ class BlqStorage:
         """
         return self.events(run_id=run_id, severity="error", limit=limit)
 
-    def warnings(
-        self, run_id: int | None = None, limit: int = 20
-    ) -> duckdb.DuckDBPyRelation:
+    def warnings(self, run_id: int | None = None, limit: int = 20) -> duckdb.DuckDBPyRelation:
         """Get warning events.
 
         Args:

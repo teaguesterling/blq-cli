@@ -327,7 +327,7 @@ class TableFormatter:
         if col.truncate and len(text) > width:
             if col.truncate_left:
                 # Show end of text (useful for file paths)
-                text = "…" + text[-(width - 1):]
+                text = "…" + text[-(width - 1) :]
             else:
                 text = text[: width - 1] + "…"
 
@@ -647,10 +647,12 @@ def format_run_details(
                         mins = int(value // 60)
                         secs = value % 60
                         value = f"{mins}m {secs:.0f}s"
-            data.append({
-                "field": field_name.replace("_", " ").title(),
-                "value": str(value),
-            })
+            data.append(
+                {
+                    "field": field_name.replace("_", " ").title(),
+                    "value": str(value),
+                }
+            )
 
     # Add output streams info (always show if available)
     if run.get("outputs"):
@@ -672,8 +674,10 @@ def format_run_details(
         if run.get("environment"):
             env = run["environment"]
             if isinstance(env, dict):
-                env_str = ", ".join(f"{k}={v[:20]}..." if len(str(v)) > 20 else f"{k}={v}"
-                                    for k, v in list(env.items())[:5])
+                env_str = ", ".join(
+                    f"{k}={v[:20]}..." if len(str(v)) > 20 else f"{k}={v}"
+                    for k, v in list(env.items())[:5]
+                )
                 if len(env) > 5:
                     env_str += f" (+{len(env) - 5} more)"
                 data.append({"field": "Environment", "value": env_str})

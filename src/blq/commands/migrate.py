@@ -177,27 +177,27 @@ def _migrate_parquet_to_bird(
             invocations_migrated += 1
 
             # Get events for this run
-            run_events = df[
-                (df["run_id"] == run_id) & (df["severity"].notna())
-            ]
+            run_events = df[(df["run_id"] == run_id) & (df["severity"].notna())]
 
             if len(run_events) > 0:
                 events = []
                 for _, event in run_events.iterrows():
-                    events.append({
-                        "event_id": event.get("event_id"),
-                        "severity": event.get("severity"),
-                        "ref_file": event.get("ref_file"),
-                        "ref_line": event.get("ref_line"),
-                        "ref_column": event.get("ref_column"),
-                        "message": event.get("message"),
-                        "error_code": event.get("error_code"),
-                        "tool_name": event.get("tool_name"),
-                        "category": event.get("category"),
-                        "fingerprint": event.get("fingerprint"),
-                        "log_line_start": event.get("log_line_start"),
-                        "log_line_end": event.get("log_line_end"),
-                    })
+                    events.append(
+                        {
+                            "event_id": event.get("event_id"),
+                            "severity": event.get("severity"),
+                            "ref_file": event.get("ref_file"),
+                            "ref_line": event.get("ref_line"),
+                            "ref_column": event.get("ref_column"),
+                            "message": event.get("message"),
+                            "error_code": event.get("error_code"),
+                            "tool_name": event.get("tool_name"),
+                            "category": event.get("category"),
+                            "fingerprint": event.get("fingerprint"),
+                            "log_line_start": event.get("log_line_start"),
+                            "log_line_end": event.get("log_line_end"),
+                        }
+                    )
 
                 store.write_events(
                     inv.id,

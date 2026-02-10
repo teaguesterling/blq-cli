@@ -57,10 +57,12 @@ class TestFindBaselineRun:
 
         store = BlqStorage.open()
 
-        mock_runs_df = pd.DataFrame({
-            "run_id": [1, 2, 3],
-            "git_branch": ["main", "feature", "main"],
-        })
+        mock_runs_df = pd.DataFrame(
+            {
+                "run_id": [1, 2, 3],
+                "git_branch": ["main", "feature", "main"],
+            }
+        )
         mock_rel = MagicMock()
         mock_rel.df.return_value = mock_runs_df
         with patch.object(store, "runs", return_value=mock_rel):
@@ -73,10 +75,12 @@ class TestFindBaselineRun:
 
         store = BlqStorage.open()
 
-        mock_runs_df = pd.DataFrame({
-            "run_id": [1, 2, 3],
-            "git_branch": ["main", "feature", "main"],
-        })
+        mock_runs_df = pd.DataFrame(
+            {
+                "run_id": [1, 2, 3],
+                "git_branch": ["main", "feature", "main"],
+            }
+        )
         mock_rel = MagicMock()
         mock_rel.df.return_value = mock_runs_df
         with patch.object(store, "runs", return_value=mock_rel):
@@ -209,28 +213,34 @@ class TestCollectReportData:
         store = BlqStorage.open()
 
         # Mock runs and events
-        mock_runs_df = pd.DataFrame({
-            "run_id": [1],
-            "source_name": ["test"],
-            "started_at": [None],
-            "completed_at": [None],
-            "exit_code": [0],
-            "git_branch": ["main"],
-            "git_commit": ["abc123"],
-        })
+        mock_runs_df = pd.DataFrame(
+            {
+                "run_id": [1],
+                "source_name": ["test"],
+                "started_at": [None],
+                "completed_at": [None],
+                "exit_code": [0],
+                "git_branch": ["main"],
+                "git_commit": ["abc123"],
+            }
+        )
 
-        mock_errors_df = pd.DataFrame({
-            "ref_file": ["a.py", "a.py", "b.py"],
-            "ref_line": [1, 2, 3],
-            "message": ["err1", "err2", "err3"],
-            "fingerprint": ["fp1", "fp2", "fp3"],
-        })
+        mock_errors_df = pd.DataFrame(
+            {
+                "ref_file": ["a.py", "a.py", "b.py"],
+                "ref_line": [1, 2, 3],
+                "message": ["err1", "err2", "err3"],
+                "fingerprint": ["fp1", "fp2", "fp3"],
+            }
+        )
 
-        mock_warnings_df = pd.DataFrame({
-            "ref_file": ["c.py"],
-            "ref_line": [1],
-            "message": ["warn1"],
-        })
+        mock_warnings_df = pd.DataFrame(
+            {
+                "ref_file": ["c.py"],
+                "ref_line": [1],
+                "message": ["warn1"],
+            }
+        )
 
         # Create mock relations for runs(), errors(), warnings()
         mock_runs_rel = MagicMock()
@@ -270,15 +280,17 @@ class TestCmdReport:
             database=None,
         )
 
-        mock_runs_df = pd.DataFrame({
-            "run_id": [1],
-            "source_name": ["test"],
-            "started_at": [None],
-            "completed_at": [None],
-            "exit_code": [0],
-            "git_branch": ["main"],
-            "git_commit": ["abc123"],
-        })
+        mock_runs_df = pd.DataFrame(
+            {
+                "run_id": [1],
+                "source_name": ["test"],
+                "started_at": [None],
+                "completed_at": [None],
+                "exit_code": [0],
+                "git_branch": ["main"],
+                "git_commit": ["abc123"],
+            }
+        )
 
         mock_empty_df = pd.DataFrame(columns=["ref_file", "ref_line", "message"])
 
@@ -353,15 +365,17 @@ class TestCmdReport:
             database=None,
         )
 
-        mock_runs_df = pd.DataFrame({
-            "run_id": [1],
-            "source_name": ["test"],
-            "started_at": [None],
-            "completed_at": [None],
-            "exit_code": [0],
-            "git_branch": ["main"],
-            "git_commit": ["abc123"],
-        })
+        mock_runs_df = pd.DataFrame(
+            {
+                "run_id": [1],
+                "source_name": ["test"],
+                "started_at": [None],
+                "completed_at": [None],
+                "exit_code": [0],
+                "git_branch": ["main"],
+                "git_commit": ["abc123"],
+            }
+        )
 
         mock_empty_df = pd.DataFrame(columns=["ref_file", "ref_line", "message"])
 
@@ -402,15 +416,17 @@ class TestCmdReport:
             database=None,
         )
 
-        mock_runs_df = pd.DataFrame({
-            "run_id": [1],
-            "source_name": ["test"],
-            "started_at": [None],
-            "completed_at": [None],
-            "exit_code": [0],
-            "git_branch": ["main"],
-            "git_commit": ["abc123"],
-        })
+        mock_runs_df = pd.DataFrame(
+            {
+                "run_id": [1],
+                "source_name": ["test"],
+                "started_at": [None],
+                "completed_at": [None],
+                "exit_code": [0],
+                "git_branch": ["main"],
+                "git_commit": ["abc123"],
+            }
+        )
 
         mock_empty_df = pd.DataFrame(columns=["ref_file", "ref_line", "message"])
 

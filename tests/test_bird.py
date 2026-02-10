@@ -291,9 +291,7 @@ class TestEventManagement:
             },
         ]
 
-        count = bird_store.write_events(
-            inv.id, events, client_id="blq-test", format_used="gcc"
-        )
+        count = bird_store.write_events(inv.id, events, client_id="blq-test", format_used="gcc")
 
         assert count == 2
         assert bird_store.event_count() == 2
@@ -416,8 +414,7 @@ class TestOutputManagement:
 
         # Registry entry should be deleted too
         result = bird_store._conn.execute(
-            "SELECT COUNT(*) FROM blob_registry WHERE content_hash = ?",
-            [output.content_hash]
+            "SELECT COUNT(*) FROM blob_registry WHERE content_hash = ?", [output.content_hash]
         ).fetchone()
         assert result[0] == 0
 
@@ -648,9 +645,7 @@ class TestBirdCompatibilityViews:
         bird_store.write_invocation(inv)
 
         # Use the macro
-        result = bird_store.connection.execute(
-            "SELECT COUNT(*) FROM blq_load_events()"
-        ).fetchone()
+        result = bird_store.connection.execute("SELECT COUNT(*) FROM blq_load_events()").fetchone()
 
         # Should return 0 events (invocation exists but no events)
         assert result[0] == 0
@@ -777,9 +772,7 @@ class TestMigration:
         """Dry run shows what would be migrated."""
         config = BlqConfig.load(parquet_initialized_dir / ".lq")
 
-        invocations, events = _migrate_parquet_to_bird(
-            config, dry_run=True, verbose=False
-        )
+        invocations, events = _migrate_parquet_to_bird(config, dry_run=True, verbose=False)
 
         assert invocations == 2  # Two runs
         assert events == 2  # Two events (error + warning)
@@ -792,9 +785,7 @@ class TestMigration:
         config = BlqConfig.load(parquet_initialized_dir / ".lq")
         lq_dir = parquet_initialized_dir / ".lq"
 
-        invocations, events = _migrate_parquet_to_bird(
-            config, dry_run=False, verbose=False
-        )
+        invocations, events = _migrate_parquet_to_bird(config, dry_run=False, verbose=False)
 
         assert invocations == 2
         assert events == 2
@@ -870,9 +861,7 @@ class TestMigration:
             cmd_init(args)
 
             config = BlqConfig.load(temp_dir / ".lq")
-            invocations, events = _migrate_parquet_to_bird(
-                config, dry_run=False, verbose=False
-            )
+            invocations, events = _migrate_parquet_to_bird(config, dry_run=False, verbose=False)
 
             # Should handle gracefully with no data
             assert invocations == 0

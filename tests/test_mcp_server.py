@@ -166,9 +166,7 @@ class TestQueryTool:
         """Query with multiple filter expressions."""
         async with Client(mcp_server) as client:
             # Multiple filters are AND'd
-            raw = await client.call_tool(
-                "query", {"filter": "severity=error,warning", "limit": 10}
-            )
+            raw = await client.call_tool("query", {"filter": "severity=error,warning", "limit": 10})
             result = get_data(raw)
 
             assert "columns" in result
@@ -891,9 +889,7 @@ class TestBatchModes:
             if history["runs"]:
                 run_ids = [r["run_serial"] for r in history["runs"][:2]]
 
-                raw = await client.call_tool(
-                    "events", {"run_ids": run_ids, "severity": "error"}
-                )
+                raw = await client.call_tool("events", {"run_ids": run_ids, "severity": "error"})
                 result = get_data(raw)
 
                 assert "runs" in result

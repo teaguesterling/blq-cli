@@ -99,8 +99,7 @@ def cmd_info(args: argparse.Namespace) -> None:
             """).fetchall()
             if outputs_result:
                 run_data["outputs"] = [
-                    {"stream": row[0], "bytes": row[1]}
-                    for row in outputs_result
+                    {"stream": row[0], "bytes": row[1]} for row in outputs_result
                 ]
 
         output_format = get_output_format(args)
@@ -153,8 +152,7 @@ def cmd_last(args: argparse.Namespace) -> None:
             """).fetchall()
             if outputs_result:
                 run_data["outputs"] = [
-                    {"stream": row[0], "bytes": row[1]}
-                    for row in outputs_result
+                    {"stream": row[0], "bytes": row[1]} for row in outputs_result
                 ]
 
         # Show run info (unless --quiet)
