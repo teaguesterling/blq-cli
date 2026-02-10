@@ -146,7 +146,7 @@ blq.diff(run1=3, run2=4)  # What changed between runs?
 
 | Tool | Purpose |
 |------|---------|
-| `run(command)` | Run a registered command |
+| `run(command, args)` | Run a registered command (args for templates) |
 | `exec(command)` | Run an ad-hoc shell command |
 | `status()` | Quick overview of all sources |
 | `history(limit, source)` | Run history |
@@ -182,6 +182,45 @@ blq.register_command(
     description="Run test suite"
 )
 ```
+
+### Parameterized Commands
+
+Commands can be templates with `{param}` placeholders. Use `tpl` instead of `cmd`, with `defaults` for optional parameters:
+
+```toml
+# In .lq/commands.toml
+[commands.test]
+tpl = "pytest {path} {flags}"
+defaults = { path = "tests/", flags = "-v" }
+description = "Run tests"
+
+[commands.test-file]
+tpl = "pytest {file} -v --tb=short"
+description = "Test a single file"
+# No defaults = 'file' is required
+```
+
+Run parameterized commands with the `args` parameter:
+
+```python
+# Use defaults
+blq.run(command="test")
+# → pytest tests/ -v
+
+# Override path
+blq.run(command="test", args={"path": "tests/unit/"})
+# → pytest tests/unit/ -v
+
+# Override both
+blq.run(command="test", args={"path": "tests/unit/", "flags": "-vvs -x"})
+# → pytest tests/unit/ -vvs -x
+
+# Required parameter
+blq.run(command="test-file", args={"file": "tests/test_core.py"})
+# → pytest tests/test_core.py -v --tb=short
+```
+
+Missing required parameters will raise an error with a helpful message.
 
 ### Idempotent Registration
 

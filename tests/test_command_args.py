@@ -257,3 +257,288 @@ class TestFormatCommandHelp:
         assert "required" in result
         assert "namespace" in result
         assert "default: default" in result
+
+
+class TestTemplateCommand:
+    """Tests for parameterized commands with tpl + defaults."""
+
+    def test_is_template_with_cmd(self):
+        """Commands with cmd only are not templates."""
+        cmd = RegisteredCommand(name="build", cmd="make -j8")
+        assert not cmd.is_template
+
+    def test_is_template_with_tpl(self):
+        """Commands with tpl are templates."""
+        cmd = RegisteredCommand(name="test", tpl="pytest {path} {flags}")
+        assert cmd.is_template
+
+    def test_is_template_with_both(self):
+        """Commands with both cmd and tpl prefer tpl."""
+        cmd = RegisteredCommand(name="test", cmd="pytest tests/", tpl="pytest {path}")
+        assert cmd.is_template
+
+    def test_render_simple_template(self):
+        """Render template with all args provided."""
+        cmd = RegisteredCommand(
+            name="test",
+            tpl="pytest {path} {flags}",
+            defaults={"path": "tests/", "flags": "-v"},
+        )
+        result = cmd.render({})
+        assert result == "pytest tests/ -v"
+
+    def test_render_override_defaults(self):
+        """Override default values."""
+        cmd = RegisteredCommand(
+            name="test",
+            tpl="pytest {path} {flags}",
+            defaults={"path": "tests/", "flags": "-v"},
+        )
+        result = cmd.render({"path": "tests/unit/"})
+        assert result == "pytest tests/unit/ -v"
+
+    def test_render_all_args_override(self):
+        """Override all defaults."""
+        cmd = RegisteredCommand(
+            name="test",
+            tpl="pytest {path} {flags}",
+            defaults={"path": "tests/", "flags": "-v"},
+        )
+        result = cmd.render({"path": "tests/unit/", "flags": "-vvs -x"})
+        assert result == "pytest tests/unit/ -vvs -x"
+
+    def test_render_required_param(self):
+        """Required parameter without default raises error."""
+        cmd = RegisteredCommand(
+            name="test-file",
+            tpl="pytest {file} -v",
+        )
+        with pytest.raises(ValueError, match="Missing required params.*file"):
+            cmd.render({})
+
+    def test_render_required_param_provided(self):
+        """Required parameter provided works."""
+        cmd = RegisteredCommand(
+            name="test-file",
+            tpl="pytest {file} -v",
+        )
+        result = cmd.render({"file": "test_foo.py"})
+        assert result == "pytest test_foo.py -v"
+
+    def test_render_mixed_required_optional(self):
+        """Mix of required and optional params."""
+        cmd = RegisteredCommand(
+            name="build",
+            tpl="make -j{jobs} {target}",
+            defaults={"jobs": "4"},
+        )
+        # Missing required 'target'
+        with pytest.raises(ValueError, match="Missing required params.*target"):
+            cmd.render({})
+
+        # Provide required, use default for optional
+        result = cmd.render({"target": "all"})
+        assert result == "make -j4 all"
+
+        # Override both
+        result = cmd.render({"target": "clean", "jobs": "8"})
+        assert result == "make -j8 clean"
+
+    def test_render_extra_args(self):
+        """Extra arguments are appended."""
+        cmd = RegisteredCommand(
+            name="test",
+            tpl="pytest {path}",
+            defaults={"path": "tests/"},
+        )
+        result = cmd.render({}, extra=["--verbose", "-x"])
+        assert result == "pytest tests/ --verbose -x"
+
+    def test_render_unknown_arg_raises(self):
+        """Unknown argument raises error."""
+        cmd = RegisteredCommand(
+            name="test",
+            tpl="pytest {path}",
+            defaults={"path": "tests/"},
+        )
+        with pytest.raises(ValueError, match="Unknown argument.*unknown"):
+            cmd.render({"unknown": "value"})
+
+    def test_render_escaped_braces(self):
+        """Escaped braces are preserved."""
+        cmd = RegisteredCommand(
+            name="echo",
+            tpl="echo '{{not a param}}' && run {actual_param}",
+            defaults={"actual_param": "value"},
+        )
+        result = cmd.render({})
+        assert result == "echo '{not a param}' && run value"
+
+    def test_required_params_property(self):
+        """required_params returns params without defaults."""
+        cmd = RegisteredCommand(
+            name="build",
+            tpl="make -j{jobs} {target}",
+            defaults={"jobs": "4"},
+        )
+        assert cmd.required_params() == {"target"}
+
+    def test_required_params_all_have_defaults(self):
+        """No required params when all have defaults."""
+        cmd = RegisteredCommand(
+            name="test",
+            tpl="pytest {path} {flags}",
+            defaults={"path": "tests/", "flags": "-v"},
+        )
+        assert cmd.required_params() == set()
+
+    def test_required_params_none_have_defaults(self):
+        """All params required when no defaults."""
+        cmd = RegisteredCommand(
+            name="deploy",
+            tpl="kubectl apply -f {file} -n {namespace}",
+        )
+        assert cmd.required_params() == {"file", "namespace"}
+
+    def test_template_string_property(self):
+        """template property returns tpl if present, else cmd."""
+        cmd_only = RegisteredCommand(name="build", cmd="make -j8")
+        assert cmd_only.template == "make -j8"
+
+        tpl_only = RegisteredCommand(name="test", tpl="pytest {path}")
+        assert tpl_only.template == "pytest {path}"
+
+        both = RegisteredCommand(name="test", cmd="fallback", tpl="pytest {path}")
+        assert both.template == "pytest {path}"
+
+    def test_to_dict_simple_command(self):
+        """to_dict for simple cmd command."""
+        cmd = RegisteredCommand(name="build", cmd="make -j8", description="Build")
+        d = cmd.to_dict()
+        assert d["cmd"] == "make -j8"
+        assert "tpl" not in d
+        assert "defaults" not in d
+
+    def test_to_dict_template_command(self):
+        """to_dict for template command."""
+        cmd = RegisteredCommand(
+            name="test",
+            tpl="pytest {path} {flags}",
+            defaults={"path": "tests/", "flags": "-v"},
+            description="Run tests",
+        )
+        d = cmd.to_dict()
+        assert "cmd" not in d
+        assert d["tpl"] == "pytest {path} {flags}"
+        assert d["defaults"] == {"path": "tests/", "flags": "-v"}
+
+    def test_to_dict_template_no_defaults(self):
+        """to_dict for template without defaults."""
+        cmd = RegisteredCommand(
+            name="test-file",
+            tpl="pytest {file} -v",
+        )
+        d = cmd.to_dict()
+        assert d["tpl"] == "pytest {file} -v"
+        assert "defaults" not in d  # Don't include empty defaults
+
+
+class TestLoadSaveTemplateCommands:
+    """Tests for loading/saving template commands via BlqConfig."""
+
+    def test_save_and_load_template_command(self, lq_dir):
+        """Save and load template command roundtrip."""
+        from blq.commands.core import BlqConfig
+
+        config = BlqConfig.load(lq_dir)
+        config._commands = {
+            "test": RegisteredCommand(
+                name="test",
+                tpl="pytest {path} {flags}",
+                defaults={"path": "tests/", "flags": "-v"},
+                description="Run tests",
+            ),
+        }
+        config.save_commands()
+
+        # Reload to verify persistence
+        config2 = BlqConfig.load(lq_dir)
+        loaded = config2.commands
+
+        assert len(loaded) == 1
+        assert loaded["test"].is_template
+        assert loaded["test"].tpl == "pytest {path} {flags}"
+        assert loaded["test"].defaults == {"path": "tests/", "flags": "-v"}
+        assert loaded["test"].description == "Run tests"
+
+    def test_save_and_load_mixed_commands(self, lq_dir):
+        """Save and load mix of cmd and tpl commands."""
+        from blq.commands.core import BlqConfig
+
+        config = BlqConfig.load(lq_dir)
+        config._commands = {
+            "lint": RegisteredCommand(
+                name="lint",
+                cmd="ruff check .",
+                description="Run linter",
+            ),
+            "test": RegisteredCommand(
+                name="test",
+                tpl="pytest {path} {flags}",
+                defaults={"path": "tests/", "flags": "-v"},
+                description="Run tests",
+            ),
+            "test-file": RegisteredCommand(
+                name="test-file",
+                tpl="pytest {file} -v --tb=short",
+                description="Test single file",
+            ),
+        }
+        config.save_commands()
+
+        config2 = BlqConfig.load(lq_dir)
+        loaded = config2.commands
+
+        assert len(loaded) == 3
+
+        # Simple command
+        assert not loaded["lint"].is_template
+        assert loaded["lint"].cmd == "ruff check ."
+
+        # Template with defaults
+        assert loaded["test"].is_template
+        assert loaded["test"].tpl == "pytest {path} {flags}"
+        assert loaded["test"].defaults == {"path": "tests/", "flags": "-v"}
+
+        # Template without defaults (required params)
+        assert loaded["test-file"].is_template
+        assert loaded["test-file"].tpl == "pytest {file} -v --tb=short"
+        assert loaded["test-file"].defaults == {}
+
+    def test_toml_format_output(self, lq_dir):
+        """Verify TOML output format matches design spec."""
+        from blq.commands.core import BlqConfig
+
+        config = BlqConfig.load(lq_dir)
+        config._commands = {
+            "test": RegisteredCommand(
+                name="test",
+                tpl="pytest {path} {flags}",
+                defaults={"path": "tests/", "flags": "-v"},
+                description="Run tests",
+            ),
+        }
+        config.save_commands()
+
+        toml_path = lq_dir / "commands.toml"
+        content = toml_path.read_text()
+
+        # Should use tpl instead of cmd
+        assert 'tpl = "pytest {path} {flags}"' in content
+        # Defaults can be inline table or nested section - both are valid TOML
+        assert "defaults" in content
+        assert 'path = "tests/"' in content
+        assert 'flags = "-v"' in content
+        # cmd should not appear at top level (description can contain "cmd" as text)
+        assert "[commands.test]" in content
+        assert "cmd =" not in content
