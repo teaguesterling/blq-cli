@@ -97,12 +97,12 @@ Projects are identified by namespace and project name from your git remote:
 | `gitlab.com/org/repo` | `gitlab__org` |
 | No git (filesystem) | `local__path__to__dir` |
 
-Configure manually in `.lq/config.yaml`:
+Configure manually in `.lq/config.toml`:
 
-```yaml
-project:
-  namespace: github__teaguesterling
-  project: lq
+```toml
+[project]
+namespace = "github__teaguesterling"
+project = "lq"
 ```
 
 ## Examples
