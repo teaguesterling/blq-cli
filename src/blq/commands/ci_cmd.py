@@ -14,7 +14,6 @@ import json
 import os
 import re
 import sys
-import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -574,7 +573,7 @@ fi""")
 
     # Build substitution (escape braces for shell)
     # We'll use sed to replace {param} with $param value
-    subst_lines = ["CMD={}".format(_shell_quote(template))]
+    subst_lines = [f"CMD={_shell_quote(template)}"]
     for param in sorted(all_params):
         # Use sed to replace {param} with the shell variable value
         subst_lines.append(f'CMD=$(echo "$CMD" | sed "s/{{{param}}}/${param}/g")')
