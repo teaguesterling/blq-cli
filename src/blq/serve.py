@@ -520,7 +520,10 @@ def _query_impl(
                 sql = "SELECT * FROM blq_load_events()"
 
         if not sql:
-            return {"columns": [], "rows": [], "row_count": 0, "error": "Either sql or filter must be provided"}
+            return {
+                "columns": [], "rows": [], "row_count": 0,
+                "error": "Either sql or filter must be provided",
+            }
 
         # Add LIMIT if not present (basic safety)
         sql_upper = sql.upper()
@@ -1791,9 +1794,11 @@ def info(
     result = _info_impl(ref)
 
     # If additional output/events requested, fetch them
-    if head is not None or tail is not None or errors or warnings or severity or context is not None:
-        # Get run_id from result for fetching output/events
-        run_ref = result.get("run_ref", "")
+    needs_extra = (
+        head is not None or tail is not None or errors or warnings
+        or severity or context is not None
+    )
+    if needs_extra:
         run_serial = result.get("run_serial")
 
         if run_serial:

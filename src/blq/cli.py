@@ -397,7 +397,9 @@ def main() -> None:
     p_last = subparsers.add_parser("last", help="Show info about the most recent run")
     p_last.add_argument("--head", type=int, metavar="N", help="Show first N lines of output")
     p_last.add_argument("--tail", type=int, metavar="N", help="Show last N lines of output")
-    p_last.add_argument("--output", "-o", action="store_true", help="Show output (default: tail 20)")
+    p_last.add_argument(
+        "--output", "-o", action="store_true", help="Show output (default: tail 20)"
+    )
     p_last.add_argument("--errors", "-e", action="store_true", help="Show errors")
     p_last.add_argument("--warnings", "-w", action="store_true", help="Show warnings")
     p_last.add_argument("--severity", "-S", help="Filter events by severity")
@@ -508,7 +510,9 @@ def main() -> None:
 
     # commands (with subcommands for list, register, unregister)
     p_commands = subparsers.add_parser("commands", help="Manage registered commands")
-    commands_subparsers = p_commands.add_subparsers(dest="commands_command", help="Commands subcommand")
+    commands_subparsers = p_commands.add_subparsers(
+        dest="commands_command", help="Commands subcommand"
+    )
 
     # commands list (default when no subcommand)
     p_commands_list = commands_subparsers.add_parser("list", help="List registered commands")
@@ -528,14 +532,18 @@ def main() -> None:
     p_commands_register.add_argument(
         "--no-capture", "-N", action="store_true", help="Don't capture logs by default"
     )
-    p_commands_register.add_argument("--force", action="store_true", help="Overwrite existing command")
+    p_commands_register.add_argument(
+        "--force", action="store_true", help="Overwrite existing command"
+    )
     p_commands_register.add_argument(
         "--run", "-r", action="store_true", help="Run command immediately after registering"
     )
     p_commands_register.set_defaults(func=cmd_register)
 
     # commands unregister
-    p_commands_unregister = commands_subparsers.add_parser("unregister", help="Remove a registered command")
+    p_commands_unregister = commands_subparsers.add_parser(
+        "unregister", help="Remove a registered command"
+    )
     p_commands_unregister.add_argument("name", help="Command name to remove")
     p_commands_unregister.set_defaults(func=cmd_unregister)
 
@@ -599,7 +607,9 @@ def main() -> None:
     clean_subparsers = p_clean.add_subparsers(dest="clean_command", help="Cleanup mode")
 
     # clean data - clear run data, keep config
-    p_clean_data = clean_subparsers.add_parser("data", help="Clear run data, keep config and commands")
+    p_clean_data = clean_subparsers.add_parser(
+        "data", help="Clear run data, keep config and commands"
+    )
     p_clean_data.add_argument(
         "--confirm", "-y", action="store_true", help="Confirm destructive operation"
     )

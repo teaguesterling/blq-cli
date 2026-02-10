@@ -779,7 +779,7 @@ def read_source_context(
             ref=None,
             header=f"Source: {ref_file}:{ref_line}",
         )
-    except (OSError, IOError):
+    except OSError:
         return None
 
 

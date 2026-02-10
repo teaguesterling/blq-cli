@@ -125,12 +125,6 @@ def _clean_prune(lq_dir: Path, days: int, confirm: bool, dry_run: bool) -> None:
         conn.close()
         sys.exit(1)
 
-    # Get invocation IDs to delete (for output cleanup)
-    old_ids = conn.execute(
-        "SELECT id FROM invocations WHERE timestamp < ?", [cutoff_str]
-    ).fetchall()
-    old_id_list = [row[0] for row in old_ids]
-
     # Delete events first (foreign key constraint)
     conn.execute("""
         DELETE FROM events WHERE invocation_id IN (

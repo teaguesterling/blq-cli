@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -369,8 +368,6 @@ class TestInspectMCPTool:
     @pytest.mark.asyncio
     async def test_inspect_tool_returns_details(self, mcp_server):
         """Inspect tool returns event details with context."""
-        from mcp import ClientSession
-        from mcp.client.stdio import StdioServerParameters, stdio_client
 
         # Skip if mcp test infrastructure not available
         pytest.importorskip("mcp")

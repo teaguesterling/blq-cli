@@ -19,7 +19,6 @@ from blq.commands.core import (
     get_store_for_args,
 )
 from blq.output import (
-    format_context,
     format_errors,
     format_history,
     format_run_details,
@@ -121,8 +120,6 @@ def cmd_last(args: argparse.Namespace) -> None:
     """
     import json as json_module
 
-    config = BlqConfig.ensure()
-
     try:
         store = get_store_for_args(args)
 
@@ -195,13 +192,13 @@ def cmd_last(args: argparse.Namespace) -> None:
                         json_output["tail"] = lines[-tail_lines:] if tail_lines else lines
                 else:
                     if head_lines is not None:
-                        print("== Output (first {} lines) ==".format(head_lines))
+                        print(f"== Output (first {head_lines} lines) ==")
                         for line in lines[:head_lines]:
                             print(line)
                         print()
 
                     if tail_lines is not None:
-                        print("== Output (last {} lines) ==".format(tail_lines))
+                        print(f"== Output (last {tail_lines} lines) ==")
                         for line in lines[-tail_lines:]:
                             print(line)
                         print()
