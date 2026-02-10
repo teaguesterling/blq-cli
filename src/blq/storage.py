@@ -561,3 +561,52 @@ class BlqStorage:
             DuckDB relation. Call .df() for DataFrame, .fetchall() for tuples.
         """
         return self._conn.sql(query)
+
+    # =========================================================================
+    # Maintenance
+    # =========================================================================
+
+    def prune(self, days: int = 30) -> int:
+        """Remove data older than specified days.
+
+        Args:
+            days: Remove data older than this many days
+
+        Returns:
+            Number of invocations pruned
+        """
+        from datetime import timedelta
+
+        cutoff = datetime.now() - timedelta(days=days)
+        cutoff_str = cutoff.isoformat()
+
+        # Get invocations to delete
+        result = self._conn.execute(
+            "SELECT id FROM invocations WHERE timestamp < ?",
+            [cutoff_str],
+        ).fetchall()
+
+        if not result:
+            return 0
+
+        invocation_ids = [row[0] for row in result]
+
+        # Delete events for these invocations
+        self._conn.execute(
+            f"DELETE FROM events WHERE invocation_id IN ({','.join('?' * len(invocation_ids))})",
+            invocation_ids,
+        )
+
+        # Delete outputs (blobs will be orphaned but cleaned separately)
+        self._conn.execute(
+            f"DELETE FROM outputs WHERE invocation_id IN ({','.join('?' * len(invocation_ids))})",
+            invocation_ids,
+        )
+
+        # Delete invocations
+        self._conn.execute(
+            f"DELETE FROM invocations WHERE id IN ({','.join('?' * len(invocation_ids))})",
+            invocation_ids,
+        )
+
+        return len(invocation_ids)

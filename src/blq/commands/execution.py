@@ -520,6 +520,10 @@ def cmd_run(args: argparse.Namespace) -> None:
     - {name:=default} - positional-able, optional
     """
     from blq.commands.core import RegisteredCommand
+    from blq.user_config import UserConfig
+
+    # Load user config for defaults
+    user_config = UserConfig.load()
 
     # Get unified config (finds .lq, loads settings and commands)
     config = BlqConfig.ensure()
@@ -605,9 +609,9 @@ def cmd_run(args: argparse.Namespace) -> None:
             print(f"Source: {source_name}")
         sys.exit(0)
 
-    # Determine output mode
+    # Determine output mode (use user config defaults)
     structured_output = args.json or args.markdown
-    show_summary = getattr(args, "summary", False)
+    show_summary = getattr(args, "summary", False) or user_config.show_summary
     verbose = getattr(args, "verbose", False)
     quiet = args.quiet or structured_output
 
@@ -629,6 +633,9 @@ def cmd_run(args: argparse.Namespace) -> None:
     if timeout is None and cmd_name in registered_commands:
         timeout = registered_commands[cmd_name].timeout
 
+    # Determine keep_raw (user config default or explicit flag)
+    keep_raw = args.keep_raw or structured_output or user_config.keep_raw
+
     # Execute command with capture
     result = _execute_command(
         command=command,
@@ -637,7 +644,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         config=config,
         format_hint=format_hint,
         quiet=quiet,
-        keep_raw=True if (args.keep_raw or structured_output) else None,
+        keep_raw=True if keep_raw else None,
         error_limit=args.error_limit,
         capture_env_vars=capture_env_vars,
         timeout=timeout,
@@ -653,7 +660,36 @@ def cmd_run(args: argparse.Namespace) -> None:
         if verbose:
             _print_run_summary(result, source_name, show_events=True, max_events=10)
 
+    # Check if auto-prune should run
+    _maybe_auto_prune(config, user_config)
+
     sys.exit(result.exit_code)
+
+
+def _maybe_auto_prune(config: BlqConfig, user_config) -> None:
+    """Run auto-prune if enabled, with probability to avoid running every time.
+
+    Only runs ~10% of the time to avoid slowing down every command.
+    """
+    import random
+
+    if not user_config.auto_prune:
+        return
+
+    # Only run ~10% of the time
+    if random.random() > 0.1:
+        return
+
+    try:
+        from blq.storage import BlqStorage
+
+        store = BlqStorage.open(config.lq_dir)
+        pruned = store.prune(days=user_config.prune_days)
+        if pruned > 0:
+            logger.info(f"Auto-pruned {pruned} old runs")
+    except Exception:
+        # Don't let pruning errors affect command execution
+        pass
 
 
 def cmd_exec(args: argparse.Namespace) -> None:
@@ -662,6 +698,11 @@ def cmd_exec(args: argparse.Namespace) -> None:
     Unlike cmd_run, this always treats the command as a shell command
     and never looks up the command registry.
     """
+    from blq.user_config import UserConfig
+
+    # Load user config for defaults
+    user_config = UserConfig.load()
+
     # Get unified config (finds .lq, loads settings)
     config = BlqConfig.ensure()
 
@@ -690,9 +731,9 @@ def cmd_exec(args: argparse.Namespace) -> None:
     # Determine capture mode (default: capture)
     should_capture = not args.no_capture
 
-    # Determine output mode
+    # Determine output mode (use user config defaults)
     structured_output = args.json or args.markdown
-    show_summary = getattr(args, "summary", False)
+    show_summary = getattr(args, "summary", False) or user_config.show_summary
     verbose = getattr(args, "verbose", False)
     quiet = args.quiet or structured_output
 
@@ -709,6 +750,9 @@ def cmd_exec(args: argparse.Namespace) -> None:
         exit_code = _run_no_capture(command, quiet)
         sys.exit(exit_code)
 
+    # Determine keep_raw (user config default or explicit flag)
+    keep_raw = args.keep_raw or structured_output or user_config.keep_raw
+
     # Execute command with capture
     timeout = getattr(args, "timeout", None)
     result = _execute_command(
@@ -718,7 +762,7 @@ def cmd_exec(args: argparse.Namespace) -> None:
         config=config,
         format_hint=args.format,
         quiet=quiet,
-        keep_raw=True if (args.keep_raw or structured_output) else None,
+        keep_raw=True if keep_raw else None,
         error_limit=args.error_limit,
         timeout=timeout,
     )
@@ -732,6 +776,9 @@ def cmd_exec(args: argparse.Namespace) -> None:
         # Show summary only in verbose mode
         if verbose:
             _print_run_summary(result, source_name, show_events=True, max_events=10)
+
+    # Check if auto-prune should run
+    _maybe_auto_prune(config, user_config)
 
     sys.exit(result.exit_code)
 

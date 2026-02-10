@@ -192,3 +192,135 @@ class TestMcpAvailable:
         # and returns a boolean
         result = UserConfig.mcp_available()
         assert isinstance(result, bool)
+
+
+class TestNewConfigOptions:
+    """Tests for the new config options added in v2."""
+
+    def test_output_section(self, temp_dir):
+        """Load parses [output] section correctly."""
+        config_dir = temp_dir / "blq"
+        config_dir.mkdir(parents=True)
+        config_file = config_dir / "config.toml"
+        config_file.write_text("""
+[output]
+default_format = "json"
+default_limit = 50
+""")
+
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(temp_dir)}):
+            config = UserConfig.load()
+            assert config.default_format == "json"
+            assert config.default_limit == 50
+
+    def test_run_section(self, temp_dir):
+        """Load parses [run] section correctly."""
+        config_dir = temp_dir / "blq"
+        config_dir.mkdir(parents=True)
+        config_file = config_dir / "config.toml"
+        config_file.write_text("""
+[run]
+show_summary = true
+keep_raw = true
+""")
+
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(temp_dir)}):
+            config = UserConfig.load()
+            assert config.show_summary is True
+            assert config.keep_raw is True
+
+    def test_mcp_section(self, temp_dir):
+        """Load parses [mcp] section correctly."""
+        config_dir = temp_dir / "blq"
+        config_dir.mkdir(parents=True)
+        config_file = config_dir / "config.toml"
+        config_file.write_text("""
+[mcp]
+safe_mode = true
+""")
+
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(temp_dir)}):
+            config = UserConfig.load()
+            assert config.mcp_safe_mode is True
+
+    def test_storage_section(self, temp_dir):
+        """Load parses [storage] section correctly."""
+        config_dir = temp_dir / "blq"
+        config_dir.mkdir(parents=True)
+        config_file = config_dir / "config.toml"
+        config_file.write_text("""
+[storage]
+auto_prune = true
+prune_days = 14
+""")
+
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(temp_dir)}):
+            config = UserConfig.load()
+            assert config.auto_prune is True
+            assert config.prune_days == 14
+
+    def test_init_auto_detect(self, temp_dir):
+        """Load parses auto_detect in [init] section."""
+        config_dir = temp_dir / "blq"
+        config_dir.mkdir(parents=True)
+        config_file = config_dir / "config.toml"
+        config_file.write_text("""
+[init]
+auto_detect = true
+""")
+
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(temp_dir)}):
+            config = UserConfig.load()
+            assert config.auto_detect is True
+
+    def test_new_defaults(self, temp_dir):
+        """Verify defaults for new options."""
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(temp_dir)}):
+            config = UserConfig.load()
+
+            # Output defaults
+            assert config.default_format == "table"
+            assert config.default_limit == 20
+
+            # Run defaults
+            assert config.show_summary is False
+            assert config.keep_raw is False
+
+            # MCP defaults
+            assert config.mcp_safe_mode is False
+
+            # Storage defaults
+            assert config.auto_prune is False
+            assert config.prune_days == 30
+
+            # Init defaults
+            assert config.auto_detect is False
+
+    def test_save_roundtrip_new_options(self, temp_dir):
+        """Save and load produce the same config for new options."""
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(temp_dir)}):
+            with patch.object(UserConfig, "mcp_available", return_value=False):
+                # Create config with non-default values
+                original = UserConfig(
+                    default_format="markdown",
+                    default_limit=50,
+                    show_summary=True,
+                    keep_raw=True,
+                    mcp_safe_mode=True,
+                    auto_prune=True,
+                    prune_days=7,
+                    auto_detect=True,
+                )
+                original.save()
+
+                # Load it back
+                loaded = UserConfig.load()
+
+                assert loaded.default_format == original.default_format
+                assert loaded.default_limit == original.default_limit
+                assert loaded.show_summary == original.show_summary
+                assert loaded.keep_raw == original.keep_raw
+                assert loaded.mcp_safe_mode == original.mcp_safe_mode
+                assert loaded.auto_prune == original.auto_prune
+                assert loaded.prune_days == original.prune_days
+                assert loaded.auto_detect == original.auto_detect

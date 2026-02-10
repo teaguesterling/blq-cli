@@ -693,7 +693,10 @@ def format_run_details(
 
 
 def get_output_format(args: Any) -> str:
-    """Get output format from args, defaulting to 'table'."""
+    """Get output format from args, using user config default.
+
+    Priority: explicit flags > user config default > 'table'
+    """
     if getattr(args, "json", False):
         return "json"
     elif getattr(args, "markdown", False):
@@ -701,7 +704,33 @@ def get_output_format(args: Any) -> str:
     elif getattr(args, "csv", False):
         return "csv"
     else:
-        return "table"
+        # Use user config default
+        from blq.user_config import UserConfig
+
+        user_config = UserConfig.load()
+        return user_config.default_format
+
+
+def get_default_limit(args: Any, fallback: int = 20) -> int:
+    """Get limit from args, using user config default if not specified.
+
+    Args:
+        args: Parsed arguments with optional 'limit' attribute
+        fallback: Fallback if neither args nor user config specify
+
+    Returns:
+        The limit to use
+    """
+    # Check if limit was explicitly set in args
+    limit = getattr(args, "limit", None)
+    if limit is not None:
+        return int(limit)
+
+    # Use user config default
+    from blq.user_config import UserConfig
+
+    user_config = UserConfig.load()
+    return user_config.default_limit
 
 
 def print_output(

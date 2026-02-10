@@ -69,11 +69,16 @@ def cmd_mcp_install(args: argparse.Namespace) -> None:
 def cmd_mcp_serve(args: argparse.Namespace) -> None:
     """Start the MCP server."""
     from blq.serve import serve
+    from blq.user_config import UserConfig
+
+    # Load user config for defaults
+    user_config = UserConfig.load()
 
     transport = getattr(args, "transport", "stdio")
     port = getattr(args, "port", 8080)
     disabled_tools = getattr(args, "disabled_tools", None)
-    safe_mode = getattr(args, "safe_mode", False)
+    # Use user config default for safe_mode if not explicitly set
+    safe_mode = getattr(args, "safe_mode", False) or user_config.mcp_safe_mode
 
     serve(
         transport=transport,

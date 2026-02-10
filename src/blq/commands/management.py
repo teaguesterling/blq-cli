@@ -23,6 +23,7 @@ from blq.output import (
     format_history,
     format_run_details,
     format_status,
+    get_default_limit,
     get_output_format,
 )
 
@@ -208,7 +209,7 @@ def cmd_last(args: argparse.Namespace) -> None:
         severity = getattr(args, "severity", None)
         show_errors = getattr(args, "errors", False)
         show_warnings = getattr(args, "warnings", False)
-        event_limit = getattr(args, "limit", 20)
+        event_limit = get_default_limit(args)
 
         # Determine severity filter
         if show_errors and show_warnings:
@@ -289,11 +290,12 @@ def cmd_events(args: argparse.Namespace) -> None:
         where = " AND ".join(conditions) if conditions else "1=1"
 
         # Always get full columns for formatting, select happens in formatter
+        limit = get_default_limit(args)
         result = store.sql(f"""
             SELECT * FROM blq_load_events()
             WHERE {where}
             ORDER BY run_id DESC, event_id
-            LIMIT {args.limit}
+            LIMIT {limit}
         """).df()
 
         data = result.to_dict(orient="records")
@@ -344,6 +346,7 @@ def cmd_history(args: argparse.Namespace) -> None:
 
         # Get filter from positional arg or --tag flag
         tag_filter = getattr(args, "ref", None) or getattr(args, "tag", None)
+        limit = get_default_limit(args)
 
         if tag_filter:
             # Filter by tag/source_name
@@ -351,10 +354,10 @@ def cmd_history(args: argparse.Namespace) -> None:
                 SELECT * FROM blq_load_runs()
                 WHERE tag = '{tag_filter}' OR source_name = '{tag_filter}'
                 ORDER BY run_id DESC
-                LIMIT {args.limit}
+                LIMIT {limit}
             """).df()
         else:
-            result = store.runs(limit=args.limit).df()
+            result = store.runs(limit=limit).df()
 
         # Convert to list of dicts for formatting
         data = result.to_dict(orient="records")

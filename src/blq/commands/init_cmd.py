@@ -864,7 +864,9 @@ def cmd_init(args: argparse.Namespace) -> None:
     else:
         create_mcp = user_config.auto_mcp
 
-    detect_commands = getattr(args, "detect", False)
+    # Detect: explicit --detect flag or user config default
+    explicit_detect = getattr(args, "detect", False)
+    detect_commands = explicit_detect or user_config.auto_detect
     detect_mode = getattr(args, "detect_mode", DETECT_AUTO)
     auto_yes = getattr(args, "yes", False)
     force_reinit = getattr(args, "force", False)

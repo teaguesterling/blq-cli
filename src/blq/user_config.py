@@ -132,7 +132,15 @@ class UserConfig:
         auto_mcp = cls.mcp_available()  # Auto-enable if fastmcp is installed
         auto_gitignore = True
         default_storage = "bird"
+        auto_detect = False
         auto_init = False
+        default_format = "table"
+        default_limit = 20
+        show_summary = False
+        keep_raw = False
+        mcp_safe_mode = False
+        auto_prune = False
+        prune_days = 30
         extra_capture_env: list[str] = []
         loaded_from_file = False
 
@@ -150,12 +158,44 @@ class UserConfig:
                         auto_gitignore = bool(init_section["auto_gitignore"])
                     if "default_storage" in init_section:
                         default_storage = str(init_section["default_storage"])
+                    if "auto_detect" in init_section:
+                        auto_detect = bool(init_section["auto_detect"])
 
                 # Parse [register] section
                 register_section = data.get("register", {})
                 if isinstance(register_section, dict):
                     if "auto_init" in register_section:
                         auto_init = bool(register_section["auto_init"])
+
+                # Parse [output] section
+                output_section = data.get("output", {})
+                if isinstance(output_section, dict):
+                    if "default_format" in output_section:
+                        default_format = str(output_section["default_format"])
+                    if "default_limit" in output_section:
+                        default_limit = int(output_section["default_limit"])
+
+                # Parse [run] section
+                run_section = data.get("run", {})
+                if isinstance(run_section, dict):
+                    if "show_summary" in run_section:
+                        show_summary = bool(run_section["show_summary"])
+                    if "keep_raw" in run_section:
+                        keep_raw = bool(run_section["keep_raw"])
+
+                # Parse [mcp] section
+                mcp_section = data.get("mcp", {})
+                if isinstance(mcp_section, dict):
+                    if "safe_mode" in mcp_section:
+                        mcp_safe_mode = bool(mcp_section["safe_mode"])
+
+                # Parse [storage] section
+                storage_section = data.get("storage", {})
+                if isinstance(storage_section, dict):
+                    if "auto_prune" in storage_section:
+                        auto_prune = bool(storage_section["auto_prune"])
+                    if "prune_days" in storage_section:
+                        prune_days = int(storage_section["prune_days"])
 
                 # Parse [defaults] section
                 defaults_section = data.get("defaults", {})
@@ -172,7 +212,15 @@ class UserConfig:
             auto_mcp=auto_mcp,
             auto_gitignore=auto_gitignore,
             default_storage=default_storage,
+            auto_detect=auto_detect,
             auto_init=auto_init,
+            default_format=default_format,
+            default_limit=default_limit,
+            show_summary=show_summary,
+            keep_raw=keep_raw,
+            mcp_safe_mode=mcp_safe_mode,
+            auto_prune=auto_prune,
+            prune_days=prune_days,
             extra_capture_env=extra_capture_env,
             _loaded_from_file=loaded_from_file,
         )
@@ -181,6 +229,7 @@ class UserConfig:
         """Save config to ~/.config/blq/config.toml.
 
         Creates the parent directories if they don't exist.
+        Only saves non-default values to keep the file minimal.
         """
         from blq.config_format import save_toml
 
@@ -197,6 +246,8 @@ class UserConfig:
             init_section["auto_gitignore"] = self.auto_gitignore
         if self.default_storage != "bird":  # Only save if different from default
             init_section["default_storage"] = self.default_storage
+        if self.auto_detect:  # Only save if True (False is default)
+            init_section["auto_detect"] = self.auto_detect
         if init_section:
             data["init"] = init_section
 
@@ -206,6 +257,40 @@ class UserConfig:
             register_section["auto_init"] = self.auto_init
         if register_section:
             data["register"] = register_section
+
+        # [output] section
+        output_section: dict[str, Any] = {}
+        if self.default_format != "table":
+            output_section["default_format"] = self.default_format
+        if self.default_limit != 20:
+            output_section["default_limit"] = self.default_limit
+        if output_section:
+            data["output"] = output_section
+
+        # [run] section
+        run_section: dict[str, Any] = {}
+        if self.show_summary:
+            run_section["show_summary"] = self.show_summary
+        if self.keep_raw:
+            run_section["keep_raw"] = self.keep_raw
+        if run_section:
+            data["run"] = run_section
+
+        # [mcp] section
+        mcp_section: dict[str, Any] = {}
+        if self.mcp_safe_mode:
+            mcp_section["safe_mode"] = self.mcp_safe_mode
+        if mcp_section:
+            data["mcp"] = mcp_section
+
+        # [storage] section
+        storage_section: dict[str, Any] = {}
+        if self.auto_prune:
+            storage_section["auto_prune"] = self.auto_prune
+        if self.prune_days != 30:
+            storage_section["prune_days"] = self.prune_days
+        if storage_section:
+            data["storage"] = storage_section
 
         # [defaults] section
         defaults_section: dict[str, Any] = {}
