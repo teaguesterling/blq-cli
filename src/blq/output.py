@@ -239,7 +239,7 @@ class TableFormatter:
                 self.columns = [Column(k) for k in keys]
 
         # Filter to columns that exist in data
-        available_cols = set()
+        available_cols: set[str] = set()
         for row in data:
             available_cols.update(row.keys())
 

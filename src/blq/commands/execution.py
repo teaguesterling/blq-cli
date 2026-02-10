@@ -227,26 +227,26 @@ def _execute_command(
                 break
 
             try:
-                line = output_queue.get(timeout=min(remaining, 0.5))
-                if line is None:  # Reader finished
+                queue_line = output_queue.get(timeout=min(remaining, 0.5))
+                if queue_line is None:  # Reader finished
                     break
                 if not quiet:
-                    sys.stdout.write(line)
+                    sys.stdout.write(queue_line)
                     sys.stdout.flush()
-                output_lines.append(line)
+                output_lines.append(queue_line)
             except queue.Empty:
                 # Check if process has finished
                 if process.poll() is not None:
                     # Drain remaining output
                     while True:
                         try:
-                            line = output_queue.get_nowait()
-                            if line is None:
+                            drain_line = output_queue.get_nowait()
+                            if drain_line is None:
                                 break
                             if not quiet:
-                                sys.stdout.write(line)
+                                sys.stdout.write(drain_line)
                                 sys.stdout.flush()
-                            output_lines.append(line)
+                            output_lines.append(drain_line)
                         except queue.Empty:
                             break
                     break
@@ -262,10 +262,10 @@ def _execute_command(
             # Drain any remaining output that was captured
             while True:
                 try:
-                    line = output_queue.get_nowait()
-                    if line is None:
+                    timeout_line = output_queue.get_nowait()
+                    if timeout_line is None:
                         break
-                    output_lines.append(line)
+                    output_lines.append(timeout_line)
                 except queue.Empty:
                     break
             exit_code = -1  # Indicate timeout

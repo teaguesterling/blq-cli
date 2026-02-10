@@ -248,7 +248,7 @@ def _run_impl(
     try:
         # Add buffer to subprocess timeout so CLI timeout fires first
         subprocess_timeout = timeout + 10 if timeout else None
-        result = subprocess.run(
+        proc = subprocess.run(
             cmd_parts,
             capture_output=True,
             text=True,
@@ -256,9 +256,9 @@ def _run_impl(
         )
 
         # Parse JSON output and return concise response
-        if result.stdout.strip():
+        if proc.stdout.strip():
             try:
-                full_result = json.loads(result.stdout)
+                full_result = json.loads(proc.stdout)
                 # Build concise response with essential fields
                 run_id = full_result.get("run_id")
                 source_name = full_result.get("source_name") or command
@@ -301,20 +301,20 @@ def _run_impl(
                 pass
 
         # Check if this was a "not registered" error
-        if "is not a registered command" in result.stderr:
+        if "is not a registered command" in proc.stderr:
             return {
                 "run_ref": None,
                 "status": "FAIL",
-                "exit_code": result.returncode,
-                "error": f"'{command}' is not registered. Use exec() for ad-hoc commands.",
+                "exit_code": proc.returncode,
+                "error": f"'{command}' is not registered. Use the run tool with exec mode.",
                 "summary": {"total_events": 0, "errors": 0, "warnings": 0},
             }
 
         # Fallback: construct basic result
         return {
             "run_ref": None,
-            "status": "FAIL" if result.returncode != 0 else "OK",
-            "exit_code": result.returncode,
+            "status": "FAIL" if proc.returncode != 0 else "OK",
+            "exit_code": proc.returncode,
             "summary": {"total_events": 0, "errors": 0, "warnings": 0},
         }
     except subprocess.TimeoutExpired:
@@ -408,7 +408,7 @@ def _exec_impl(
     try:
         # Add buffer to subprocess timeout so CLI timeout fires first
         subprocess_timeout = timeout + 10 if timeout else None
-        result = subprocess.run(
+        proc = subprocess.run(
             cmd_parts,
             capture_output=True,
             text=True,
@@ -416,9 +416,9 @@ def _exec_impl(
         )
 
         # Parse JSON output and return concise response
-        if result.stdout.strip():
+        if proc.stdout.strip():
             try:
-                full_result = json.loads(result.stdout)
+                full_result = json.loads(proc.stdout)
                 # Build concise response with essential fields
                 run_id = full_result.get("run_id")
                 source_name = full_result.get("source_name") or "exec"
@@ -463,8 +463,8 @@ def _exec_impl(
         # Fallback: construct basic result
         return {
             "run_ref": None,
-            "status": "FAIL" if result.returncode != 0 else "OK",
-            "exit_code": result.returncode,
+            "status": "FAIL" if proc.returncode != 0 else "OK",
+            "exit_code": proc.returncode,
             "summary": {"total_events": 0, "errors": 0, "warnings": 0},
         }
     except subprocess.TimeoutExpired:
@@ -816,10 +816,10 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
         columns = storage.sql("SELECT * FROM blq_load_events() LIMIT 0").columns
         event_data = dict(zip(columns, result))
 
-        log_line_start = event_data.get("log_line_start")
-        log_line_end = event_data.get("log_line_end") or log_line_start
+        log_line_start_raw = event_data.get("log_line_start")
+        log_line_end_raw = event_data.get("log_line_end") or log_line_start_raw
 
-        if log_line_start is None:
+        if log_line_start_raw is None:
             # For structured formats without line info, return message
             source_name = event_data.get("source_name")
             message = event_data.get("message")
@@ -843,6 +843,8 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
         log_lines = content.splitlines()
 
         # Format using shared function
+        log_line_start = int(log_line_start_raw)
+        log_line_end = int(log_line_end_raw) if log_line_end_raw else log_line_start
         formatted = format_context(
             log_lines,
             log_line_start,
@@ -906,11 +908,11 @@ def _inspect_impl(ref: str, lines: int = 5) -> dict[str, Any]:
         }
 
         # Log context
-        log_line_start = event_data.get("log_line_start")
-        log_line_end = event_data.get("log_line_end") or log_line_start
+        log_line_start_raw = event_data.get("log_line_start")
+        log_line_end_raw = event_data.get("log_line_end") or log_line_start_raw
         log_context = None
 
-        if log_line_start is not None:
+        if log_line_start_raw is not None:
             output_bytes = storage.get_output(run_serial)
             if output_bytes is not None:
                 try:
@@ -918,12 +920,14 @@ def _inspect_impl(ref: str, lines: int = 5) -> dict[str, Any]:
                 except Exception:
                     content = output_bytes.decode("latin-1")
                 log_lines = content.splitlines()
+                start_line = int(log_line_start_raw)
+                end_line = int(log_line_end_raw) if log_line_end_raw else start_line
                 log_context = format_context(
                     log_lines,
-                    log_line_start,
-                    log_line_end,
+                    start_line,
+                    end_line,
                     context=lines,
-                    header=f"Line {log_line_start}",
+                    header=f"Line {start_line}",
                 )
 
         response["log_context"] = log_context
@@ -1691,7 +1695,7 @@ def inspect(
     """
     # Batch mode: get details for multiple events
     if refs:
-        events_list = []
+        events_list: list[dict[str, Any]] = []
         found = 0
 
         for r in refs:
@@ -1830,6 +1834,7 @@ def info(
 
                 # Get events if requested
                 if errors or warnings or severity or context is not None:
+                    sev_filter: str | None
                     if errors and warnings:
                         sev_filter = "error,warning"
                     elif errors:
@@ -1971,6 +1976,7 @@ def _last_impl(
         # Get events if requested
         if errors or warnings or severity or context is not None:
             # Determine severity filter
+            sev_filter: str | None
             if errors and warnings:
                 sev_filter = "error,warning"
             elif errors:
@@ -2226,6 +2232,7 @@ def _clean_impl(
 
         elif mode == "prune":
             # Remove data older than N days
+            assert days is not None  # Checked earlier in function
             cutoff = datetime.now() - timedelta(days=days)
             cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -2343,14 +2350,14 @@ def _clean_impl(
             shutil.rmtree(lq_dir)
 
             # Run init
-            result = subprocess.run(
+            init_proc = subprocess.run(
                 ["blq", "init"],
                 capture_output=True,
                 text=True,
                 cwd=lq_dir.parent,
             )
 
-            if result.returncode == 0:
+            if init_proc.returncode == 0:
                 return {
                     "success": True,
                     "message": "Fully reinitialized .lq directory.",
@@ -2359,9 +2366,13 @@ def _clean_impl(
             else:
                 return {
                     "success": False,
-                    "error": f"Init failed: {result.stderr}",
+                    "error": f"Init failed: {init_proc.stderr}",
                     "mode": mode,
                 }
+
+        else:
+            # Should never reach here since mode is validated
+            return {"success": False, "error": f"Unhandled mode: {mode}"}
 
     except Exception as e:
         return {"success": False, "error": str(e), "mode": mode}

@@ -39,7 +39,7 @@ def cmd_commands(args: argparse.Namespace) -> None:
         print(json.dumps(data, indent=2))
     else:
         # Table/Markdown: list of dicts
-        data = [
+        rows = [
             {
                 "name": name,
                 "cmd": cmd.cmd,
@@ -49,7 +49,7 @@ def cmd_commands(args: argparse.Namespace) -> None:
             }
             for name, cmd in commands.items()
         ]
-        print(format_commands(data, output_format))
+        print(format_commands(rows, output_format))
 
 
 def _normalize_cmd(cmd: str) -> str:

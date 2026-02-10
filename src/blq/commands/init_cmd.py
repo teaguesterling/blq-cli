@@ -786,7 +786,7 @@ def _reinit_config_files(lq_dir: Path, args: argparse.Namespace) -> None:
             result = conn.execute(
                 "SELECT value FROM blq_metadata WHERE key = 'storage_mode'"
             ).fetchone()
-            use_bird = result and result[0] == "duckdb"
+            use_bird = bool(result and result[0] == "duckdb")
             conn.close()
         except Exception:
             # Check for blobs directory as fallback

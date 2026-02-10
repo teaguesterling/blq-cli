@@ -528,7 +528,8 @@ class BirdStore:
         if not result:
             return None
 
-        storage_type, storage_ref = result
+        storage_type: str = result[0]
+        storage_ref: str = result[1]
 
         if storage_type == "inline":
             # Parse data: URI

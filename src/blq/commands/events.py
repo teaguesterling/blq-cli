@@ -70,6 +70,7 @@ def cmd_event(args: argparse.Namespace) -> None:
             print(format_errors(events, output_format))
         else:
             # Show single event
+            assert ref.event_id is not None  # Guaranteed by not is_run_ref
             event = store.event(ref.run_id, ref.event_id)
 
             if event is None:
@@ -124,6 +125,11 @@ def cmd_context(args: argparse.Namespace) -> None:
         ref = EventRef.parse(args.ref)
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Require event reference, not run reference
+    if ref.event_id is None:
+        print("Error: context requires an event reference (e.g., test:24:1)", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -183,7 +189,7 @@ def cmd_inspect(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     # Require event reference, not run reference
-    if ref.is_run_ref:
+    if ref.is_run_ref or ref.event_id is None:
         print("Error: inspect requires an event reference (e.g., test:24:1)", file=sys.stderr)
         print("Use 'blq event' to see all events from a run", file=sys.stderr)
         sys.exit(1)

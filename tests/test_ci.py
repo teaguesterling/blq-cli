@@ -774,7 +774,7 @@ class TestGenerateTemplateScript:
         )
         script = _generate_template_script(cmd)
 
-        assert '--file <value>' in script
+        assert "--file <value>" in script
         assert 'if [ -z "$file" ]' in script
         assert "Error: --file is required" in script
 
@@ -859,9 +859,7 @@ class TestCmdCiGenerate:
         from blq.commands.core import BlqConfig
 
         config = BlqConfig.find()
-        config._commands = {
-            "lint": RegisteredCommand(name="lint", cmd="ruff check .")
-        }
+        config._commands = {"lint": RegisteredCommand(name="lint", cmd="ruff check .")}
         config.save_commands()
 
         args = argparse.Namespace(
@@ -884,9 +882,7 @@ class TestCmdCiGenerate:
         from blq.commands.core import BlqConfig
 
         config = BlqConfig.find()
-        config._commands = {
-            "test": RegisteredCommand(name="test", cmd="pytest")
-        }
+        config._commands = {"test": RegisteredCommand(name="test", cmd="pytest")}
         config.save_commands()
 
         # Create existing script
@@ -914,9 +910,7 @@ class TestCmdCiGenerate:
         from blq.commands.core import BlqConfig
 
         config = BlqConfig.find()
-        config._commands = {
-            "test": RegisteredCommand(name="test", cmd="pytest")
-        }
+        config._commands = {"test": RegisteredCommand(name="test", cmd="pytest")}
         config.save_commands()
 
         # Create existing script

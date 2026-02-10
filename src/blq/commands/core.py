@@ -614,7 +614,7 @@ class BlqConfig:
             True if source lookup is enabled (default: True)
         """
         self._ensure_source_lookup_loaded()
-        return self._source_lookup.get("enabled", True)  # type: ignore[union-attr]
+        return bool(self._source_lookup.get("enabled", True))  # type: ignore[union-attr]
 
     @property
     def ref_root(self) -> Path:
@@ -647,7 +647,7 @@ class BlqConfig:
             True if keep_raw is enabled (default: False)
         """
         self._ensure_storage_config_loaded()
-        return self._storage_config.get("keep_raw", False)  # type: ignore[union-attr]
+        return bool(self._storage_config.get("keep_raw", False))  # type: ignore[union-attr]
 
     def _ensure_storage_config_loaded(self) -> None:
         """Load storage config if not already loaded."""
@@ -866,7 +866,7 @@ def detect_format_from_command(cmd: str) -> str:
             [cmd],
         ).fetchone()
         if result and result[0]:
-            return result[0]
+            return str(result[0])
     except Exception:
         pass  # Fall through to built-in hints
 
