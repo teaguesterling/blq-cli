@@ -843,16 +843,39 @@ def _reinit_config_files(lq_dir: Path, args: argparse.Namespace) -> None:
 
 def cmd_init(args: argparse.Namespace) -> None:
     """Initialize .lq directory and install required extensions."""
+    from blq.user_config import UserConfig
+
+    # Load user config for defaults
+    user_config = UserConfig.load()
+
     cwd = Path.cwd()
     lq_dir = cwd / LQ_DIR
     mcp_config_path = cwd / MCP_CONFIG_FILE
-    create_mcp = getattr(args, "mcp", False)
+
+    # Determine MCP behavior:
+    # --mcp explicitly enables, --no-mcp explicitly disables
+    # Otherwise use user config default (which checks if fastmcp available)
+    explicit_mcp = getattr(args, "mcp", False)
+    explicit_no_mcp = getattr(args, "no_mcp", False)
+    if explicit_mcp:
+        create_mcp = True
+    elif explicit_no_mcp:
+        create_mcp = False
+    else:
+        create_mcp = user_config.auto_mcp
+
     detect_commands = getattr(args, "detect", False)
     detect_mode = getattr(args, "detect_mode", DETECT_AUTO)
     auto_yes = getattr(args, "yes", False)
     force_reinit = getattr(args, "force", False)
     use_parquet = getattr(args, "parquet", False)
-    add_gitignore = getattr(args, "gitignore", True)
+
+    # Gitignore: explicit flag takes precedence, else user config default
+    gitignore_arg = getattr(args, "gitignore", None)
+    if gitignore_arg is None:
+        add_gitignore = user_config.auto_gitignore
+    else:
+        add_gitignore = gitignore_arg
 
     if lq_dir.exists():
         if force_reinit:
@@ -951,9 +974,12 @@ def cmd_init(args: argparse.Namespace) -> None:
     if add_gitignore:
         _add_to_gitignore(cwd)
 
-    # Create MCP config if requested
+    # Create MCP config if requested or auto-enabled
     if create_mcp:
         _write_mcp_config(mcp_config_path)
+        # Print notice if this was auto-enabled (not explicitly requested)
+        if not explicit_mcp and user_config.auto_mcp:
+            print("  (auto-created via user config)")
 
     # Detect and register commands if requested
     if detect_commands:

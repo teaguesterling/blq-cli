@@ -18,7 +18,7 @@ class TestRegisteredCommand:
         assert cmd.name == "build"
         assert cmd.cmd == "make -j8"
         assert cmd.description == ""
-        assert cmd.timeout == 300
+        assert cmd.timeout is None  # No timeout by default
         assert cmd.format == "auto"
 
     def test_create_with_all_fields(self):

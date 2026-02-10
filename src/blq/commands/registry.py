@@ -69,6 +69,37 @@ def _parse_defaults(default_args: list[str]) -> dict[str, str]:
     return defaults
 
 
+def _auto_init() -> BlqConfig | None:
+    """Auto-initialize with sensible defaults from user config.
+
+    Returns:
+        BlqConfig if successful, None otherwise.
+    """
+    import argparse
+
+    from blq.commands.init_cmd import cmd_init
+    from blq.user_config import UserConfig
+
+    user_config = UserConfig.load()
+
+    init_args = argparse.Namespace(
+        mcp=user_config.auto_mcp,
+        no_mcp=False,
+        detect=False,
+        detect_mode="none",
+        yes=True,
+        force=False,
+        parquet=user_config.default_storage == "parquet",
+        namespace=None,
+        project=None,
+        gitignore=user_config.auto_gitignore,
+    )
+    cmd_init(init_args)
+
+    # Return the newly created config
+    return BlqConfig.find()
+
+
 def cmd_register(args: argparse.Namespace) -> None:
     """Register a new command.
 
@@ -78,10 +109,34 @@ def cmd_register(args: argparse.Namespace) -> None:
     Supports two modes:
     - Simple command: blq commands register build make -j8
     - Template command: blq commands register test -t pytest {path} -D path=tests/
+
+    If the project is not initialized and auto_init is enabled in user config,
+    the project will be auto-initialized first.
     """
     from blq.commands.execution import cmd_run
+    from blq.user_config import UserConfig
 
-    config = BlqConfig.ensure()
+    # Try to find existing config
+    config = BlqConfig.find()
+
+    if config is None:
+        user_config = UserConfig.load()
+
+        if user_config.auto_init:
+            # Auto-init with notice
+            print("Project not initialized. Auto-initializing...", file=sys.stderr)
+            config = _auto_init()
+            if config is None:
+                print("Error: Failed to initialize project.", file=sys.stderr)
+                sys.exit(1)
+        else:
+            print("Error: .lq not initialized. Run 'blq init' first.", file=sys.stderr)
+            print(
+                "Tip: Set auto_init = true in ~/.config/blq/config.toml to auto-init",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
     commands = config.commands
 
     name = args.name
