@@ -11,7 +11,10 @@ the [duck_hunt](https://duckdb.org/community_extensions/extensions/duck_hunt) ex
 - **Structured output** in JSON, CSV, or Markdown for agent integration
 - **Event references** for drilling into specific errors
 - **Command registry** for reusable build/test commands
+- **Parameterized commands** with `{placeholder}` syntax and defaults
+- **Live inspection** - monitor running commands with `--follow` and `--status`
 - **Run metadata** - captures git, environment, system, and CI context
+- **User configuration** at `~/.config/blq/config.toml` for global preferences
 - **MCP server** for AI agent integration
 - **60+ log formats** supported via duck_hunt extension
 
@@ -232,6 +235,57 @@ blq commands
 
 **Format auto-detection:** When registering commands, blq automatically detects the appropriate log format based on the command (e.g., `mypy` → `mypy_text`, `pytest` → `pytest_text`).
 
+### Parameterized Commands
+
+Commands can have placeholders that are filled at runtime:
+
+```toml
+# In .lq/commands.toml
+[commands.test]
+tpl = "pytest {path} {flags}"
+defaults = { path = "tests/", flags = "-v" }
+description = "Run tests"
+
+[commands.deploy]
+tpl = "kubectl apply -f {file} -n {namespace}"
+defaults = { namespace = "default" }
+# 'file' has no default, so it's required
+```
+
+**Placeholder syntax:**
+
+| Syntax | Mode | Description |
+|--------|------|-------------|
+| `{name}` | Keyword-only, required | Must use `name=value` |
+| `{name=default}` | Keyword-only, optional | Uses default if not provided |
+| `{name:}` | Positional-able, required | Can use positional or `name=value` |
+| `{name:=default}` | Positional-able, optional | Positional or keyword, with default |
+
+**Usage:**
+
+```bash
+# Use defaults
+blq run test                         # pytest tests/ -v
+
+# Override with key=value
+blq run test path=tests/unit/        # pytest tests/unit/ -v
+
+# Override with --key=value
+blq run test --flags="-vvs -x"       # pytest tests/ -vvs -x
+
+# Positional args (for positional-able placeholders)
+blq run deploy manifest.yaml prod    # kubectl apply -f manifest.yaml -n prod
+
+# Passthrough extra args with -- or ::
+blq run test -- --capture=no         # pytest tests/ -v --capture=no
+
+# Dry run to see expanded command
+blq run test --dry-run               # Shows: pytest tests/ -v
+
+# Get help for a command
+blq run test --help                  # Shows parameters and defaults
+```
+
 **Hooks and CI-detected commands:** When using `--detect`, blq may discover commands from CI config files (GitHub Actions, GitLab CI, etc.). Be aware that adding these to git hooks via `blq hooks add` could duplicate checks that already run in CI. Commands detected from local build files (Makefile, package.json scripts) are generally better candidates for pre-commit hooks.
 
 ## CI Integration
@@ -284,6 +338,27 @@ blq watch lint --exclude "*.log,dist/*"  # Exclude patterns
 blq watch --once build       # Run once then exit (for CI)
 ```
 
+## Live Inspection
+
+Inspect long-running commands while they're still executing:
+
+```bash
+# Filter history by status
+blq history --status=running     # Show only running commands
+blq history --status=completed   # Show only completed commands
+blq history --status=orphaned    # Show crashed commands (no exit code)
+
+# View output from a running command
+blq info build:5 --tail=50       # Last 50 lines of output
+blq info build:5 --head=20       # First 20 lines
+
+# Follow output in real-time (like tail -f)
+blq info build:5 --follow        # Stream live output
+blq info build:5 --follow --tail=20  # Show last 20 lines, then follow
+```
+
+This works with the MCP server too - agents can monitor running builds and get partial results before completion.
+
 ## Run Metadata
 
 Each `blq run` automatically captures execution context:
@@ -302,6 +377,33 @@ Each `blq run` automatically captures execution context:
 Query metadata with SQL:
 ```bash
 blq sql "SELECT hostname, git_branch, environment['VIRTUAL_ENV'] FROM blq_load_events()"
+```
+
+## User Configuration
+
+blq supports user-level configuration at `~/.config/blq/config.toml`:
+
+```toml
+[init]
+auto_mcp = true           # Create .mcp.json on init (default: true if fastmcp installed)
+auto_gitignore = true     # Add .lq/ to .gitignore
+auto_detect = false       # Auto-detect commands on init
+
+[register]
+auto_init = true          # Auto-init .lq/ when registering commands
+
+[mcp]
+safe_mode = false         # Default to safe mode for MCP server
+
+[defaults]
+extra_capture_env = ["MY_CUSTOM_VAR"]  # Additional env vars to capture
+```
+
+With `auto_init = true`, you can register commands without explicitly running `blq init` first:
+
+```bash
+cd new-project
+blq register build "make -j8"  # Auto-initializes .lq/ with notice
 ```
 
 ## MCP Server

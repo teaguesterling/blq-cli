@@ -1,5 +1,8 @@
 # Design: Parameterized Commands
 
+**Status:** Implemented
+**Date:** 2026-02-10
+
 ## Overview
 
 Extend the command registry to support parameterized commands with template substitution.

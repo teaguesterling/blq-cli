@@ -139,6 +139,52 @@ blq run lint
 
 Store `commands.toml` in your repo for reproducibility.
 
+### Parameterized Commands
+
+Commands can have placeholders for flexible CI usage:
+
+```toml
+# .lq/commands.toml
+[commands.test]
+tpl = "pytest {path} {flags}"
+defaults = { path = "tests/", flags = "-v" }
+
+[commands.deploy]
+tpl = "kubectl apply -f {manifest} -n {namespace}"
+defaults = { namespace = "default" }
+```
+
+Use in CI with parameter overrides:
+
+```yaml
+# GitHub Actions
+- name: Run unit tests
+  run: blq run test path=tests/unit/
+
+- name: Run integration tests
+  run: blq run test path=tests/integration/ flags="-v --timeout=300"
+
+- name: Deploy to staging
+  run: blq run deploy manifest=k8s/app.yaml namespace=staging
+```
+
+### Live Inspection
+
+Monitor long-running builds in CI:
+
+```bash
+# Check for running commands
+blq history --status=running
+
+# Get output from a running command
+blq info build:5 --tail=50
+
+# Follow output in real-time
+blq info build:5 --follow
+```
+
+The MCP server also supports live inspection, allowing AI agents to monitor builds while they're running.
+
 ## MCP Server Integration
 
 blq provides an MCP (Model Context Protocol) server for AI agent integration.

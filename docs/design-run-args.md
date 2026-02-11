@@ -1,6 +1,6 @@
 # `blq run` Argument Parameterization
 
-## Status: Draft
+## Status: Implemented
 
 ## Overview
 

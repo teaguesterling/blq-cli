@@ -29,10 +29,19 @@ This creates a `.lq/` directory and installs the `duck_hunt` extension for log p
 
 ```
 Initialized .lq at /path/to/my-project/.lq
-  logs/      - Hive-partitioned parquet files
-  raw/       - Raw log files (optional)
-  schema.sql - SQL schema and macros
-  duck_hunt  - Installed successfully
+  blq.duckdb    - DuckDB database with tables and macros
+  blobs/        - Content-addressed output storage
+  config.toml   - Project configuration
+  commands.toml - Registered commands
+  duck_hunt     - Installed successfully
+```
+
+**Options:**
+
+```bash
+blq init --detect --yes      # Auto-detect and register commands
+blq init --no-gitignore      # Skip .gitignore modification
+blq init --no-mcp            # Skip .mcp.json creation
 ```
 
 ## Your First Query
@@ -138,8 +147,45 @@ eval "$(blq completions zsh)"
 blq completions fish > ~/.config/fish/completions/blq.fish
 ```
 
+## Parameterized Commands
+
+Commands can have placeholders that are filled at runtime:
+
+```bash
+# Register a parameterized command
+blq register test "pytest {path:=tests/} {flags:=-v}"
+
+# Use with defaults
+blq run test                    # pytest tests/ -v
+
+# Override parameters
+blq run test path=tests/unit/   # pytest tests/unit/ -v
+blq run test tests/unit/ -x     # pytest tests/unit/ -v -x (positional + extra)
+
+# See what command will run
+blq run test --dry-run          # Shows: pytest tests/ -v
+```
+
+See the [README](../README.md#parameterized-commands) for full placeholder syntax.
+
+## Live Inspection
+
+Monitor long-running commands while they're still running:
+
+```bash
+# See running commands
+blq history --status=running
+
+# Follow output in real-time
+blq info build:5 --follow
+
+# Get last N lines from a running command
+blq info build:5 --tail=50
+```
+
 ## Next Steps
 
 - [Commands Reference](commands/) - Learn all available commands
 - [Query Guide](query-guide.md) - Master querying techniques
 - [Integration Guide](integration.md) - Use with AI agents
+- [MCP Guide](mcp.md) - AI agent integration via MCP

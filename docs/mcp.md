@@ -485,6 +485,56 @@ Get raw stdout/stderr output for a run. Useful when structured parsing didn't ca
 
 ---
 
+### info
+
+Get detailed information about a specific run, including running commands.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `ref` | string | No | Run reference (e.g., "build:5") or UUID. If omitted, uses most recent run. |
+| `head` | number | No | Return first N lines of output |
+| `tail` | number | No | Return last N lines of output |
+| `errors` | boolean | No | Include error events (default: false) |
+| `warnings` | boolean | No | Include warning events (default: false) |
+| `context` | number | No | Show N lines of log context around each event |
+
+**Returns:**
+
+```json
+{
+  "run_id": 5,
+  "source_name": "build",
+  "command": "make -j8",
+  "status": "RUNNING",
+  "is_running": true,
+  "attempt_id": "abc123-...",
+  "started_at": "2024-01-15T10:30:00Z",
+  "cwd": "/home/user/project",
+  "git_branch": "main",
+  "output": "...",
+  "output_lines": 50
+}
+```
+
+For running commands, `info` reads from the live output directory. For completed commands, it reads from blob storage.
+
+**Example:**
+
+```json
+{
+  "tool": "info",
+  "arguments": {
+    "ref": "build:5",
+    "tail": 20,
+    "errors": true
+  }
+}
+```
+
+---
+
 ### status
 
 Get current status summary of all sources.
@@ -528,6 +578,7 @@ Get run history.
 |------|------|----------|-------------|
 | `limit` | number | No | Max runs to return (default: 20) |
 | `source` | string | No | Filter to specific source name |
+| `status` | string | No | Filter by status: "running", "completed", "orphaned" |
 
 **Returns:**
 

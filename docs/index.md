@@ -10,10 +10,11 @@ Build and test logs contain valuable information, but they're often:
 - Lost after a few days
 
 blq solves this by:
-- **Storing logs locally** in efficient parquet format
+- **Storing logs locally** using BIRD (DuckDB tables + content-addressed blobs)
 - **Parsing 60+ formats** via the duck_hunt extension
 - **Providing SQL access** for powerful queries
 - **Outputting structured data** for AI agent integration
+- **Live inspection** of running commands with `--follow` and `--status`
 
 ## Core Concepts
 

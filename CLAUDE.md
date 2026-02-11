@@ -49,8 +49,15 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **Query filter syntax** (`query(filter="severity=error ref_file~test")`)
 - **Parameterized commands** with `tpl` templates and `defaults` (see design doc)
 - **TOML config format** (`config.toml`, `commands.toml`)
+- **User configuration** at `~/.config/blq/config.toml` for global preferences
+- **Auto-init on register** when `auto_init = true` in user config
+- **Live inspection** of running commands (attempts/outcomes architecture)
+- **History status filter** (`blq history --status=running/completed/orphaned`)
+- **Live output viewing** (`blq info <ref> --tail/--head/--follow`)
+- **Claude Code hooks** integration (`blq mcp install --hooks`)
+- **Dry-run mode** (`blq run <cmd> --dry-run`) to preview expanded commands
 - Full mypy type checking compliance
-- 464+ unit tests
+- 600+ unit tests
 - Comprehensive documentation (README, docs/)
 
 ### TODO
