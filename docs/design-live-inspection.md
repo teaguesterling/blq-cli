@@ -164,33 +164,92 @@ The existing `invocations` table is kept and written to at command completion (a
 
 ### Execution Flow
 
-The `_execute_with_live_output()` function in `src/blq/commands/execution.py` implements:
+The `_execute_with_live_output()` function in `src/blq/commands/execution.py` implements a **minimized lock time pattern** to avoid holding database locks during long-running commands:
 
-1. **Command Start:**
-   - Write `AttemptRecord` to `attempts` table (visible as 'pending')
-   - Create live output directory: `.lq/live/{attempt_id}/`
-   - Write `meta.json` with command metadata
-   - Open `combined.log` for streaming writes
+#### Window 1: Pre-Execution (Brief DB Access)
 
-2. **During Execution:**
-   - Stream subprocess output line-by-line
-   - Write each line to `combined.log` with immediate flush
-   - Optionally echo to stdout (unless `--quiet`)
+Opens database connection, writes minimal records, then closes:
 
-3. **Command Completion:**
-   - Write `OutcomeRecord` to `outcomes` table
-   - Write `InvocationRecord` to `invocations` table (same ID as attempt)
-   - Parse output for events using duck_hunt
-   - Write events to `events` table
-   - Finalize live output (move to blob storage if configured)
-   - Clean up live directory
+1. Open DB with retry (`BirdStore.open_with_retry()`)
+2. Ensure session exists
+3. Write `AttemptRecord` to `attempts` table (visible as 'pending')
+4. Get next run number
+5. Create live output directory: `.lq/live/{attempt_id}/`
+6. **Close DB connection** - releases lock
+
+#### Subprocess Execution (No DB Lock Held)
+
+Database is unlocked during the actual command execution:
+
+1. Start subprocess
+2. Write `meta.json` with command metadata (filesystem only)
+3. **Background thread** updates PID in DB (brief, retries on contention)
+4. Stream subprocess output line-by-line to `combined.log`
+5. Optionally echo to stdout (unless `--quiet`)
+
+#### Window 2: Post-Execution (Brief DB Access)
+
+Opens database connection, writes results, then closes:
+
+1. Open DB with retry (`BirdStore.open_with_retry()`)
+2. Write `OutcomeRecord` to `outcomes` table
+3. Write `InvocationRecord` to `invocations` table (same ID as attempt)
+4. Parse output for events using duck_hunt
+5. Write events to `events` table
+6. Finalize live output (move to blob storage if configured)
+7. Clean up live directory
+8. **Close DB connection** - releases lock
+
+### Concurrency Handling
+
+The minimized lock time pattern enables concurrent command execution without lock contention:
+
+#### Retry Logic
+
+All database operations use `BirdStore.open_with_retry()` which handles lock contention:
+
+- **Exponential backoff**: Initial 50ms delay, doubles up to 2s max
+- **Jitter**: ±25% randomization to prevent thundering herd
+- **Configurable retries**: Default 5 retries for critical operations
+
+```python
+# Opens with retry on lock contention
+with BirdStore.open_with_retry(lq_dir) as store:
+    store.write_attempt(attempt)
+```
+
+#### Background PID Update
+
+The PID update runs in a daemon thread with its own brief connection:
+
+```python
+def _update_pid_async(pid: int) -> None:
+    try:
+        with BirdStore.open_with_retry(lq_dir, max_retries=3) as store:
+            store.update_attempt_pid(attempt_id, pid)
+    except Exception:
+        pass  # Non-critical - PID also in meta.json
+```
+
+#### Race Condition Testing
+
+The test suite includes comprehensive race condition tests:
+
+- `test_concurrent_window1_from_multiple_commands` - Simultaneous command starts
+- `test_window1_and_pid_update_race` - Race between Window 1 and background PID update
+- `test_overlapping_command_lifecycles` - Commands with overlapping execution phases
+- `test_data_integrity_under_concurrent_writes` - Verify no data corruption
 
 ### BirdStore Methods
 
 | Method | Description |
 |--------|-------------|
+| `open(lq_dir)` | Open store (may fail on lock contention) |
+| `open_with_retry(lq_dir, ...)` | Open store with retry on lock contention |
+| `execute_with_retry(func, ...)` | Execute function with retry on lock errors |
 | `write_attempt(record)` | Write attempt record at start |
 | `write_outcome(record)` | Write outcome record at completion |
+| `update_attempt_pid(id, pid)` | Update PID field for an attempt |
 | `get_attempt_status(id)` | Get current status of an attempt |
 | `get_running_attempts()` | List all pending attempts |
 | `create_live_dir(id, meta)` | Create live output directory |
@@ -244,9 +303,18 @@ class OutcomeRecord:
 | File | Role |
 |------|------|
 | `src/blq/bird_schema.sql` | SQL schema with attempts/outcomes tables and macros |
-| `src/blq/bird.py` | BirdStore class with attempt/outcome/live output methods |
-| `src/blq/commands/execution.py` | `_execute_with_live_output()` function |
-| `tests/test_attempts_outcomes.py` | Tests for attempts/outcomes and live output |
+| `src/blq/bird.py` | BirdStore class with attempt/outcome/live output methods, retry logic |
+| `src/blq/commands/execution.py` | `_execute_with_live_output()` with Window 1/Window 2 pattern |
+| `tests/test_attempts_outcomes.py` | Tests for attempts/outcomes, live output, and concurrency |
+
+### Key Functions in bird.py
+
+| Function | Description |
+|----------|-------------|
+| `retry_on_lock(func, ...)` | Execute function with retry on database lock errors |
+| `_is_lock_error(error)` | Detect if an exception is a lock contention error |
+| `BirdStore.open_with_retry(...)` | Open store with automatic retry on lock contention |
+| `BirdStore.execute_with_retry(...)` | Execute operation with retry on lock errors |
 
 ## Usage Examples
 
@@ -413,6 +481,11 @@ pytest tests/test_attempts_outcomes.py -v
 
 # Just live output streaming tests
 pytest tests/test_attempts_outcomes.py::TestLiveOutputStreaming -v
+
+# Lock contention and concurrency tests
+pytest tests/test_attempts_outcomes.py::TestRetryOnLock -v
+pytest tests/test_attempts_outcomes.py::TestConcurrentAccess -v
+pytest tests/test_attempts_outcomes.py::TestRaceConditions -v
 ```
 
 Test coverage:
@@ -422,3 +495,7 @@ Test coverage:
 - Live directory creation/cleanup
 - Live output read/write
 - Finalization to blob storage (inline and blob modes)
+- Retry logic with exponential backoff
+- Concurrent write operations
+- Race condition scenarios
+- Data integrity under concurrent writes

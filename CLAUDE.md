@@ -64,8 +64,10 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **Conditional tail** in run output (2 lines with errors, full without, none on success)
 - **Fingerprint field** included in events output
 - **Source name** in run results for correct run_ref construction
+- **Database lock contention handling** with retry logic and exponential backoff
+- **Minimized DB lock time** during command execution (Window 1/Window 2 pattern)
 - Full mypy type checking compliance
-- 600+ unit tests
+- 650+ unit tests
 - Comprehensive documentation (README, docs/)
 
 ### TODO
@@ -238,6 +240,8 @@ Runtime override: `blq run --no-capture <cmd>` or `blq run --capture <cmd>`
 8. **Python duckdb API**: No subprocess calls to duckdb CLI
 9. **Content-addressed blobs**: Output deduplication with BLAKE2b hashing
 10. **JSON for variable data**: Environment and CI stored as JSON in BIRD mode
+11. **Minimized lock time**: DB connection opened briefly for writes, closed during subprocess execution
+12. **Retry with backoff**: Lock contention handled with exponential backoff and jitter
 
 ## Reference Naming Scheme
 
