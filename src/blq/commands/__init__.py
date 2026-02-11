@@ -8,6 +8,7 @@ from blq.commands.ci_cmd import cmd_ci_check, cmd_ci_comment, cmd_ci_generate
 from blq.commands.clean_cmd import cmd_clean
 from blq.commands.events import cmd_context, cmd_event, cmd_inspect
 from blq.commands.execution import cmd_capture, cmd_exec, cmd_import, cmd_run
+from blq.commands.record_cmd import cmd_record_attempt, cmd_record_help, cmd_record_outcome
 from blq.commands.hooks_cmd import (
     cmd_hooks_add,
     cmd_hooks_generate,
@@ -100,4 +101,8 @@ __all__ = [
     # MCP
     "cmd_mcp_install",
     "cmd_mcp_serve",
+    # Record invocation
+    "cmd_record_attempt",
+    "cmd_record_outcome",
+    "cmd_record_help",
 ]

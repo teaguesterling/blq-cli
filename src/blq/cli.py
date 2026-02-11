@@ -1017,6 +1017,75 @@ def main() -> None:
     p_ci.set_defaults(func=ci_help)
 
     # =========================================================================
+    # Record invocation command (for passive tracking via hooks)
+    # =========================================================================
+
+    from blq.commands.record_cmd import (
+        cmd_record_attempt,
+        cmd_record_help,
+        cmd_record_outcome,
+    )
+
+    p_record = subparsers.add_parser(
+        "record-invocation",
+        help="Record invocation metadata for passive tracking",
+    )
+    record_subparsers = p_record.add_subparsers(
+        dest="record_command", help="Record subcommands"
+    )
+
+    # record-invocation attempt
+    p_record_attempt = record_subparsers.add_parser(
+        "attempt", help="Record command start (returns attempt_id)"
+    )
+    p_record_attempt.add_argument(
+        "--command", "-c", required=True, help="Command string"
+    )
+    p_record_attempt.add_argument("--tag", "-t", help="Tag for grouping")
+    p_record_attempt.add_argument("--format", "-F", help="Expected log format")
+    p_record_attempt.add_argument("--cwd", help="Working directory")
+    p_record_attempt.add_argument(
+        "--pid", type=int, help="Process ID of the command"
+    )
+    p_record_attempt.add_argument(
+        "--json", "-j", action="store_true", help="Output JSON"
+    )
+    p_record_attempt.set_defaults(func=cmd_record_attempt)
+
+    # record-invocation outcome
+    p_record_outcome = record_subparsers.add_parser(
+        "outcome", help="Record command completion"
+    )
+    p_record_outcome.add_argument("--attempt", "-a", help="Attempt ID to complete")
+    p_record_outcome.add_argument(
+        "--command", "-c", help="Command (if no prior attempt)"
+    )
+    p_record_outcome.add_argument(
+        "--exit", "-e", type=int, default=0, dest="exit", help="Exit code"
+    )
+    p_record_outcome.add_argument(
+        "--duration", "-d", type=int, help="Duration in milliseconds"
+    )
+    p_record_outcome.add_argument(
+        "--pid", type=int, help="Process ID of the command"
+    )
+    p_record_outcome.add_argument(
+        "--parse", "-p", action="store_true", help="Parse output for events"
+    )
+    p_record_outcome.add_argument("--format", "-F", help="Parser format")
+    p_record_outcome.add_argument("--tag", "-t", help="Tag (if no prior attempt)")
+    p_record_outcome.add_argument(
+        "--output", "-o", help="Read output from file instead of stdin"
+    )
+    p_record_outcome.add_argument(
+        "--json", "-j", action="store_true", help="Output JSON"
+    )
+    p_record_outcome.set_defaults(func=cmd_record_outcome)
+
+    # Default handler for 'blq record-invocation' without subcommand
+    p_record.set_defaults(func=cmd_record_help)
+
+    # =========================================================================
     # Report command
     # =========================================================================
 

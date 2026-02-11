@@ -233,12 +233,11 @@ def _execute_with_live_output(
     logger.debug(f"Attempt ID: {attempt_id}")
     logger.debug(f"Run ID: {run_id}")
 
-    # Create live output directory
+    # Create live output directory (pid will be updated after process starts)
     live_meta = {
         "cmd": command,
         "source_name": source_name,
         "started_at": started_at.isoformat(),
-        "pid": os.getpid(),
         "attempt_id": attempt_id,
         "run_id": run_id,
     }
@@ -247,6 +246,9 @@ def _execute_with_live_output(
 
     # Open live output file for writing
     live_file = open(live_output_path, "w")  # noqa: SIM115
+
+    # Track subprocess PID
+    subprocess_pid: int | None = None
 
     try:
         # Run command, streaming to live file
@@ -257,6 +259,17 @@ def _execute_with_live_output(
             stderr=subprocess.STDOUT,
             text=True,
         )
+
+        # Capture subprocess PID and update attempt record
+        subprocess_pid = process.pid
+        store.update_attempt_pid(attempt_id, subprocess_pid)
+
+        # Update live metadata with subprocess PID
+        live_meta["pid"] = subprocess_pid
+        meta_path = live_dir / "meta.json"
+        import json as json_module
+
+        meta_path.write_text(json_module.dumps(live_meta, default=str, indent=2))
 
         output_lines: list[str] = []
         timed_out = False
@@ -375,6 +388,7 @@ def _execute_with_live_output(
         executable=executable_path,
         format_hint=format_hint if format_hint != "auto" else None,
         hostname=hostname,
+        pid=subprocess_pid,
         tag=source_name,
         source_name=source_name,
         source_type=source_type,

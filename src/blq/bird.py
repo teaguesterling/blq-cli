@@ -67,6 +67,7 @@ class InvocationRecord:
     format_hint: str | None = None
     hostname: str | None = None
     username: str | None = None
+    pid: int | None = None  # Process ID of the command
 
     # BIRD spec: user-defined tag (non-unique alias for this invocation)
     tag: str | None = None
@@ -122,6 +123,7 @@ class AttemptRecord:
     format_hint: str | None = None
     hostname: str | None = None
     username: str | None = None
+    pid: int | None = None  # Process ID of the command
 
     # BIRD spec: user-defined tag
     tag: str | None = None
@@ -458,12 +460,12 @@ class BirdStore:
         self._conn.execute(
             """
             INSERT INTO invocations (
-                id, session_id, timestamp, duration_ms, cwd, cmd, executable,
+                id, session_id, timestamp, duration_ms, cwd, cmd, executable, pid,
                 exit_code, format_hint, client_id, hostname, username, tag,
                 source_name, source_type, environment, platform, arch,
                 git_commit, git_branch, git_dirty, ci, date
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 record.id,
@@ -473,6 +475,7 @@ class BirdStore:
                 record.cwd,
                 record.cmd,
                 record.executable,
+                record.pid,
                 record.exit_code,
                 record.format_hint,
                 record.client_id,
@@ -527,12 +530,12 @@ class BirdStore:
         self._conn.execute(
             """
             INSERT INTO attempts (
-                id, session_id, timestamp, cwd, cmd, executable,
+                id, session_id, timestamp, cwd, cmd, executable, pid,
                 format_hint, client_id, hostname, username, tag,
                 source_name, source_type, environment, platform, arch,
                 git_commit, git_branch, git_dirty, ci, date
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 record.id,
@@ -541,6 +544,7 @@ class BirdStore:
                 record.cwd,
                 record.cmd,
                 record.executable,
+                record.pid,
                 record.format_hint,
                 record.client_id,
                 record.hostname,
@@ -646,6 +650,18 @@ class BirdStore:
         ).fetchone()
 
         return result[0] if result else None
+
+    def update_attempt_pid(self, attempt_id: str, pid: int) -> None:
+        """Update the pid field for an attempt after process starts.
+
+        Args:
+            attempt_id: The attempt UUID
+            pid: Process ID of the command
+        """
+        self._conn.execute(
+            "UPDATE attempts SET pid = ? WHERE id = ?",
+            [pid, attempt_id],
+        )
 
     # =========================================================================
     # Live Output Management

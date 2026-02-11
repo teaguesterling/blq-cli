@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     -- Command
     cmd               VARCHAR NOT NULL,                 -- Full command string
     executable        VARCHAR,                          -- Extracted executable name
+    pid               INTEGER,                          -- Process ID of the command
 
     -- Format detection
     format_hint       VARCHAR,                          -- Detected format (gcc, pytest, etc.)
@@ -140,6 +141,7 @@ CREATE TABLE IF NOT EXISTS invocations (
     -- Command
     cmd               VARCHAR NOT NULL,                 -- Full command string
     executable        VARCHAR,                          -- Extracted executable name
+    pid               INTEGER,                          -- Process ID of the command
 
     -- Result
     exit_code         INTEGER NOT NULL,
