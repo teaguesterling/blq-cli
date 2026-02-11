@@ -34,7 +34,7 @@ If this returns commands, you're ready. If it returns an empty list or error, th
 
 ```python
 blq.commands()
-# Returns: {"commands": [{"name": "build", "cmd": "make -j8"}, {"name": "test", "cmd": "pytest"}]}
+# Returns: {"commands": [{"name": "build", "cmd": "make -j8"}, {"name": "test", "tpl": "pytest {path}", "defaults": {"path": "tests/"}}]}
 ```
 
 ### Check current status
@@ -178,6 +178,7 @@ blq.run(command="test")
 # Returns:
 {
   "run_ref": "test:47",
+  "cmd": "pytest tests/ -v",
   "status": "FAIL",
   "exit_code": 1,
   "summary": {"error_count": 2, "warning_count": 5},

@@ -270,6 +270,7 @@ def _run_impl(
 
                 concise: dict[str, Any] = {
                     "run_ref": f"{source_name}:{run_id}" if run_id else None,
+                    "cmd": full_result.get("command"),
                     "status": status,
                     "exit_code": exit_code,
                     "summary": summary,
@@ -439,6 +440,7 @@ def _exec_impl(
 
                 concise: dict[str, Any] = {
                     "run_ref": f"{source_name}:{run_id}" if run_id else None,
+                    "cmd": full_result.get("command"),
                     "status": status,
                     "exit_code": exit_code,
                     "summary": summary,
@@ -1768,19 +1770,23 @@ def _commands_impl() -> dict[str, Any]:
 
         commands = config.commands
 
-        return {
-            "commands": [
-                {
-                    "name": name,
-                    "cmd": cmd.cmd,
-                    "description": cmd.description,
-                    "timeout": cmd.timeout,
-                    "capture": cmd.capture,
-                    "format": cmd.format,
-                }
-                for name, cmd in commands.items()
-            ]
-        }
+        result = []
+        for name, cmd in commands.items():
+            entry: dict[str, Any] = {"name": name}
+            if cmd.cmd:
+                entry["cmd"] = cmd.cmd
+            elif cmd.tpl:
+                entry["tpl"] = cmd.tpl
+                if cmd.defaults:
+                    entry["defaults"] = cmd.defaults
+            else:
+                entry["error"] = "invalid: no cmd or tpl"
+            entry["description"] = cmd.description
+            entry["timeout"] = cmd.timeout
+            entry["capture"] = cmd.capture
+            entry["format"] = cmd.format
+            result.append(entry)
+        return {"commands": result}
     except Exception as e:
         return {"commands": [], "error": str(e)}
 

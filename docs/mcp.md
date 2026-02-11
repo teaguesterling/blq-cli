@@ -135,6 +135,7 @@ For parameterized commands (templates with `{param}` placeholders), use `args` t
 ```json
 {
   "run_ref": "build:1",
+  "cmd": "make -j8",
   "status": "FAIL",
   "exit_code": 2,
   "summary": {"error_count": 3, "warning_count": 5},
@@ -861,15 +862,17 @@ List all registered commands.
 
 ```json
 {
-  "commands": {
-    "build": {
+  "commands": [
+    {
+      "name": "build",
       "cmd": "make -j8",
       "description": "Build the project",
       "timeout": 300,
       "format": "auto",
       "capture": true
     },
-    "test": {
+    {
+      "name": "test",
       "tpl": "pytest {path} {flags}",
       "defaults": {"path": "tests/", "flags": "-v"},
       "description": "Run tests",
@@ -877,11 +880,11 @@ List all registered commands.
       "format": "auto",
       "capture": true
     }
-  }
+  ]
 }
 ```
 
-Template commands use `tpl` instead of `cmd`, with optional `defaults` for parameter values.
+Commands are returned as a list. Template commands use `tpl` instead of `cmd`, with optional `defaults` for parameter values.
 
 **Example:**
 
@@ -1073,15 +1076,20 @@ Registered commands.
   "commands": [
     {
       "name": "build",
-      "command": "make -j8",
+      "cmd": "make -j8",
       "description": "Build the project",
-      "timeout": 300
+      "timeout": 300,
+      "capture": true,
+      "format": "auto"
     },
     {
       "name": "test",
-      "command": "pytest -v",
+      "tpl": "pytest {path} {flags}",
+      "defaults": {"path": "tests/", "flags": "-v"},
       "description": "Run tests",
-      "timeout": 600
+      "timeout": 600,
+      "capture": true,
+      "format": "auto"
     }
   ]
 }
