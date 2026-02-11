@@ -790,7 +790,6 @@ class TestRetryOnLock:
     def test_exhausts_retries(self):
         """Function exhausts all retries and raises."""
         import duckdb
-
         import pytest
 
         from blq.bird import retry_on_lock
@@ -814,7 +813,6 @@ class TestRetryOnLock:
     def test_does_not_retry_non_lock_errors(self):
         """Non-lock errors are raised immediately without retry."""
         import duckdb
-
         import pytest
 
         from blq.bird import retry_on_lock
@@ -996,8 +994,8 @@ class TestConcurrentAccess:
                 source_name="test",
             )
             attempt_id = store.write_attempt(attempt)
-            run_id = store.get_next_run_number()
-            live_dir = store.create_live_dir(attempt_id, {"cmd": "echo hello"})
+            store.get_next_run_number()  # Allocate run number
+            store.create_live_dir(attempt_id, {"cmd": "echo hello"})
 
         # Simulate command execution (DB unlocked)
         time.sleep(0.01)
@@ -1039,9 +1037,9 @@ class TestLockContentionRecovery:
 
     def test_is_lock_error_detection(self):
         """_is_lock_error correctly identifies lock errors."""
-        from blq.bird import _is_lock_error
-
         import duckdb
+
+        from blq.bird import _is_lock_error
 
         # Lock errors
         assert _is_lock_error(duckdb.Error("database is locked"))
@@ -1057,7 +1055,6 @@ class TestLockContentionRecovery:
     def test_retry_respects_max_retries(self):
         """Retry stops after max_retries attempts."""
         import duckdb
-
         import pytest
 
         from blq.bird import retry_on_lock
@@ -1080,9 +1077,9 @@ class TestLockContentionRecovery:
 
     def test_exponential_backoff_timing(self):
         """Verify exponential backoff increases delay."""
-        import duckdb
         import time
 
+        import duckdb
         import pytest
 
         from blq.bird import retry_on_lock
@@ -1114,3 +1111,302 @@ class TestLockContentionRecovery:
         for d in delays:
             assert d >= 0.01  # All delays should be at least 10ms
             assert d <= 1.5  # None should exceed max_delay + jitter
+
+
+class TestRaceConditions:
+    """Tests for specific race condition scenarios."""
+
+    def test_concurrent_window1_from_multiple_commands(self, initialized_project):
+        """Multiple commands starting simultaneously (Window 1 race)."""
+        import threading
+
+        lq_dir = initialized_project / ".lq"
+        results = {"attempts": [], "errors": []}
+        barrier = threading.Barrier(3)  # Synchronize 3 threads
+
+        def start_command(cmd_id: int):
+            try:
+                # Wait for all threads to be ready
+                barrier.wait(timeout=5)
+
+                # Window 1: All threads try to write attempts simultaneously
+                with BirdStore.open_with_retry(lq_dir, max_retries=10) as store:
+                    store.ensure_session(
+                        session_id=f"cmd-{cmd_id}",
+                        client_id="blq-run",
+                        invoker="blq",
+                        invoker_type="cli",
+                    )
+                    attempt = AttemptRecord(
+                        id=AttemptRecord.generate_id(),
+                        session_id=f"cmd-{cmd_id}",
+                        cmd=f"echo {cmd_id}",
+                        cwd=str(initialized_project),
+                        client_id="blq-run",
+                        source_name=f"cmd-{cmd_id}",
+                    )
+                    attempt_id = store.write_attempt(attempt)
+                    results["attempts"].append((cmd_id, attempt_id))
+            except Exception as e:
+                results["errors"].append((cmd_id, str(e)))
+
+        threads = [threading.Thread(target=start_command, args=(i,)) for i in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+
+        assert len(results["errors"]) == 0, f"Errors: {results['errors']}"
+        assert len(results["attempts"]) == 3
+
+        # Verify all attempts were written correctly
+        with BirdStore.open(lq_dir) as store:
+            for cmd_id, attempt_id in results["attempts"]:
+                status = store.get_attempt_status(attempt_id)
+                assert status == "pending"
+
+    def test_window1_and_pid_update_race(self, initialized_project):
+        """Race between Window 1 closing and background PID update."""
+        import threading
+
+        lq_dir = initialized_project / ".lq"
+        attempt_id = None
+        pid_updated = threading.Event()
+        errors = []
+
+        def window1_and_spawn_pid_update():
+            nonlocal attempt_id
+            # Window 1
+            with BirdStore.open_with_retry(lq_dir) as store:
+                store.ensure_session(
+                    session_id="test",
+                    client_id="blq-run",
+                    invoker="blq",
+                    invoker_type="cli",
+                )
+                attempt = AttemptRecord(
+                    id=AttemptRecord.generate_id(),
+                    session_id="test",
+                    cmd="test",
+                    cwd=str(initialized_project),
+                    client_id="blq-run",
+                )
+                attempt_id = store.write_attempt(attempt)
+
+                # Spawn PID update thread WHILE still holding connection
+                # This tests the race where PID update starts before Window 1 closes
+                def update_pid():
+                    try:
+                        with BirdStore.open_with_retry(lq_dir, max_retries=5) as pid_store:
+                            pid_store.update_attempt_pid(attempt_id, 99999)
+                        pid_updated.set()
+                    except Exception as e:
+                        errors.append(str(e))
+
+                pid_thread = threading.Thread(target=update_pid)
+                pid_thread.start()
+
+                # Small delay to let PID thread start and potentially contend
+                import time
+                time.sleep(0.01)
+
+            # Window 1 closed, PID update should complete
+            pid_thread.join(timeout=5)
+
+        window1_and_spawn_pid_update()
+
+        assert pid_updated.is_set(), f"PID update failed: {errors}"
+
+        # Verify PID was updated
+        with BirdStore.open(lq_dir) as store:
+            result = store.connection.execute(
+                "SELECT pid FROM attempts WHERE id = ?", [attempt_id]
+            ).fetchone()
+            assert result[0] == 99999
+
+    def test_overlapping_command_lifecycles(self, initialized_project):
+        """Commands with overlapping Window 1 and Window 2 phases."""
+        import threading
+        import time
+
+        lq_dir = initialized_project / ".lq"
+        results = {"cmd1": {}, "cmd2": {}}
+        errors = []
+
+        def command_lifecycle(cmd_name: str, start_delay: float, exec_time: float):
+            try:
+                time.sleep(start_delay)
+
+                # Window 1
+                with BirdStore.open_with_retry(lq_dir, max_retries=10) as store:
+                    store.ensure_session(
+                        session_id=cmd_name,
+                        client_id="blq-run",
+                        invoker="blq",
+                        invoker_type="cli",
+                    )
+                    attempt = AttemptRecord(
+                        id=AttemptRecord.generate_id(),
+                        session_id=cmd_name,
+                        cmd=f"echo {cmd_name}",
+                        cwd=str(initialized_project),
+                        client_id="blq-run",
+                        source_name=cmd_name,
+                    )
+                    attempt_id = store.write_attempt(attempt)
+                    results[cmd_name]["attempt_id"] = attempt_id
+
+                # Simulate execution (DB unlocked)
+                time.sleep(exec_time)
+
+                # Window 2
+                with BirdStore.open_with_retry(lq_dir, max_retries=10) as store:
+                    from blq.bird import InvocationRecord, OutcomeRecord
+
+                    outcome = OutcomeRecord(
+                        attempt_id=attempt_id,
+                        exit_code=0,
+                        duration_ms=int(exec_time * 1000),
+                    )
+                    store.write_outcome(outcome)
+
+                    invocation = InvocationRecord(
+                        id=attempt_id,
+                        session_id=cmd_name,
+                        cmd=f"echo {cmd_name}",
+                        cwd=str(initialized_project),
+                        client_id="blq-run",
+                        exit_code=0,
+                    )
+                    store.write_invocation(invocation)
+                    results[cmd_name]["completed"] = True
+
+            except Exception as e:
+                errors.append((cmd_name, str(e)))
+
+        # cmd1: starts immediately, runs for 50ms
+        # cmd2: starts after 20ms, runs for 30ms
+        # This creates overlap: cmd2's Window 1 happens during cmd1's execution
+        # And cmd2's Window 2 might race with cmd1's Window 2
+        t1 = threading.Thread(target=command_lifecycle, args=("cmd1", 0, 0.05))
+        t2 = threading.Thread(target=command_lifecycle, args=("cmd2", 0.02, 0.03))
+
+        t1.start()
+        t2.start()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+
+        assert len(errors) == 0, f"Errors: {errors}"
+        assert results["cmd1"].get("completed")
+        assert results["cmd2"].get("completed")
+
+        # Verify both commands completed correctly
+        with BirdStore.open(lq_dir) as store:
+            for cmd_name in ["cmd1", "cmd2"]:
+                status = store.get_attempt_status(results[cmd_name]["attempt_id"])
+                assert status == "completed", f"{cmd_name} status is {status}"
+
+    def test_data_integrity_under_concurrent_writes(self, initialized_project):
+        """Verify data integrity when multiple threads write concurrently."""
+        import threading
+
+        lq_dir = initialized_project / ".lq"
+        num_commands = 10
+        results = []
+        errors = []
+        barrier = threading.Barrier(num_commands)
+
+        def write_full_lifecycle(cmd_id: int):
+            try:
+                barrier.wait(timeout=10)
+
+                attempt_id = AttemptRecord.generate_id()
+
+                # Window 1
+                with BirdStore.open_with_retry(lq_dir, max_retries=15) as store:
+                    store.ensure_session(
+                        session_id=f"integrity-{cmd_id}",
+                        client_id="blq-run",
+                        invoker="blq",
+                        invoker_type="cli",
+                    )
+                    attempt = AttemptRecord(
+                        id=attempt_id,
+                        session_id=f"integrity-{cmd_id}",
+                        cmd=f"echo integrity test {cmd_id}",
+                        cwd=str(initialized_project),
+                        client_id="blq-run",
+                        source_name=f"integrity-{cmd_id}",
+                        tag=f"tag-{cmd_id}",
+                    )
+                    store.write_attempt(attempt)
+
+                # Window 2
+                with BirdStore.open_with_retry(lq_dir, max_retries=15) as store:
+                    from blq.bird import InvocationRecord, OutcomeRecord
+
+                    outcome = OutcomeRecord(
+                        attempt_id=attempt_id,
+                        exit_code=cmd_id,  # Use cmd_id as exit code for verification
+                        duration_ms=cmd_id * 10,
+                    )
+                    store.write_outcome(outcome)
+
+                    invocation = InvocationRecord(
+                        id=attempt_id,
+                        session_id=f"integrity-{cmd_id}",
+                        cmd=f"echo integrity test {cmd_id}",
+                        cwd=str(initialized_project),
+                        client_id="blq-run",
+                        exit_code=cmd_id,
+                        duration_ms=cmd_id * 10,
+                        tag=f"tag-{cmd_id}",
+                    )
+                    store.write_invocation(invocation)
+
+                results.append((cmd_id, attempt_id))
+
+            except Exception as e:
+                errors.append((cmd_id, str(e)))
+
+        threads = [
+            threading.Thread(target=write_full_lifecycle, args=(i,))
+            for i in range(num_commands)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+
+        assert len(errors) == 0, f"Errors: {errors}"
+        assert len(results) == num_commands
+
+        # Verify data integrity
+        with BirdStore.open(lq_dir) as store:
+            for cmd_id, attempt_id in results:
+                # Check attempt
+                attempt_row = store.connection.execute(
+                    "SELECT tag, source_name FROM attempts WHERE id = ?",
+                    [attempt_id]
+                ).fetchone()
+                assert attempt_row is not None, f"Attempt {attempt_id} not found"
+                assert attempt_row[0] == f"tag-{cmd_id}"
+                assert attempt_row[1] == f"integrity-{cmd_id}"
+
+                # Check outcome
+                outcome_row = store.connection.execute(
+                    "SELECT exit_code, duration_ms FROM outcomes WHERE attempt_id = ?",
+                    [attempt_id]
+                ).fetchone()
+                assert outcome_row is not None, f"Outcome for {attempt_id} not found"
+                assert outcome_row[0] == cmd_id
+                assert outcome_row[1] == cmd_id * 10
+
+                # Check invocation
+                inv_row = store.connection.execute(
+                    "SELECT exit_code, tag FROM invocations WHERE id = ?",
+                    [attempt_id]
+                ).fetchone()
+                assert inv_row is not None, f"Invocation {attempt_id} not found"
+                assert inv_row[0] == cmd_id
+                assert inv_row[1] == f"tag-{cmd_id}"
