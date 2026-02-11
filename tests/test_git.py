@@ -289,9 +289,7 @@ class TestPublicAPI:
         """Test get_file_context delegates to provider."""
         with patch("blq.git.SubprocessProvider") as mock_provider:
             mock_instance = mock_provider.return_value
-            mock_instance.get_file_context.return_value = GitFileContext(
-                path="test.py"
-            )
+            mock_instance.get_file_context.return_value = GitFileContext(path="test.py")
 
             ctx = get_file_context("test.py", line=42)
 

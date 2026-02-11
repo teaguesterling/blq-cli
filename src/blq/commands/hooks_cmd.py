@@ -828,6 +828,7 @@ fi
 exit 0
 """
 
+
 def _install_claude_code_hooks(
     force: bool = False,
     record: bool = False,
@@ -920,8 +921,7 @@ def _install_claude_code_hooks(
             pre_record_exists = any(
                 h.get("matcher") == "Bash"
                 and any(
-                    hh.get("command", "").endswith("blq-record-pre.sh")
-                    for hh in h.get("hooks", [])
+                    hh.get("command", "").endswith("blq-record-pre.sh") for hh in h.get("hooks", [])
                 )
                 for h in pre_hooks
             )

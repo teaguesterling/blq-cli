@@ -144,9 +144,7 @@ class TestHooksInstall:
         original_content = hook_path.read_text()
 
         # Force reinstall
-        args = argparse.Namespace(
-            target="git", commands=["testcmd"], hook="pre-commit", force=True
-        )
+        args = argparse.Namespace(target="git", commands=["testcmd"], hook="pre-commit", force=True)
         cmd_hooks_install(args)
 
         assert hook_path.read_text() == original_content  # Same content
@@ -182,9 +180,7 @@ class TestHooksInstall:
         hook_path.parent.mkdir(parents=True, exist_ok=True)
         hook_path.write_text("#!/bin/sh\necho 'foreign hook'\n")
 
-        args = argparse.Namespace(
-            target="git", commands=["testcmd"], hook="pre-commit", force=True
-        )
+        args = argparse.Namespace(target="git", commands=["testcmd"], hook="pre-commit", force=True)
         cmd_hooks_install(args)
 
         content = hook_path.read_text()
@@ -195,9 +191,7 @@ class TestHooksInstall:
         """Installing without commands shows error."""
         from blq.commands.hooks_cmd import cmd_hooks_install
 
-        args = argparse.Namespace(
-            target="git", commands=[], hook="pre-commit", force=False
-        )
+        args = argparse.Namespace(target="git", commands=[], hook="pre-commit", force=False)
         with pytest.raises(SystemExit):
             cmd_hooks_install(args)
 
@@ -476,9 +470,11 @@ class TestNotInGitRepo:
         cmd_register(reg_args)
 
         with pytest.raises(SystemExit):
-            cmd_hooks_install(argparse.Namespace(
-                target="git", commands=["testcmd"], hook="pre-commit", force=False
-            ))
+            cmd_hooks_install(
+                argparse.Namespace(
+                    target="git", commands=["testcmd"], hook="pre-commit", force=False
+                )
+            )
 
         captured = capsys.readouterr()
         assert "Not in a git repository" in captured.err
@@ -691,7 +687,8 @@ class TestClaudeCodeRecordHooks:
         # Should only have one pre hook registration
         pre_hooks = settings["hooks"].get("PreToolUse", [])
         pre_count = sum(
-            1 for h in pre_hooks
+            1
+            for h in pre_hooks
             if h.get("matcher") == "Bash"
             and any("blq-record-pre.sh" in hh.get("command", "") for hh in h.get("hooks", []))
         )
@@ -700,7 +697,8 @@ class TestClaudeCodeRecordHooks:
         # Should only have one post hook registration
         post_hooks = settings["hooks"].get("PostToolUse", [])
         post_count = sum(
-            1 for h in post_hooks
+            1
+            for h in post_hooks
             if h.get("matcher") == "Bash"
             and any("blq-record-post.sh" in hh.get("command", "") for hh in h.get("hooks", []))
         )

@@ -535,20 +535,22 @@ def main() -> None:
     p_inspect.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     # Enrichment flags
     p_inspect.add_argument(
-        "--source", "-s", action="store_true",
-        help="Include source file context around error location"
+        "--source",
+        "-s",
+        action="store_true",
+        help="Include source file context around error location",
     )
     p_inspect.add_argument(
-        "--git", "-g", action="store_true",
-        help="Include git context (blame and recent commits)"
+        "--git", "-g", action="store_true", help="Include git context (blame and recent commits)"
     )
     p_inspect.add_argument(
-        "--fingerprint", "-f", action="store_true",
-        help="Include fingerprint history (occurrences, regression detection)"
+        "--fingerprint",
+        "-f",
+        action="store_true",
+        help="Include fingerprint history (occurrences, regression detection)",
     )
     p_inspect.add_argument(
-        "--full", action="store_true",
-        help="Include all enrichment (source, git, fingerprint)"
+        "--full", action="store_true", help="Include all enrichment (source, git, fingerprint)"
     )
     p_inspect.set_defaults(func=cmd_inspect)
 
@@ -1065,56 +1067,36 @@ def main() -> None:
         "record-invocation",
         help="Record invocation metadata for passive tracking",
     )
-    record_subparsers = p_record.add_subparsers(
-        dest="record_command", help="Record subcommands"
-    )
+    record_subparsers = p_record.add_subparsers(dest="record_command", help="Record subcommands")
 
     # record-invocation attempt
     p_record_attempt = record_subparsers.add_parser(
         "attempt", help="Record command start (returns attempt_id)"
     )
-    p_record_attempt.add_argument(
-        "--command", "-c", required=True, help="Command string"
-    )
+    p_record_attempt.add_argument("--command", "-c", required=True, help="Command string")
     p_record_attempt.add_argument("--tag", "-t", help="Tag for grouping")
     p_record_attempt.add_argument("--format", "-F", help="Expected log format")
     p_record_attempt.add_argument("--cwd", help="Working directory")
-    p_record_attempt.add_argument(
-        "--pid", type=int, help="Process ID of the command"
-    )
-    p_record_attempt.add_argument(
-        "--json", "-j", action="store_true", help="Output JSON"
-    )
+    p_record_attempt.add_argument("--pid", type=int, help="Process ID of the command")
+    p_record_attempt.add_argument("--json", "-j", action="store_true", help="Output JSON")
     p_record_attempt.set_defaults(func=cmd_record_attempt)
 
     # record-invocation outcome
-    p_record_outcome = record_subparsers.add_parser(
-        "outcome", help="Record command completion"
-    )
+    p_record_outcome = record_subparsers.add_parser("outcome", help="Record command completion")
     p_record_outcome.add_argument("--attempt", "-a", help="Attempt ID to complete")
-    p_record_outcome.add_argument(
-        "--command", "-c", help="Command (if no prior attempt)"
-    )
+    p_record_outcome.add_argument("--command", "-c", help="Command (if no prior attempt)")
     p_record_outcome.add_argument(
         "--exit", "-e", type=int, default=0, dest="exit", help="Exit code"
     )
-    p_record_outcome.add_argument(
-        "--duration", "-d", type=int, help="Duration in milliseconds"
-    )
-    p_record_outcome.add_argument(
-        "--pid", type=int, help="Process ID of the command"
-    )
+    p_record_outcome.add_argument("--duration", "-d", type=int, help="Duration in milliseconds")
+    p_record_outcome.add_argument("--pid", type=int, help="Process ID of the command")
     p_record_outcome.add_argument(
         "--parse", "-p", action="store_true", help="Parse output for events"
     )
     p_record_outcome.add_argument("--format", "-F", help="Parser format")
     p_record_outcome.add_argument("--tag", "-t", help="Tag (if no prior attempt)")
-    p_record_outcome.add_argument(
-        "--output", "-o", help="Read output from file instead of stdin"
-    )
-    p_record_outcome.add_argument(
-        "--json", "-j", action="store_true", help="Output JSON"
-    )
+    p_record_outcome.add_argument("--output", "-o", help="Read output from file instead of stdin")
+    p_record_outcome.add_argument("--json", "-j", action="store_true", help="Output JSON")
     p_record_outcome.set_defaults(func=cmd_record_outcome)
 
     # Default handler for 'blq record-invocation' without subcommand

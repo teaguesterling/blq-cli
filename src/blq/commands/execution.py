@@ -286,9 +286,7 @@ def _execute_with_live_output(
         meta_path.write_text(json_module.dumps(live_meta, default=str, indent=2))
 
         # Update PID in DB concurrently (brief lock, doesn't block subprocess)
-        pid_thread = threading.Thread(
-            target=_update_pid_async, args=(subprocess_pid,), daemon=True
-        )
+        pid_thread = threading.Thread(target=_update_pid_async, args=(subprocess_pid,), daemon=True)
         pid_thread.start()
 
         output_lines: list[str] = []

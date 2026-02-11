@@ -151,9 +151,7 @@ class GitFileContext:
             "line": self.line,
             "last_author": self.last_author,
             "last_commit": self.last_commit,
-            "last_modified": (
-                self.last_modified.isoformat() if self.last_modified else None
-            ),
+            "last_modified": (self.last_modified.isoformat() if self.last_modified else None),
             "recent_commits": [
                 {
                     "hash": c.short_hash,

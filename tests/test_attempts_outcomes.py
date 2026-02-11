@@ -736,9 +736,7 @@ class TestHistoryStatusFilter:
         store.write_outcome(OutcomeRecord(attempt_id=completed_id, exit_code=0, duration_ms=100))
 
         # Query with NULL status (should return all)
-        result = store.connection.execute(
-            "SELECT * FROM blq_history_status(NULL, 20)"
-        ).fetchall()
+        result = store.connection.execute("SELECT * FROM blq_history_status(NULL, 20)").fetchall()
 
         # Should have both
         assert len(result) == 2
@@ -877,9 +875,7 @@ class TestExecuteWithRetry:
         store.write_attempt(attempt)
 
         # execute_with_retry should return the query result
-        result = store.execute_with_retry(
-            lambda: store.get_attempt_status(attempt.id)
-        )
+        result = store.execute_with_retry(lambda: store.get_attempt_status(attempt.id))
         assert result == "pending"
 
         store.close()
@@ -1208,6 +1204,7 @@ class TestRaceConditions:
 
                 # Small delay to let PID thread start and potentially contend
                 import time
+
                 time.sleep(0.01)
 
             # Window 1 closed, PID update should complete
@@ -1370,8 +1367,7 @@ class TestRaceConditions:
                 errors.append((cmd_id, str(e)))
 
         threads = [
-            threading.Thread(target=write_full_lifecycle, args=(i,))
-            for i in range(num_commands)
+            threading.Thread(target=write_full_lifecycle, args=(i,)) for i in range(num_commands)
         ]
         for t in threads:
             t.start()
@@ -1386,8 +1382,7 @@ class TestRaceConditions:
             for cmd_id, attempt_id in results:
                 # Check attempt
                 attempt_row = store.connection.execute(
-                    "SELECT tag, source_name FROM attempts WHERE id = ?",
-                    [attempt_id]
+                    "SELECT tag, source_name FROM attempts WHERE id = ?", [attempt_id]
                 ).fetchone()
                 assert attempt_row is not None, f"Attempt {attempt_id} not found"
                 assert attempt_row[0] == f"tag-{cmd_id}"
@@ -1395,8 +1390,7 @@ class TestRaceConditions:
 
                 # Check outcome
                 outcome_row = store.connection.execute(
-                    "SELECT exit_code, duration_ms FROM outcomes WHERE attempt_id = ?",
-                    [attempt_id]
+                    "SELECT exit_code, duration_ms FROM outcomes WHERE attempt_id = ?", [attempt_id]
                 ).fetchone()
                 assert outcome_row is not None, f"Outcome for {attempt_id} not found"
                 assert outcome_row[0] == cmd_id
@@ -1404,8 +1398,7 @@ class TestRaceConditions:
 
                 # Check invocation
                 inv_row = store.connection.execute(
-                    "SELECT exit_code, tag FROM invocations WHERE id = ?",
-                    [attempt_id]
+                    "SELECT exit_code, tag FROM invocations WHERE id = ?", [attempt_id]
                 ).fetchone()
                 assert inv_row is not None, f"Invocation {attempt_id} not found"
                 assert inv_row[0] == cmd_id

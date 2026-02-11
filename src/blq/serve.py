@@ -1053,9 +1053,7 @@ def _inspect_impl(
 
                         fp_history = {
                             "fingerprint": (
-                                fingerprint[:16] + "..."
-                                if len(fingerprint) > 16
-                                else fingerprint
+                                fingerprint[:16] + "..." if len(fingerprint) > 16 else fingerprint
                             ),
                             "first_seen": {
                                 "run_ref": first[1],
@@ -1241,9 +1239,7 @@ def _build_event_summaries(events: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _get_affected_commits(
-    files: list[str], limit: int = 5
-) -> list[dict[str, Any]]:
+def _get_affected_commits(files: list[str], limit: int = 5) -> list[dict[str, Any]]:
     """Get recent git commits that touched the affected files."""
     try:
         from blq.git import get_file_context
@@ -2255,9 +2251,7 @@ def info(
                         result["summary"] = summaries
 
                         # Get affected commits for files with errors
-                        affected_files = [
-                            f["file"] for f in summaries.get("by_file", [])
-                        ]
+                        affected_files = [f["file"] for f in summaries.get("by_file", [])]
                         if affected_files:
                             commits = _get_affected_commits(affected_files)
                             if commits:
@@ -2424,12 +2418,14 @@ def _last_impl(
                 # Convert events to dict format for summary builder
                 raw_events = []
                 for _, erow in events_df.iterrows():
-                    raw_events.append({
-                        "fingerprint": _to_json_safe(erow.get("fingerprint")),
-                        "message": _to_json_safe(erow.get("message")),
-                        "ref": _to_json_safe(erow.get("ref")),
-                        "ref_file": _to_json_safe(erow.get("ref_file")),
-                    })
+                    raw_events.append(
+                        {
+                            "fingerprint": _to_json_safe(erow.get("fingerprint")),
+                            "message": _to_json_safe(erow.get("message")),
+                            "ref": _to_json_safe(erow.get("ref")),
+                            "ref_file": _to_json_safe(erow.get("ref_file")),
+                        }
+                    )
 
                 summaries = _build_event_summaries(raw_events)
                 result["summary"] = summaries

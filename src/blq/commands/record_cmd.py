@@ -392,12 +392,8 @@ def cmd_record_outcome(args: argparse.Namespace) -> None:
             )
 
             events_summary["total"] = len(events)
-            events_summary["errors"] = sum(
-                1 for e in events if e.get("severity") == "error"
-            )
-            events_summary["warnings"] = sum(
-                1 for e in events if e.get("severity") == "warning"
-            )
+            events_summary["errors"] = sum(1 for e in events if e.get("severity") == "error")
+            events_summary["warnings"] = sum(1 for e in events if e.get("severity") == "warning")
 
     store.close()
 
@@ -415,9 +411,7 @@ def cmd_record_outcome(args: argparse.Namespace) -> None:
         print(json.dumps(result))
     else:
         status = "OK" if exit_code == 0 else "FAIL"
-        events_str = (
-            f"{events_summary['errors']} errors, {events_summary['warnings']} warnings"
-        )
+        events_str = f"{events_summary['errors']} errors, {events_summary['warnings']} warnings"
         print(f"Recorded outcome: {status} | {duration_ms}ms | {events_str}")
 
 

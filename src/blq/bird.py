@@ -86,8 +86,7 @@ def retry_on_lock(
                 jitter = delay * 0.25 * (2 * random.random() - 1)
                 sleep_time = min(delay + jitter, max_delay)
                 logger.debug(
-                    f"Database locked, retry {attempt + 1}/{max_retries} "
-                    f"after {sleep_time:.3f}s"
+                    f"Database locked, retry {attempt + 1}/{max_retries} after {sleep_time:.3f}s"
                 )
                 time.sleep(sleep_time)
                 delay = min(delay * backoff_factor, max_delay)
@@ -96,6 +95,7 @@ def retry_on_lock(
     assert last_error is not None
     logger.warning(f"Database lock retry exhausted after {max_retries} attempts")
     raise last_error
+
 
 # Schema version
 BIRD_SCHEMA_VERSION = "2.1.0"
@@ -905,11 +905,13 @@ class BirdStore:
                     except json.JSONDecodeError:
                         pass
 
-                results.append({
-                    "attempt_id": attempt_dir.name,
-                    "meta": meta,
-                    "live_dir": str(attempt_dir),
-                })
+                results.append(
+                    {
+                        "attempt_id": attempt_dir.name,
+                        "meta": meta,
+                        "live_dir": str(attempt_dir),
+                    }
+                )
 
         return results
 
