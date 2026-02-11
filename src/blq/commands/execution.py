@@ -177,10 +177,7 @@ def _execute_with_live_output(
     if capture_env_vars is None:
         capture_env_vars = config.capture_env.copy()
 
-    # Open BIRD store
-    store = BirdStore.open(lq_dir)
-
-    # Capture execution context at start
+    # Capture execution context at start (before opening DB)
     cwd = os.getcwd()
     executable_path = find_executable(command)
     environment = capture_environment(capture_env_vars)
@@ -191,18 +188,10 @@ def _execute_with_live_output(
     ci_info = capture_ci_info()
     started_at = datetime.now()
 
-    # Ensure session exists
     client_id = f"blq-{source_type}"
     effective_session_id = session_id or source_name
-    store.ensure_session(
-        session_id=effective_session_id,
-        client_id=client_id,
-        invoker="blq",
-        invoker_type="cli",
-        cwd=cwd,
-    )
 
-    # Create attempt record (written at START)
+    # Create attempt record (will be written)
     attempt = AttemptRecord(
         id=AttemptRecord.generate_id(),
         session_id=effective_session_id,
@@ -225,30 +214,54 @@ def _execute_with_live_output(
         ci=ci_info,
     )
 
-    # Write attempt - command is now visible as 'pending'
-    attempt_id = store.write_attempt(attempt)
-    run_id = store.get_next_run_number()  # This will be our run ID (invocation written at end)
+    # =========================================================================
+    # Window 1: Pre-execution DB access (minimal lock time)
+    # =========================================================================
+    with BirdStore.open(lq_dir) as store:
+        # Ensure session exists
+        store.ensure_session(
+            session_id=effective_session_id,
+            client_id=client_id,
+            invoker="blq",
+            invoker_type="cli",
+            cwd=cwd,
+        )
+
+        # Write attempt - command is now visible as 'pending'
+        attempt_id = store.write_attempt(attempt)
+        run_id = store.get_next_run_number()
+
+        # Create live output directory
+        live_meta = {
+            "cmd": command,
+            "source_name": source_name,
+            "started_at": started_at.isoformat(),
+            "attempt_id": attempt_id,
+            "run_id": run_id,
+        }
+        live_dir = store.create_live_dir(attempt_id, live_meta)
+        live_output_path = store.get_live_output_path(attempt_id, "combined")
+    # Connection closed - DB unlocked during subprocess execution
 
     logger.debug(f"Running: {command}")
     logger.debug(f"Attempt ID: {attempt_id}")
     logger.debug(f"Run ID: {run_id}")
-
-    # Create live output directory (pid will be updated after process starts)
-    live_meta = {
-        "cmd": command,
-        "source_name": source_name,
-        "started_at": started_at.isoformat(),
-        "attempt_id": attempt_id,
-        "run_id": run_id,
-    }
-    live_dir = store.create_live_dir(attempt_id, live_meta)
-    live_output_path = store.get_live_output_path(attempt_id, "combined")
 
     # Open live output file for writing
     live_file = open(live_output_path, "w")  # noqa: SIM115
 
     # Track subprocess PID
     subprocess_pid: int | None = None
+
+    # Helper to update PID in background (concurrent DB access)
+    def _update_pid_async(pid: int) -> None:
+        """Update attempt PID in a background thread to minimize lock time."""
+        try:
+            with BirdStore.open(lq_dir) as pid_store:
+                pid_store.update_attempt_pid(attempt_id, pid)
+        except Exception:
+            # Non-critical - PID is also in live metadata
+            pass
 
     try:
         # Run command, streaming to live file
@@ -260,16 +273,21 @@ def _execute_with_live_output(
             text=True,
         )
 
-        # Capture subprocess PID and update attempt record
+        # Capture subprocess PID
         subprocess_pid = process.pid
-        store.update_attempt_pid(attempt_id, subprocess_pid)
 
-        # Update live metadata with subprocess PID
+        # Update live metadata with subprocess PID (filesystem, no DB lock)
         live_meta["pid"] = subprocess_pid
         meta_path = live_dir / "meta.json"
         import json as json_module
 
         meta_path.write_text(json_module.dumps(live_meta, default=str, indent=2))
+
+        # Update PID in DB concurrently (brief lock, doesn't block subprocess)
+        pid_thread = threading.Thread(
+            target=_update_pid_async, args=(subprocess_pid,), daemon=True
+        )
+        pid_thread.start()
 
         output_lines: list[str] = []
         timed_out = False
@@ -364,70 +382,73 @@ def _execute_with_live_output(
     duration_ms = int((completed_at - started_at).total_seconds() * 1000)
     output = "".join(output_lines)
 
-    # Write outcome - command is now 'completed'
-    outcome = OutcomeRecord(
-        attempt_id=attempt_id,
-        completed_at=completed_at,
-        exit_code=exit_code if not timed_out else None,
-        duration_ms=duration_ms,
-        timeout=timed_out,
-    )
-    store.write_outcome(outcome)
-
-    # Also write to invocations table for backward compatibility
-    # (blq_events_flat joins events with invocations, not attempts)
-    invocation = InvocationRecord(
-        id=attempt_id,  # Same ID so events can join
-        session_id=effective_session_id,
-        cmd=command,
-        cwd=cwd,
-        client_id=client_id,
-        timestamp=started_at,
-        duration_ms=duration_ms,
-        exit_code=exit_code if not timed_out else -1,  # -1 indicates timeout
-        executable=executable_path,
-        format_hint=format_hint if format_hint != "auto" else None,
-        hostname=hostname,
-        pid=subprocess_pid,
-        tag=source_name,
-        source_name=source_name,
-        source_type=source_type,
-        environment=environment or None,
-        platform=platform_name,
-        arch=arch,
-        git_commit=git_info.commit,
-        git_branch=git_info.branch,
-        git_dirty=git_info.dirty,
-        ci=ci_info,
-    )
-    store.write_invocation(invocation)
-
-    # Parse output for events
+    # Parse output for events (before opening DB connection)
     events = parse_log_content(output, format_hint)
 
-    # Write events
-    store.write_events(
-        attempt_id,
-        events,
-        client_id=client_id,
-        format_used=format_hint if format_hint != "auto" else None,
-        hostname=hostname,
-    )
+    # =========================================================================
+    # Window 2: Post-execution DB access (minimal lock time)
+    # =========================================================================
+    with BirdStore.open(lq_dir) as store:
+        # Write outcome - command is now 'completed'
+        outcome = OutcomeRecord(
+            attempt_id=attempt_id,
+            completed_at=completed_at,
+            exit_code=exit_code if not timed_out else None,
+            duration_ms=duration_ms,
+            timeout=timed_out,
+        )
+        store.write_outcome(outcome)
 
-    # Finalize live output (move to blob storage) if keeping raw
-    if keep_raw:
-        store.finalize_live_output(attempt_id, "combined")
+        # Also write to invocations table for backward compatibility
+        # (blq_events_flat joins events with invocations, not attempts)
+        invocation = InvocationRecord(
+            id=attempt_id,  # Same ID so events can join
+            session_id=effective_session_id,
+            cmd=command,
+            cwd=cwd,
+            client_id=client_id,
+            timestamp=started_at,
+            duration_ms=duration_ms,
+            exit_code=exit_code if not timed_out else -1,  # -1 indicates timeout
+            executable=executable_path,
+            format_hint=format_hint if format_hint != "auto" else None,
+            hostname=hostname,
+            pid=subprocess_pid,
+            tag=source_name,
+            source_name=source_name,
+            source_type=source_type,
+            environment=environment or None,
+            platform=platform_name,
+            arch=arch,
+            git_commit=git_info.commit,
+            git_branch=git_info.branch,
+            git_dirty=git_info.dirty,
+            ci=ci_info,
+        )
+        store.write_invocation(invocation)
 
-    # Clean up live directory
-    store.cleanup_live_dir(attempt_id)
+        # Write events
+        store.write_events(
+            attempt_id,
+            events,
+            client_id=client_id,
+            format_used=format_hint if format_hint != "auto" else None,
+            hostname=hostname,
+        )
 
-    # Save raw output to .lq/raw/ if requested
+        # Finalize live output (move to blob storage) if keeping raw
+        if keep_raw:
+            store.finalize_live_output(attempt_id, "combined")
+
+        # Clean up live directory
+        store.cleanup_live_dir(attempt_id)
+    # Connection closed
+
+    # Save raw output to .lq/raw/ if requested (filesystem only, no DB)
     if keep_raw:
         raw_file = lq_dir / RAW_DIR / f"{run_id:03d}.log"
         raw_file.parent.mkdir(parents=True, exist_ok=True)
         raw_file.write_text(output)
-
-    store.close()
 
     # Build structured result
     error_events = [e for e in events if e.get("severity") == "error"]

@@ -61,7 +61,8 @@ src/main.c:42:15: error: expected ';' before '}' token
   "ref_line": 42,
   "ref_column": 15,
   "message": "expected ';' before '}' token",
-  "severity": "error"
+  "severity": "error",
+  "fingerprint": "gcc_error_a1b2c3"
 }
 ```
 
@@ -168,6 +169,28 @@ blq.diff(run1=3, run2=4)  # What changed between runs?
 | `info(ref, context)` | Detailed info for a run (omit `ref` for most recent) |
 | `history(limit, source)` | Run history |
 
+#### The `run` Tool Output
+
+The `run` tool returns a concise response optimized for token efficiency:
+
+```python
+blq.run(command="test")
+# Returns:
+{
+  "run_ref": "test:47",
+  "status": "FAIL",
+  "exit_code": 1,
+  "summary": {"error_count": 2, "warning_count": 5},
+  "errors": [...],  # Only if errors exist
+  "tail": [...]     # Conditional: 2 lines with errors, full without, none on success
+}
+```
+
+**Conditional tail behavior:**
+- **Failed + errors extracted**: 2 lines of tail (summary context)
+- **Failed + no errors**: Full tail (fallback for debugging)
+- **Success**: No tail included
+
 #### The `info` Tool with `context=N`
 
 When you pass `context=N` to `info`, you get a compact event format optimized for quick understanding:
@@ -186,9 +209,25 @@ blq.info(ref="test:47", context=3)
       "location": "tests/test_main.py:251",   # Combined file:line
       "context": "     248 | ...PASSED...\n>>>  251 | ...FAILED...\n     252 | ..."
     }
-  ]
+  ],
+  "summary": {
+    "by_fingerprint": [
+      {"fingerprint": "abc123", "count": 2, "example_message": "AssertionError"}
+    ],
+    "by_file": [
+      {"file": "tests/test_main.py", "count": 2}
+    ],
+    "affected_commits": [
+      {"hash": "abc1234", "author": "alice@example.com", "message": "Refactor tests"}
+    ]
+  }
 }
 ```
+
+For failed runs, `info` includes an aggregated `summary` with:
+- `by_fingerprint`: Error counts grouped by fingerprint (for deduplication)
+- `by_file`: Error counts grouped by file
+- `affected_commits`: Recent git commits that touched files with errors
 
 This is the recommended starting point - you can see errors with their surrounding log context in one call. Use `inspect(ref)` only when you need additional details like source code context or error codes.
 
@@ -395,7 +434,12 @@ blq.info(ref="build:5", context=3)
 #     "events": [
 #       {"ref": "5:1", "location": "src/main.c:42", "context": "...>>> 42 | error..."},
 #       ...
-#     ]
+#     ],
+#     "summary": {
+#       "by_fingerprint": [...],
+#       "by_file": [{"file": "src/main.c", "count": 3}],
+#       "affected_commits": [{"hash": "abc1234", "message": "Refactor core"}]
+#     }
 #   }
 
 # 2. If you need more details on a specific error

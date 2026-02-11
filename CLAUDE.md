@@ -60,6 +60,10 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **Dry-run mode** (`blq run <cmd> --dry-run`) to preview expanded commands
 - **Unified git module** (`blq.git`) with provider abstraction (subprocess + duck_tails)
 - **Event enrichment** for inspect command (`--source`, `--git`, `--fingerprint`, `--full`)
+- **Info summaries** for failed runs (`by_fingerprint`, `by_file`, `affected_commits`)
+- **Conditional tail** in run output (2 lines with errors, full without, none on success)
+- **Fingerprint field** included in events output
+- **Source name** in run results for correct run_ref construction
 - Full mypy type checking compliance
 - 600+ unit tests
 - Comprehensive documentation (README, docs/)
@@ -273,7 +277,7 @@ blq mcp serve --transport sse  # SSE transport
 | `inspect` | Get comprehensive event details with context - supports batch mode via `refs` param |
 | `output` | Get raw output for a run |
 | `status` | Get status summary |
-| `info` | Get detailed run info (omit `ref` for most recent, `context=N` for log context around errors) |
+| `info` | Get detailed run info (omit `ref` for most recent, `context=N` for log context around errors, includes `summary` with aggregations for failed runs) |
 | `history` | Get run history |
 | `diff` | Compare errors between runs |
 | `commands` | List all registered commands |

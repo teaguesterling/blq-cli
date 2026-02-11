@@ -9,10 +9,10 @@ blq captures, stores, and queries build/test logs. Both humans (via CLI) and age
 The blq database (`.lq/blq.duckdb`) is shared between CLI and MCP:
 
 ```
-Human runs:     blq run build          → stored in .lq/
-Agent queries:  blq.errors()           → reads from .lq/
+Human runs:     blq run build           → stored in .lq/
+Agent queries:  blq.events(...)         → reads from .lq/
 Agent runs:     blq.run(command="test") → stored in .lq/
-Human queries:  blq errors             → reads from .lq/
+Human queries:  blq errors              → reads from .lq/
 ```
 
 This means:
@@ -25,7 +25,7 @@ This means:
 ### Check if blq is initialized
 
 ```python
-blq.list_commands()
+blq.commands()
 ```
 
 If this returns commands, you're ready. If it returns an empty list or error, the project may need initialization (user should run `blq init`).
@@ -33,8 +33,8 @@ If this returns commands, you're ready. If it returns an empty list or error, th
 ### Discover available commands
 
 ```python
-blq.list_commands()
-# Returns: [{"name": "build", "cmd": "make -j8"}, {"name": "test", "cmd": "pytest"}]
+blq.commands()
+# Returns: {"commands": [{"name": "build", "cmd": "make -j8"}, {"name": "test", "cmd": "pytest"}]}
 ```
 
 ### Check current status
@@ -61,7 +61,8 @@ src/main.c:42:15: error: expected ';' before '}' token
   "ref_line": 42,
   "ref_column": 15,
   "message": "expected ';' before '}' token",
-  "severity": "error"
+  "severity": "error",
+  "fingerprint": "gcc_error_a1b2c3"
 }
 ```
 
@@ -91,15 +92,15 @@ You may not have access to the project's source files. blq stores:
 - Log context around errors
 - Git metadata
 
-Use `event()` and `context()` to understand errors without reading source files directly.
+Use `inspect()` to understand errors without reading source files directly.
 
 ## Recommended Workflow
 
 ### Step 1: Check Status
 
 ```python
-blq.status()        # Overview of all sources
-blq.list_commands() # What commands are registered
+blq.status()    # Overview of all sources
+blq.commands()  # What commands are registered
 ```
 
 ### Step 2: Run or Analyze
@@ -112,17 +113,36 @@ blq.run(command="test")
 
 Or analyze existing results (from user's CLI runs):
 ```python
-blq.errors()        # Recent errors
-blq.history()       # Past runs
+blq.events(severity="error")  # Recent errors
+blq.history()                  # Past runs
 ```
 
 ### Step 3: Drill Down
 
 ```python
-blq.errors(limit=10)           # Get error list
-blq.event(ref="build:3:2")     # Full details on one error
-blq.context(ref="build:3:2")   # Surrounding log lines
-blq.output(run_id=3, tail=50)  # Raw output if parsing missed something
+# Quick view with log context around each error
+blq.info(ref="build:3", context=5)
+# Returns compact format:
+# {
+#   "run_ref": "build:3",
+#   "status": "FAIL",
+#   "error_count": 2,
+#   "errors_by_category": {"lint": 1, "test": 1},
+#   "events": [
+#     {"ref": "3:1", "location": "src/main.py:42", "context": "...>>> 42 | error line..."},
+#     {"ref": "3:2", "location": "tests/test_main.py:15", "context": "..."}
+#   ],
+#   "summary": {
+#     "by_fingerprint": [...],
+#     "by_file": [...],
+#     "affected_commits": [...]
+#   }
+# }
+
+# Or get full event details for deeper investigation
+blq.events(severity="error", limit=10)  # Get error list with all fields
+blq.inspect(ref="build:3:2")            # Full details with log + source context
+blq.output(run_id=3, tail=50)           # Raw output if parsing missed something
 ```
 
 ### Step 4: Compare (After Fixes)
@@ -144,29 +164,103 @@ blq.diff(run1=3, run2=4)  # What changed between runs?
 
 ## Tool Reference
 
+### Core Tools
+
 | Tool | Purpose |
 |------|---------|
-| `run(command, args)` | Run a registered command (args for templates) |
-| `exec(command)` | Run an ad-hoc shell command |
+| `run(command, ...)` | Run a registered command (supports batch mode with `commands` param) |
 | `status()` | Quick overview of all sources |
+| `commands()` | List registered commands |
+| `info(ref, context)` | Detailed info for a run (omit `ref` for most recent) |
 | `history(limit, source)` | Run history |
-| `errors(limit, run_id, source)` | Get error events |
-| `warnings(limit, run_id, source)` | Get warning events |
-| `event(ref)` | Full details for one event |
+
+#### The `run` Tool Output
+
+The `run` tool returns a concise response optimized for token efficiency:
+
+```python
+blq.run(command="test")
+# Returns:
+{
+  "run_ref": "test:47",
+  "status": "FAIL",
+  "exit_code": 1,
+  "summary": {"error_count": 2, "warning_count": 5},
+  "errors": [...],  # Only if errors exist
+  "tail": [...]     # Conditional: 2 lines with errors, full without, none on success
+}
+```
+
+**Conditional tail behavior:**
+- **Failed + errors extracted**: 2 lines of tail (summary context)
+- **Failed + no errors**: Full tail (fallback for debugging)
+- **Success**: No tail included
+
+#### The `info` Tool with `context=N`
+
+When you pass `context=N` to `info`, you get a compact event format optimized for quick understanding:
+
+```python
+blq.info(ref="test:47", context=3)
+# Returns:
+{
+  "run_ref": "test:47",
+  "status": "FAIL",
+  "error_count": 2,
+  "errors_by_category": {"test": 2},
+  "events": [
+    {
+      "ref": "47:242",                        # Short format (no tag prefix)
+      "location": "tests/test_main.py:251",   # Combined file:line
+      "context": "     248 | ...PASSED...\n>>>  251 | ...FAILED...\n     252 | ..."
+    }
+  ],
+  "summary": {
+    "by_fingerprint": [
+      {"fingerprint": "abc123", "count": 2, "example_message": "AssertionError"}
+    ],
+    "by_file": [
+      {"file": "tests/test_main.py", "count": 2}
+    ],
+    "affected_commits": [
+      {"hash": "abc1234", "author": "alice@example.com", "message": "Refactor tests"}
+    ]
+  }
+}
+```
+
+For failed runs, `info` includes an aggregated `summary` with:
+- `by_fingerprint`: Error counts grouped by fingerprint (for deduplication)
+- `by_file`: Error counts grouped by file
+- `affected_commits`: Recent git commits that touched files with errors
+
+This is the recommended starting point - you can see errors with their surrounding log context in one call. Use `inspect(ref)` only when you need additional details like source code context or error codes.
+
+### Event Tools
+
+| Tool | Purpose |
+|------|---------|
+| `events(severity, limit, run_id, ...)` | Get events (use `severity="error"` for errors, `severity="warning"` for warnings) |
 | `inspect(ref, lines, ...)` | Full details with log/source context and optional enrichment (git, fingerprint) |
-| `context(ref, lines)` | Log lines around an event |
 | `output(run_id, stream, tail, head)` | Raw stdout/stderr for a run |
 | `diff(run1, run2)` | Compare errors between runs |
-| `query(sql, limit)` | Run SQL against the database |
-| `register_command(name, cmd, run_now)` | Register and optionally run a command |
-| `unregister_command(name)` | Remove a command |
-| `list_commands()` | List registered commands |
-| `reset(mode, confirm)` | Clear data or reinitialize |
-| `batch_run(commands)` | Run multiple commands in sequence |
-| `batch_errors(run_ids)` | Get errors from multiple runs |
-| `batch_event(refs)` | Get details for multiple events |
+| `query(sql, filter, limit)` | Query with SQL or filter expressions (e.g., `filter="severity=error"`) |
 
-### Event Enrichment with `inspect`
+#### Filter Syntax for `query`
+
+The `filter` parameter supports simple expressions:
+- `key=value` - exact match (`severity=error`)
+- `key=v1,v2` - multiple values (`severity=error,warning`)
+- `key~pattern` - contains (`ref_file~test`)
+- `key!=value` - not equal (`tool_name!=mypy`)
+
+Multiple filters are AND'd together (space or comma separated):
+```python
+blq.query(filter="severity=error ref_file~test")  # Errors in test files
+blq.query(filter="tool_name=pytest category=test")  # pytest test failures
+```
+
+#### Event Enrichment with `inspect`
 
 The `inspect` tool supports optional enrichment to provide deeper context:
 
@@ -193,12 +287,21 @@ blq.inspect(
     include_git_context=True,
     include_fingerprint_history=True
 )
+
+# Batch mode with enrichment
+blq.inspect(
+    ref="build:1:1",
+    refs=["build:1:1", "build:1:2", "build:1:3"],
+    include_git_context=True
+)
 ```
 
-**Git context** shows who last modified the error location:
+**Git context** shows who last modified the error location and recent file changes:
 ```json
 {
   "git_context": {
+    "file": "src/main.py",
+    "line": 42,
     "blame": {"author": "alice@example.com", "commit": "abc1234"},
     "recent_commits": [{"hash": "abc1234", "message": "Refactor data processing"}]
   }
@@ -215,6 +318,29 @@ blq.inspect(
     "is_regression": true
   }
 }
+```
+
+### Command Management
+
+| Tool | Purpose |
+|------|---------|
+| `register_command(name, cmd, run_now)` | Register and optionally run a command |
+| `unregister_command(name)` | Remove a command |
+| `clean(mode, confirm, days)` | Database cleanup (data, prune, schema, full) |
+
+### Batch Mode
+
+Several tools support batch operations via additional parameters:
+
+```python
+# Run multiple commands in sequence
+blq.run(command="ignored", commands=["build", "test"])
+
+# Get events from multiple runs
+blq.events(run_ids=[1, 2, 3], severity="error")
+
+# Inspect multiple events at once
+blq.inspect(ref="build:1:1", refs=["build:1:1", "build:1:2", "build:1:3"])
 ```
 
 ## Registering Commands
@@ -234,47 +360,6 @@ blq.register_command(
     description="Run test suite"
 )
 ```
-
-**Important: Don't specify timeouts** unless you have a specific reason. Commands run without timeout by default, which is correct for most build/test tasks. Specifying a timeout often causes problems when builds take longer than expected.
-
-### Parameterized Commands
-
-Commands can be templates with `{param}` placeholders. Use `tpl` instead of `cmd`, with `defaults` for optional parameters:
-
-```toml
-# In .lq/commands.toml
-[commands.test]
-tpl = "pytest {path} {flags}"
-defaults = { path = "tests/", flags = "-v" }
-description = "Run tests"
-
-[commands.test-file]
-tpl = "pytest {file} -v --tb=short"
-description = "Test a single file"
-# No defaults = 'file' is required
-```
-
-Run parameterized commands with the `args` parameter:
-
-```python
-# Use defaults
-blq.run(command="test")
-# → pytest tests/ -v
-
-# Override path
-blq.run(command="test", args={"path": "tests/unit/"})
-# → pytest tests/unit/ -v
-
-# Override both
-blq.run(command="test", args={"path": "tests/unit/", "flags": "-vvs -x"})
-# → pytest tests/unit/ -vvs -x
-
-# Required parameter
-blq.run(command="test-file", args={"file": "tests/test_core.py"})
-# → pytest tests/test_core.py -v --tb=short
-```
-
-Missing required parameters will raise an error with a helpful message.
 
 ### Idempotent Registration
 
@@ -317,23 +402,25 @@ This is the recommended pattern for agents - it ensures clean refs while being e
 ## Best Practices
 
 ### Do:
-- Start with `status()` or `list_commands()` to understand current state
+- Start with `status()` or `commands()` to understand current state
+- Use `info(context=5)` to see errors with surrounding log context in one call
 - Use `diff()` after fixes to verify no regressions
-- Drill down with `event()` and `context()` for unclear errors
+- Use `inspect()` only when you need additional details (source context, error codes)
 - Register commands the user will run repeatedly
 
 ### Don't:
 - Use Bash to run builds when blq tools are available
 - Assume you can read source files - use blq's stored error context
 - Skip checking existing results - the user may have already run the build
-- Specify timeouts when registering commands - let builds run to completion
+- Call `events()` then `inspect()` for each error - use `info(context=N)` instead
 
-## Resetting State
+## Cleaning Up
 
 ```python
-blq.reset(mode="data", confirm=True)    # Clear runs, keep commands
-blq.reset(mode="schema", confirm=True)  # Recreate database
-blq.reset(mode="full", confirm=True)    # Full reinitialize
+blq.clean(mode="data", confirm=True)              # Clear runs, keep commands
+blq.clean(mode="prune", days=30, confirm=True)    # Remove data older than 30 days
+blq.clean(mode="schema", confirm=True)            # Recreate database
+blq.clean(mode="full", confirm=True)              # Full reinitialize
 ```
 
 ## Example: Collaborative Debugging Session
@@ -342,116 +429,32 @@ blq.reset(mode="full", confirm=True)    # Full reinitialize
 # User ran: blq run build (from terminal)
 # Agent is asked to help with the errors
 
-# 1. See what happened
-blq.status()
-# → build: FAIL, 3 errors
+# 1. See what happened with context around each error
+blq.info(ref="build:5", context=3)
+# → {
+#     "run_ref": "build:5",
+#     "status": "FAIL",
+#     "error_count": 3,
+#     "errors_by_category": {"compile": 3},
+#     "events": [
+#       {"ref": "5:1", "location": "src/main.c:42", "context": "...>>> 42 | error..."},
+#       ...
+#     ],
+#     "summary": {
+#       "by_fingerprint": [...],
+#       "by_file": [{"file": "src/main.c", "count": 3}],
+#       "affected_commits": [{"hash": "abc1234", "message": "Refactor core"}]
+#     }
+#   }
 
-# 2. Get the errors
-blq.errors()
-# → [{"ref": "build:5:1", "ref_file": "src/main.c", ...}, ...]
+# 2. If you need more details on a specific error
+blq.inspect(ref="build:5:1")
+# → Full error details including message, code, log_context, source_context
 
-# 3. Understand the first error
-blq.event(ref="build:5:1")
-# → Full error details including message, code, context
-
-# 4. See surrounding log context
-blq.context(ref="build:5:1")
-# → Lines before and after the error
-
-# 5. After user fixes the code, they run: blq run build
+# 3. After user fixes the code, they run: blq run build
 # Agent verifies the fix:
 blq.diff(run1=5, run2=6)
 # → {"fixed": 3, "new": 0} - Success!
-```
-
-## Hook Scripts
-
-blq can generate portable shell scripts for registered commands that work with or without blq installed.
-
-### Generating Hooks
-
-```bash
-# Generate hook scripts (CLI)
-blq hooks generate lint test
-
-# Creates:
-# .lq/hooks/lint.sh
-# .lq/hooks/test.sh
-```
-
-### Hook Script Features
-
-Generated scripts support:
-- `--via=blq|standalone|auto` - Use blq for capture, or run command directly
-- `--metadata=auto|none|footer` - Output metadata for CI log parsing
-- `--dry-run` - Show command without executing
-- `key=value` params for template commands
-
-```bash
-# Run with blq (captures logs)
-.lq/hooks/test.sh --via=blq
-
-# Run standalone (no blq needed)
-.lq/hooks/test.sh --via=standalone
-
-# Auto mode (default): uses blq if available
-.lq/hooks/test.sh
-
-# Override template parameters
-.lq/hooks/test.sh path=tests/unit/
-```
-
-### CI Integration
-
-When running standalone in CI, scripts can output metadata for later import:
-
-```bash
-.lq/hooks/test.sh --via=standalone --metadata=footer
-# Output ends with:
-# blq:meta {"command":"test","exit_code":0,"git_sha":"abc123",...}
-```
-
-### Installing to Git Hooks
-
-```bash
-# Install to .git/hooks/pre-commit
-blq hooks install git lint format-check
-
-# Install to different hook
-blq hooks install git test --hook=pre-push
-```
-
-### Installing to CI Workflows
-
-```bash
-# GitHub Actions: .github/workflows/blq.yml
-blq hooks install github lint test
-
-# GitLab CI: .gitlab-ci.blq.yml (include in your .gitlab-ci.yml)
-blq hooks install gitlab lint test
-
-# Drone CI: .drone.blq.yml
-blq hooks install drone lint test
-```
-
-### Checking Hook Status
-
-```bash
-blq hooks status
-# Shows:
-# - Generated hook scripts and their status (ok/stale/orphan)
-# - Git hook installations (pre-commit, pre-push)
-# - CI workflow installations (github, gitlab, drone)
-```
-
-### Uninstalling Hooks
-
-```bash
-blq hooks uninstall git              # Remove git pre-commit hook
-blq hooks uninstall git --hook=pre-push
-blq hooks uninstall github           # Remove GitHub workflow
-blq hooks uninstall gitlab           # Remove GitLab CI config
-blq hooks uninstall drone            # Remove Drone CI config
 ```
 
 ## MCP Resources
@@ -488,7 +491,7 @@ This helps guide agents toward using blq's structured tools instead of raw Bash 
 blq provides structured access to build/test results that both humans and agents can query. Use the MCP tools to:
 
 1. **Query existing results** - The user may have already run builds
-2. **Run commands** - Execute registered build/test commands
+2. **Run commands** - Use registered build/test commands
 3. **Drill down** - Get details on specific errors without needing source access
 4. **Compare runs** - Detect regressions and verify fixes
 

@@ -96,14 +96,14 @@ All tools are namespaced under the `blq` server, so `run` becomes `blq.run` when
 
 | Tool | Description |
 |------|-------------|
-| `run` | Run registered command(s) - supports batch mode via `commands` param |
+| `run` | Run registered command(s) - supports batch mode via `commands` param. Returns concise output with conditional tail. |
 | `exec` | Execute ad-hoc shell command (detects registered command prefixes) |
 | `query` | Query events with SQL or filter expressions |
-| `events` | Get events with severity/run filters - supports batch mode via `run_ids` param |
+| `events` | Get events with severity/run filters - supports batch mode via `run_ids` param. Includes fingerprint. |
 | `inspect` | Get event details with log/source context - supports batch mode via `refs` param |
 | `output` | Get raw stdout/stderr for a run |
 | `status` | Get status summary |
-| `info` | Get detailed run info (omit `ref` for most recent, `context=N` for inline errors) |
+| `info` | Get detailed run info (omit `ref` for most recent, `context=N` for inline errors). Includes summary aggregations for failed runs. |
 | `history` | Get run history |
 | `diff` | Compare errors between runs |
 | `commands` | List all registered commands |
@@ -134,12 +134,10 @@ For parameterized commands (templates with `{param}` placeholders), use `args` t
 
 ```json
 {
-  "run_id": 1,
+  "run_ref": "build:1",
   "status": "FAIL",
   "exit_code": 2,
-  "duration_seconds": 12.5,
-  "error_count": 3,
-  "warning_count": 5,
+  "summary": {"error_count": 3, "warning_count": 5},
   "errors": [
     {
       "ref": "1:1",
@@ -148,10 +146,21 @@ For parameterized commands (templates with `{param}` placeholders), use `args` t
       "ref_column": 5,
       "message": "undefined variable 'foo'",
       "tool_name": "gcc",
-      "category": "error"
+      "category": "error",
+      "fingerprint": "gcc_error_a1b2c3"
     }
-  ]
+  ],
+  "tail": ["line 1", "line 2"],
+  "duration_sec": 12.5
 }
+```
+
+**Conditional tail behavior:**
+- **Failed + errors extracted**: 2 lines of tail (summary context)
+- **Failed + no errors**: Full tail (fallback for debugging)
+- **Success**: No tail included
+
+Duration is only included if > 5 seconds.
 ```
 
 **Examples:**
@@ -300,85 +309,98 @@ Multiple filters are AND'd together (space or comma separated):
 
 ---
 
-### errors
+### events
 
-Get recent errors (convenience wrapper around `query`).
+Get events with optional severity filter. Replaces separate `errors` and `warnings` tools.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `limit` | number | No | Max errors to return (default: 20) |
-| `run_id` | number | No | Filter to specific run |
+| `limit` | number | No | Max events to return (default: 20) |
+| `run_id` | number | No | Filter to specific run (by serial number) |
 | `source` | string | No | Filter to specific source name |
+| `severity` | string | No | Filter by severity: "error", "warning", or "error,warning" |
 | `file_pattern` | string | No | Filter by file path pattern (SQL LIKE) |
+| `run_ids` | number[] | No | Batch mode: get events from multiple runs |
+| `limit_per_run` | number | No | Max events per run in batch mode (default: 10) |
 
 **Returns:**
 
 ```json
 {
-  "errors": [
+  "events": [
     {
       "ref": "1:1",
+      "run_ref": "build:1",
+      "severity": "error",
       "ref_file": "src/main.c",
       "ref_line": 15,
       "ref_column": 5,
       "message": "undefined variable 'foo'",
       "tool_name": "gcc",
-      "category": "error"
+      "category": "error",
+      "fingerprint": "gcc_error_a1b2c3d4",
+      "log_line": 42
     }
   ],
   "total_count": 3
 }
 ```
 
-**Example:**
+**Examples:**
 
 ```json
+// Get errors only
 {
-  "tool": "errors",
+  "tool": "events",
   "arguments": {
-    "limit": 10,
-    "file_pattern": "%main%"
+    "severity": "error",
+    "limit": 10
+  }
+}
+
+// Get warnings only
+{
+  "tool": "events",
+  "arguments": {
+    "severity": "warning"
+  }
+}
+
+// Batch mode: errors from multiple runs
+{
+  "tool": "events",
+  "arguments": {
+    "run_ids": [1, 2, 3],
+    "severity": "error"
   }
 }
 ```
 
 ---
 
-### warnings
+### inspect
 
-Get recent warnings (convenience wrapper around `query`).
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `limit` | number | No | Max warnings to return (default: 20) |
-| `run_id` | number | No | Filter to specific run |
-| `source` | string | No | Filter to specific source name |
-
-**Returns:** Same structure as `errors`.
-
----
-
-### event
-
-Get details for a specific event by reference.
+Get comprehensive event details with context and optional enrichment. Replaces separate `event` and `context` tools.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `ref` | string | Yes | Event reference (e.g., "1:3") |
+| `ref` | string | Yes | Event reference (e.g., "build:1:3" or "1:3") |
+| `lines` | number | No | Lines of context before/after (default: 5) |
+| `include_log_context` | boolean | No | Include surrounding log lines (default: true) |
+| `include_source_context` | boolean | No | Include source file context (default: true) |
+| `include_git_context` | boolean | No | Include git blame and history (default: false) |
+| `include_fingerprint_history` | boolean | No | Include fingerprint occurrence history (default: false) |
+| `refs` | string[] | No | Batch mode: inspect multiple events at once |
 
 **Returns:**
 
 ```json
 {
-  "ref": "1:3",
-  "run_id": 1,
-  "event_id": 3,
+  "ref": "build:1:3",
   "severity": "error",
   "ref_file": "src/main.c",
   "ref_line": 15,
@@ -386,59 +408,89 @@ Get details for a specific event by reference.
   "message": "undefined variable 'foo'",
   "tool_name": "gcc",
   "category": "error",
-  "error_fingerprint": "gcc_error_a1b2c3d4",
-  "raw_text": "src/main.c:15:5: error: undefined variable 'foo'",
-  "log_line_start": 42,
-  "log_line_end": 42,
-  "cwd": "/home/user/project",
-  "hostname": "dev-machine",
-  "platform": "Linux",
-  "arch": "x86_64",
-  "git_commit": "abc1234",
-  "git_branch": "main",
-  "git_dirty": false,
-  "ci": null
-}
-```
-
-The event includes run metadata for context (see `history` tool for field descriptions).
-
-**Example:**
-
-```json
-{
-  "tool": "event",
-  "arguments": {
-    "ref": "1:3"
+  "fingerprint": "gcc_error_a1b2c3d4",
+  "log_context": {
+    "lines": [
+      {"line": 40, "text": "gcc -c src/main.c -o main.o"},
+      {"line": 41, "text": "In file included from src/main.c:1:"},
+      {"line": 42, "text": "src/main.c:15:5: error: undefined variable 'foo'", "is_event": true},
+      {"line": 43, "text": "     int x = foo + 1;"},
+      {"line": 44, "text": "             ^~~"}
+    ]
+  },
+  "source_context": {
+    "file": "src/main.c",
+    "lines": [
+      {"line": 13, "text": "int main() {"},
+      {"line": 14, "text": "    int y = 10;"},
+      {"line": 15, "text": "    int x = foo + 1;", "is_error": true},
+      {"line": 16, "text": "    return x + y;"},
+      {"line": 17, "text": "}"}
+    ]
   }
 }
 ```
 
----
-
-### context
-
-Get log context around a specific event.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `ref` | string | Yes | Event reference (e.g., "1:3") |
-| `lines` | number | No | Lines of context before/after (default: 5) |
-
-**Returns:**
+**With git context (`include_git_context=true`):**
 
 ```json
 {
-  "ref": "1:3",
-  "context_lines": [
-    {"line": 40, "text": "gcc -c src/main.c -o main.o"},
-    {"line": 41, "text": "In file included from src/main.c:1:"},
-    {"line": 42, "text": "src/main.c:15:5: error: undefined variable 'foo'", "is_event": true},
-    {"line": 43, "text": "     int x = foo + 1;"},
-    {"line": 44, "text": "             ^~~"}
-  ]
+  "git_context": {
+    "file": "src/main.c",
+    "line": 15,
+    "blame": {
+      "author": "alice@example.com",
+      "commit": "abc1234",
+      "time": "2024-01-15T10:30:00Z"
+    },
+    "recent_commits": [
+      {"hash": "abc1234", "message": "Refactor data processing", "author": "alice@example.com"}
+    ]
+  }
+}
+```
+
+**With fingerprint history (`include_fingerprint_history=true`):**
+
+```json
+{
+  "fingerprint_history": {
+    "fingerprint": "gcc_error_a1b2c3d4",
+    "first_seen": {"run_ref": "build:1", "time": "2024-01-10T08:00:00Z"},
+    "occurrences": 4,
+    "is_regression": true
+  }
+}
+```
+
+**Examples:**
+
+```json
+// Basic inspect with log and source context
+{
+  "tool": "inspect",
+  "arguments": {
+    "ref": "build:1:3"
+  }
+}
+
+// With git context
+{
+  "tool": "inspect",
+  "arguments": {
+    "ref": "build:1:3",
+    "include_git_context": true
+  }
+}
+
+// Batch mode: inspect multiple events
+{
+  "tool": "inspect",
+  "arguments": {
+    "ref": "build:1:1",
+    "refs": ["build:1:1", "build:1:2", "build:1:3"],
+    "include_git_context": true
+  }
 }
 ```
 
@@ -487,7 +539,7 @@ Get raw stdout/stderr output for a run. Useful when structured parsing didn't ca
 
 ### info
 
-Get detailed information about a specific run, including running commands.
+Get detailed information about a specific run, including running commands. For failed runs with `context=N`, includes aggregated summaries to help identify patterns.
 
 **Parameters:**
 
@@ -498,13 +550,16 @@ Get detailed information about a specific run, including running commands.
 | `tail` | number | No | Return last N lines of output |
 | `errors` | boolean | No | Include error events (default: false) |
 | `warnings` | boolean | No | Include warning events (default: false) |
+| `severity` | string | No | Filter events by severity (e.g., "error", "error,warning") |
+| `limit` | number | No | Max events to return (default: 20) |
 | `context` | number | No | Show N lines of log context around each event |
 
-**Returns:**
+**Returns (basic):**
 
 ```json
 {
   "run_id": 5,
+  "run_ref": "build:5",
   "source_name": "build",
   "command": "make -j8",
   "status": "RUNNING",
@@ -518,17 +573,71 @@ Get detailed information about a specific run, including running commands.
 }
 ```
 
-For running commands, `info` reads from the live output directory. For completed commands, it reads from blob storage.
+**Returns (with `context=N` for failed runs):**
 
-**Example:**
+When `context=N` is specified for a failed run, the response includes a compact event format with aggregated summaries:
 
 ```json
+{
+  "run_ref": "build:5",
+  "status": "FAIL",
+  "error_count": 3,
+  "errors_by_category": {"compile": 3},
+  "events": [
+    {
+      "ref": "5:1",
+      "location": "src/main.c:42",
+      "context": "    40 | int x = 0;\n>>> 42 | int y = foo;\n    43 | return x;"
+    }
+  ],
+  "summary": {
+    "by_fingerprint": [
+      {"fingerprint": "abc123", "count": 2, "example_message": "undefined variable"}
+    ],
+    "by_file": [
+      {"file": "src/main.c", "count": 3}
+    ],
+    "affected_commits": [
+      {"hash": "abc1234", "author": "alice@example.com", "message": "Refactor core", "files": ["src/main.c"]}
+    ]
+  }
+}
+```
+
+**Summary fields for failed runs:**
+- `by_fingerprint`: Error counts grouped by fingerprint (helps identify duplicate/related errors)
+- `by_file`: Error counts grouped by file (identifies problematic files)
+- `affected_commits`: Recent git commits that touched files with errors (helps find root cause)
+
+For running commands, `info` reads from the live output directory. For completed commands, it reads from blob storage.
+
+**Examples:**
+
+```json
+// Basic info with tail
 {
   "tool": "info",
   "arguments": {
     "ref": "build:5",
     "tail": 20,
     "errors": true
+  }
+}
+
+// Compact view with context (recommended for failed runs)
+{
+  "tool": "info",
+  "arguments": {
+    "ref": "build:5",
+    "context": 3
+  }
+}
+
+// Most recent run (no ref)
+{
+  "tool": "info",
+  "arguments": {
+    "context": 5
   }
 }
 ```
@@ -742,7 +851,7 @@ Remove a command from the registry.
 
 ---
 
-### list_commands
+### commands
 
 List all registered commands.
 
@@ -778,7 +887,7 @@ Template commands use `tpl` instead of `cmd`, with optional `defaults` for param
 
 ```json
 {
-  "tool": "list_commands",
+  "tool": "commands",
   "arguments": {}
 }
 ```
@@ -1366,19 +1475,21 @@ When a disabled tool is called, the server returns an error:
 ### Agent Workflow: Fix Build Errors
 
 ```
-1. Agent calls exec(command="make") for ad-hoc execution
-   OR run(command="build") if "build" is registered
-   → Gets structured error list
+1. Agent calls run(command="build") if registered
+   → Gets structured error list with conditional tail
 
-2. Agent calls event(ref="1:1")
-   → Gets full details for first error
+2. Agent calls info(ref="build:1", context=3)
+   → Gets errors with log context and summary (by_file, affected_commits)
 
-3. Agent reads source file and makes fix
+3. If more details needed, agent calls inspect(ref="1:1")
+   → Gets full details with source context
 
-4. Agent calls exec(command="make") or run(command="build")
+4. Agent reads source file and makes fix
+
+5. Agent calls run(command="build")
    → Verifies fix worked
 
-5. Repeat until build passes
+6. Repeat until build passes
 ```
 
 ### Agent Workflow: Investigate Regression
@@ -1390,8 +1501,9 @@ When a disabled tool is called, the server returns an error:
 2. Agent calls diff(run1=4, run2=5)
    → Gets list of new errors
 
-3. Agent calls event(ref="5:1")
-   → Investigates first new error
+3. Agent calls info(ref="build:5", context=3)
+   → Gets errors with context and summary.affected_commits
 
-4. Agent correlates with recent code changes
+4. For deeper investigation, calls inspect(ref="5:1", include_git_context=true)
+   → Gets git blame and recent commits for affected lines
 ```
