@@ -7,23 +7,6 @@ import subprocess
 import pytest
 
 
-class TestHookTemplate:
-    """Tests for the hook script template."""
-
-    def test_template_uses_subcommand_format(self):
-        """Hook template uses 'blq hooks run' not 'blq hooks-run'."""
-        from blq.commands.hooks_cmd import PRECOMMIT_HOOK_TEMPLATE
-
-        assert "blq hooks run" in PRECOMMIT_HOOK_TEMPLATE
-        assert "blq hooks-run" not in PRECOMMIT_HOOK_TEMPLATE
-
-    def test_template_contains_marker(self):
-        """Hook template contains the marker for identification."""
-        from blq.commands.hooks_cmd import HOOK_MARKER, PRECOMMIT_HOOK_TEMPLATE
-
-        assert HOOK_MARKER in PRECOMMIT_HOOK_TEMPLATE
-
-
 @pytest.fixture
 def git_repo(temp_dir):
     """Create a git repository in temp_dir."""
@@ -67,11 +50,33 @@ def initialized_git_project(git_repo):
 class TestHooksInstall:
     """Tests for hooks-install command."""
 
+    def _register_test_command(self):
+        """Helper to register a test command."""
+        from blq.commands.registry import cmd_register
+
+        args = argparse.Namespace(
+            name="testcmd",
+            cmd=["echo", "test"],
+            description="Test command",
+            timeout=300,
+            capture=True,
+            format="",
+            force=False,
+            run=False,
+            template=False,
+            default=[],
+        )
+        cmd_register(args)
+
     def test_install_creates_hook(self, initialized_git_project):
         """Installing hooks creates pre-commit script."""
         from blq.commands.hooks_cmd import cmd_hooks_install
 
-        args = argparse.Namespace(force=False)
+        self._register_test_command()
+
+        args = argparse.Namespace(
+            target="git", commands=["testcmd"], hook="pre-commit", force=False
+        )
         cmd_hooks_install(args)
 
         hook_path = initialized_git_project / ".git" / "hooks" / "pre-commit"
@@ -82,31 +87,42 @@ class TestHooksInstall:
         """Installed hook contains blq marker."""
         from blq.commands.hooks_cmd import HOOK_MARKER, cmd_hooks_install
 
-        args = argparse.Namespace(force=False)
+        self._register_test_command()
+
+        args = argparse.Namespace(
+            target="git", commands=["testcmd"], hook="pre-commit", force=False
+        )
         cmd_hooks_install(args)
 
         hook_path = initialized_git_project / ".git" / "hooks" / "pre-commit"
         content = hook_path.read_text()
         assert HOOK_MARKER in content
 
-    def test_install_uses_correct_command_format(self, initialized_git_project):
-        """Installed hook uses 'blq hooks run' (not 'blq hooks-run')."""
+    def test_install_calls_hook_scripts(self, initialized_git_project):
+        """Installed hook calls .lq/hooks/*.sh scripts."""
         from blq.commands.hooks_cmd import cmd_hooks_install
 
-        args = argparse.Namespace(force=False)
+        self._register_test_command()
+
+        args = argparse.Namespace(
+            target="git", commands=["testcmd"], hook="pre-commit", force=False
+        )
         cmd_hooks_install(args)
 
         hook_path = initialized_git_project / ".git" / "hooks" / "pre-commit"
         content = hook_path.read_text()
-        # Must use subcommand format, not hyphenated
-        assert "blq hooks run" in content
-        assert "blq hooks-run" not in content
+        # Should call the generated hook script
+        assert ".lq/hooks/testcmd.sh" in content
 
     def test_install_idempotent(self, initialized_git_project, capsys):
         """Installing twice without force shows message."""
         from blq.commands.hooks_cmd import cmd_hooks_install
 
-        args = argparse.Namespace(force=False)
+        self._register_test_command()
+
+        args = argparse.Namespace(
+            target="git", commands=["testcmd"], hook="pre-commit", force=False
+        )
         cmd_hooks_install(args)
         cmd_hooks_install(args)
 
@@ -117,15 +133,20 @@ class TestHooksInstall:
         """Installing with force overwrites existing hook."""
         from blq.commands.hooks_cmd import cmd_hooks_install
 
+        self._register_test_command()
         hook_path = initialized_git_project / ".git" / "hooks" / "pre-commit"
 
         # First install
-        args = argparse.Namespace(force=False)
+        args = argparse.Namespace(
+            target="git", commands=["testcmd"], hook="pre-commit", force=False
+        )
         cmd_hooks_install(args)
         original_content = hook_path.read_text()
 
         # Force reinstall
-        args = argparse.Namespace(force=True)
+        args = argparse.Namespace(
+            target="git", commands=["testcmd"], hook="pre-commit", force=True
+        )
         cmd_hooks_install(args)
 
         assert hook_path.read_text() == original_content  # Same content
@@ -134,12 +155,16 @@ class TestHooksInstall:
         """Installing refuses to overwrite non-blq hook."""
         from blq.commands.hooks_cmd import cmd_hooks_install
 
+        self._register_test_command()
+
         # Create a foreign hook
         hook_path = initialized_git_project / ".git" / "hooks" / "pre-commit"
         hook_path.parent.mkdir(parents=True, exist_ok=True)
         hook_path.write_text("#!/bin/sh\necho 'foreign hook'\n")
 
-        args = argparse.Namespace(force=False)
+        args = argparse.Namespace(
+            target="git", commands=["testcmd"], hook="pre-commit", force=False
+        )
         with pytest.raises(SystemExit):
             cmd_hooks_install(args)
 
@@ -150,28 +175,67 @@ class TestHooksInstall:
         """Installing with force overwrites foreign hook."""
         from blq.commands.hooks_cmd import HOOK_MARKER, cmd_hooks_install
 
+        self._register_test_command()
+
         # Create a foreign hook
         hook_path = initialized_git_project / ".git" / "hooks" / "pre-commit"
         hook_path.parent.mkdir(parents=True, exist_ok=True)
         hook_path.write_text("#!/bin/sh\necho 'foreign hook'\n")
 
-        args = argparse.Namespace(force=True)
+        args = argparse.Namespace(
+            target="git", commands=["testcmd"], hook="pre-commit", force=True
+        )
         cmd_hooks_install(args)
 
         content = hook_path.read_text()
         assert HOOK_MARKER in content
         assert "foreign hook" not in content
 
+    def test_install_requires_commands(self, initialized_git_project, capsys):
+        """Installing without commands shows error."""
+        from blq.commands.hooks_cmd import cmd_hooks_install
+
+        args = argparse.Namespace(
+            target="git", commands=[], hook="pre-commit", force=False
+        )
+        with pytest.raises(SystemExit):
+            cmd_hooks_install(args)
+
+        captured = capsys.readouterr()
+        assert "No commands specified" in captured.err
+
 
 class TestHooksRemove:
     """Tests for hooks-remove command."""
+
+    def _register_test_command(self):
+        """Helper to register a test command."""
+        from blq.commands.registry import cmd_register
+
+        args = argparse.Namespace(
+            name="testcmd",
+            cmd=["echo", "test"],
+            description="Test command",
+            timeout=300,
+            capture=True,
+            format="",
+            force=False,
+            run=False,
+            template=False,
+            default=[],
+        )
+        cmd_register(args)
 
     def test_remove_deletes_hook(self, initialized_git_project):
         """Removing deletes the hook file."""
         from blq.commands.hooks_cmd import cmd_hooks_install, cmd_hooks_remove
 
+        self._register_test_command()
+
         # Install first
-        args = argparse.Namespace(force=False)
+        args = argparse.Namespace(
+            target="git", commands=["testcmd"], hook="pre-commit", force=False
+        )
         cmd_hooks_install(args)
 
         hook_path = initialized_git_project / ".git" / "hooks" / "pre-commit"
@@ -221,8 +285,26 @@ class TestHooksStatus:
     def test_status_installed(self, initialized_git_project, capsys):
         """Status shows installed when hook exists."""
         from blq.commands.hooks_cmd import cmd_hooks_install, cmd_hooks_status
+        from blq.commands.registry import cmd_register
 
-        args = argparse.Namespace(force=False)
+        # Register a command first
+        reg_args = argparse.Namespace(
+            name="testcmd",
+            cmd=["echo", "test"],
+            description="Test command",
+            timeout=300,
+            capture=True,
+            format="",
+            force=False,
+            run=False,
+            template=False,
+            default=[],
+        )
+        cmd_register(reg_args)
+
+        args = argparse.Namespace(
+            target="git", commands=["testcmd"], hook="pre-commit", force=False
+        )
         cmd_hooks_install(args)
         capsys.readouterr()  # Clear install output
 
@@ -376,9 +458,27 @@ class TestNotInGitRepo:
     def test_install_fails_not_git(self, initialized_project, capsys):
         """Install fails when in blq project but not git repo."""
         from blq.commands.hooks_cmd import cmd_hooks_install
+        from blq.commands.registry import cmd_register
+
+        # Register a command first
+        reg_args = argparse.Namespace(
+            name="testcmd",
+            cmd=["echo", "test"],
+            description="Test command",
+            timeout=300,
+            capture=True,
+            format="",
+            force=False,
+            run=False,
+            template=False,
+            default=[],
+        )
+        cmd_register(reg_args)
 
         with pytest.raises(SystemExit):
-            cmd_hooks_install(argparse.Namespace(force=False))
+            cmd_hooks_install(argparse.Namespace(
+                target="git", commands=["testcmd"], hook="pre-commit", force=False
+            ))
 
         captured = capsys.readouterr()
         assert "Not in a git repository" in captured.err
@@ -398,3 +498,210 @@ class TestNotInGitRepo:
             assert "not initialized" in captured.out
         finally:
             os.chdir(original)
+
+
+class TestClaudeCodeRecordHooks:
+    """Tests for Claude Code record-invocation hooks."""
+
+    def test_install_record_hooks_creates_scripts(self, initialized_project, capsys):
+        """Installing record hooks creates both pre and post scripts."""
+        from blq.commands.hooks_cmd import _install_claude_code_hooks
+
+        _install_claude_code_hooks(record=True)
+
+        pre_hook = initialized_project / ".claude" / "hooks" / "blq-record-pre.sh"
+        post_hook = initialized_project / ".claude" / "hooks" / "blq-record-post.sh"
+
+        assert pre_hook.exists()
+        assert post_hook.exists()
+        assert pre_hook.stat().st_mode & 0o111  # Is executable
+        assert post_hook.stat().st_mode & 0o111  # Is executable
+
+    def test_install_record_hooks_creates_pending_dir(self, initialized_project):
+        """Installing record hooks creates the pending directory."""
+        from blq.commands.hooks_cmd import _install_claude_code_hooks
+
+        _install_claude_code_hooks(record=True)
+
+        pending_dir = initialized_project / ".lq" / "hooks" / "pending"
+        assert pending_dir.exists()
+        assert pending_dir.is_dir()
+
+    def test_install_record_hooks_registers_in_settings(self, initialized_project):
+        """Installing record hooks updates .claude/settings.json."""
+        import json
+
+        from blq.commands.hooks_cmd import _install_claude_code_hooks
+
+        _install_claude_code_hooks(record=True)
+
+        settings_file = initialized_project / ".claude" / "settings.json"
+        assert settings_file.exists()
+
+        settings = json.loads(settings_file.read_text())
+
+        # Check PreToolUse hook
+        assert "PreToolUse" in settings["hooks"]
+        pre_hooks = settings["hooks"]["PreToolUse"]
+        assert any(
+            h.get("matcher") == "Bash"
+            and any("blq-record-pre.sh" in hh.get("command", "") for hh in h.get("hooks", []))
+            for h in pre_hooks
+        )
+
+        # Check PostToolUse hook
+        assert "PostToolUse" in settings["hooks"]
+        post_hooks = settings["hooks"]["PostToolUse"]
+        assert any(
+            h.get("matcher") == "Bash"
+            and any("blq-record-post.sh" in hh.get("command", "") for hh in h.get("hooks", []))
+            for h in post_hooks
+        )
+
+    def test_install_record_hooks_pre_only(self, initialized_project):
+        """Installing with record_hooks=['pre'] only creates pre hook."""
+        from blq.commands.hooks_cmd import _install_claude_code_hooks
+
+        _install_claude_code_hooks(record=True, record_hooks=["pre"])
+
+        pre_hook = initialized_project / ".claude" / "hooks" / "blq-record-pre.sh"
+        post_hook = initialized_project / ".claude" / "hooks" / "blq-record-post.sh"
+
+        assert pre_hook.exists()
+        assert not post_hook.exists()
+
+    def test_install_record_hooks_post_only(self, initialized_project):
+        """Installing with record_hooks=['post'] only creates post hook."""
+        from blq.commands.hooks_cmd import _install_claude_code_hooks
+
+        _install_claude_code_hooks(record=True, record_hooks=["post"])
+
+        pre_hook = initialized_project / ".claude" / "hooks" / "blq-record-pre.sh"
+        post_hook = initialized_project / ".claude" / "hooks" / "blq-record-post.sh"
+
+        assert not pre_hook.exists()
+        assert post_hook.exists()
+
+    def test_uninstall_record_hooks_removes_scripts(self, initialized_project):
+        """Uninstalling record hooks removes the scripts and pending dir."""
+        from blq.commands.hooks_cmd import _install_claude_code_hooks, _uninstall_claude_code_hooks
+
+        # Install first
+        _install_claude_code_hooks(record=True)
+
+        pre_hook = initialized_project / ".claude" / "hooks" / "blq-record-pre.sh"
+        post_hook = initialized_project / ".claude" / "hooks" / "blq-record-post.sh"
+        pending_dir = initialized_project / ".lq" / "hooks" / "pending"
+
+        assert pre_hook.exists()
+        assert post_hook.exists()
+        assert pending_dir.exists()
+
+        # Uninstall
+        _uninstall_claude_code_hooks(record=True)
+
+        assert not pre_hook.exists()
+        assert not post_hook.exists()
+        assert not pending_dir.exists()
+
+    def test_uninstall_record_hooks_updates_settings(self, initialized_project):
+        """Uninstalling record hooks removes them from settings.json."""
+        import json
+
+        from blq.commands.hooks_cmd import _install_claude_code_hooks, _uninstall_claude_code_hooks
+
+        _install_claude_code_hooks(record=True)
+        _uninstall_claude_code_hooks(record=True)
+
+        settings_file = initialized_project / ".claude" / "settings.json"
+        settings = json.loads(settings_file.read_text())
+
+        # Pre hook should be removed
+        pre_hooks = settings["hooks"].get("PreToolUse", [])
+        assert not any(
+            h.get("matcher") == "Bash"
+            and any("blq-record-pre.sh" in hh.get("command", "") for hh in h.get("hooks", []))
+            for h in pre_hooks
+        )
+
+        # Post hook should be removed
+        post_hooks = settings["hooks"].get("PostToolUse", [])
+        assert not any(
+            h.get("matcher") == "Bash"
+            and any("blq-record-post.sh" in hh.get("command", "") for hh in h.get("hooks", []))
+            for h in post_hooks
+        )
+
+    def test_pre_hook_script_content(self, initialized_project):
+        """Pre hook script has expected content."""
+        from blq.commands.hooks_cmd import _install_claude_code_hooks
+
+        _install_claude_code_hooks(record=True)
+
+        pre_hook = initialized_project / ".claude" / "hooks" / "blq-record-pre.sh"
+        content = pre_hook.read_text()
+
+        # Check key elements
+        assert "#!/bin/bash" in content
+        assert "blq record-invocation attempt" in content
+        assert "sha256sum" in content
+        assert ".lq/hooks/pending" in content
+
+    def test_post_hook_script_content(self, initialized_project):
+        """Post hook script has expected content."""
+        from blq.commands.hooks_cmd import _install_claude_code_hooks
+
+        _install_claude_code_hooks(record=True)
+
+        post_hook = initialized_project / ".claude" / "hooks" / "blq-record-post.sh"
+        content = post_hook.read_text()
+
+        # Check key elements
+        assert "#!/bin/bash" in content
+        assert "blq record-invocation outcome" in content
+        assert "--parse" in content
+        assert "hookSpecificOutput" in content
+
+    def test_status_shows_record_hooks(self, initialized_project, capsys):
+        """Status shows record hooks when installed."""
+        from blq.commands.hooks_cmd import _install_claude_code_hooks, cmd_hooks_status
+
+        _install_claude_code_hooks(record=True)
+        capsys.readouterr()  # Clear output
+
+        cmd_hooks_status(argparse.Namespace())
+
+        captured = capsys.readouterr()
+        assert "record-pre" in captured.out
+        assert "record-post" in captured.out
+        assert "[installed]" in captured.out
+
+    def test_record_hooks_idempotent(self, initialized_project, capsys):
+        """Installing record hooks twice doesn't duplicate registrations."""
+        import json
+
+        from blq.commands.hooks_cmd import _install_claude_code_hooks
+
+        _install_claude_code_hooks(record=True)
+        _install_claude_code_hooks(record=True)  # Second call
+
+        settings_file = initialized_project / ".claude" / "settings.json"
+        settings = json.loads(settings_file.read_text())
+
+        # Should only have one pre hook registration
+        pre_hooks = settings["hooks"].get("PreToolUse", [])
+        pre_count = sum(
+            1 for h in pre_hooks
+            if h.get("matcher") == "Bash"
+            and any("blq-record-pre.sh" in hh.get("command", "") for hh in h.get("hooks", []))
+        )
+        assert pre_count == 1
+
+        # Should only have one post hook registration
+        post_hooks = settings["hooks"].get("PostToolUse", [])
+        post_count = sum(
+            1 for h in post_hooks
+            if h.get("matcher") == "Bash"
+            and any("blq-record-post.sh" in hh.get("command", "") for hh in h.get("hooks", []))
+        )
+        assert post_count == 1

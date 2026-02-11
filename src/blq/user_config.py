@@ -87,6 +87,11 @@ class UserConfig:
 
     # Hooks preferences
     hooks_auto_claude_code: bool = False  # Auto-install Claude Code hooks with mcp install
+    hooks_record_commands: bool = False  # Enable record-invocation hooks for command tracking
+    hooks_record_format: str = "auto"  # Default format hint for parsing in record hooks
+    hooks_record_hooks: list[str] = field(
+        default_factory=lambda: ["pre", "post"]
+    )  # Which record hooks to install
 
     # Default capture_env additions
     extra_capture_env: list[str] = field(default_factory=list)
@@ -148,6 +153,9 @@ class UserConfig:
         auto_prune = False
         prune_days = 30
         hooks_auto_claude_code = False
+        hooks_record_commands = False
+        hooks_record_format = "auto"
+        hooks_record_hooks: list[str] = ["pre", "post"]
         extra_capture_env: list[str] = []
         loaded_from_file = False
 
@@ -209,6 +217,14 @@ class UserConfig:
                 if isinstance(hooks_section, dict):
                     if "auto_claude_code" in hooks_section:
                         hooks_auto_claude_code = bool(hooks_section["auto_claude_code"])
+                    if "record_commands" in hooks_section:
+                        hooks_record_commands = bool(hooks_section["record_commands"])
+                    if "record_format" in hooks_section:
+                        hooks_record_format = str(hooks_section["record_format"])
+                    if "record_hooks" in hooks_section:
+                        rh = hooks_section["record_hooks"]
+                        if isinstance(rh, list):
+                            hooks_record_hooks = [str(h) for h in rh]
 
                 # Parse [defaults] section
                 defaults_section = data.get("defaults", {})
@@ -235,6 +251,9 @@ class UserConfig:
             auto_prune=auto_prune,
             prune_days=prune_days,
             hooks_auto_claude_code=hooks_auto_claude_code,
+            hooks_record_commands=hooks_record_commands,
+            hooks_record_format=hooks_record_format,
+            hooks_record_hooks=hooks_record_hooks,
             extra_capture_env=extra_capture_env,
             _loaded_from_file=loaded_from_file,
         )
@@ -310,6 +329,12 @@ class UserConfig:
         hooks_section: dict[str, Any] = {}
         if self.hooks_auto_claude_code:  # Only save if True (False is default)
             hooks_section["auto_claude_code"] = self.hooks_auto_claude_code
+        if self.hooks_record_commands:  # Only save if True (False is default)
+            hooks_section["record_commands"] = self.hooks_record_commands
+        if self.hooks_record_format != "auto":
+            hooks_section["record_format"] = self.hooks_record_format
+        if self.hooks_record_hooks != ["pre", "post"]:
+            hooks_section["record_hooks"] = self.hooks_record_hooks
         if hooks_section:
             data["hooks"] = hooks_section
 

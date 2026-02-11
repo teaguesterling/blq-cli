@@ -30,20 +30,6 @@ from blq.git import find_git_dir
 # Marker to identify blq-managed hooks
 HOOK_MARKER = "# blq-managed-hook"
 
-# Pre-commit hook script template
-PRECOMMIT_HOOK_TEMPLATE = f"""#!/bin/sh
-{HOOK_MARKER}
-# blq pre-commit hook - auto-generated
-# To remove: blq hooks remove
-
-# Run configured pre-commit commands
-blq hooks run
-
-# Always exit 0 (non-blocking mode)
-# Future: exit with error count if block_on_new_errors is enabled
-exit 0
-"""
-
 
 def _is_blq_hook(hook_path: Path) -> bool:
     """Check if a hook file was created by blq.
@@ -146,6 +132,7 @@ def cmd_hooks_install(args: argparse.Namespace) -> None:
 
     For git: installs a pre-commit hook that calls .lq/hooks/*.sh scripts.
     For github/gitlab: generates workflow files.
+    For claude-code: installs Claude Code hooks for blq integration.
     """
     config = BlqConfig.ensure()
     target = getattr(args, "target", "git")
@@ -155,13 +142,10 @@ def cmd_hooks_install(args: argparse.Namespace) -> None:
 
     # Claude Code hooks don't need command names
     if target == "claude-code":
-        _install_claude_code_hooks(force)
-        return
-
-    # If no commands specified, fall back to legacy behavior for git
-    if target == "git" and not command_names:
-        # Legacy mode: use config-based pre-commit commands
-        _cmd_hooks_install_legacy(args)
+        record = getattr(args, "record", False)
+        record_hooks_str = getattr(args, "record_hooks", None)
+        record_hooks = record_hooks_str.split(",") if record_hooks_str else None
+        _install_claude_code_hooks(force=force, record=record, record_hooks=record_hooks)
         return
 
     if not command_names:
@@ -199,66 +183,6 @@ def cmd_hooks_install(args: argparse.Namespace) -> None:
         print(f"Error: Unknown target '{target}'", file=sys.stderr)
         print("Available targets: git, github, gitlab, drone, claude-code", file=sys.stderr)
         sys.exit(1)
-
-
-def _cmd_hooks_install_legacy(args: argparse.Namespace) -> None:
-    """Legacy install behavior: use PRECOMMIT_HOOK_TEMPLATE.
-
-    DEPRECATED: This mode is deprecated. Use:
-        blq hooks install git <command> [command...]
-    instead.
-    """
-    import warnings
-
-    warnings.warn(
-        "Legacy hooks install is deprecated. Use: blq hooks install git <commands...>",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    print(
-        "Note: Consider using 'blq hooks install git <commands>' for portable hook scripts.",
-        file=sys.stderr,
-    )
-    config = BlqConfig.ensure()
-
-    # Find git directory
-    git_dir = find_git_dir()
-    if git_dir is None:
-        print("Error: Not in a git repository.", file=sys.stderr)
-        sys.exit(1)
-
-    hooks_dir = git_dir / "hooks"
-    hooks_dir.mkdir(exist_ok=True)
-    hook_path = hooks_dir / "pre-commit"
-
-    # Check if hook exists
-    if hook_path.exists():
-        if _is_blq_hook(hook_path):
-            if not getattr(args, "force", False):
-                print("blq pre-commit hook already installed.")
-                print("Use --force to reinstall.")
-                return
-        else:
-            if not getattr(args, "force", False):
-                print("Error: Pre-commit hook exists but was not created by blq.", file=sys.stderr)
-                print("Use --force to overwrite (existing hook will be lost).", file=sys.stderr)
-                sys.exit(1)
-            print("Warning: Overwriting existing pre-commit hook.")
-
-    # Write hook script
-    hook_path.write_text(PRECOMMIT_HOOK_TEMPLATE)
-    hook_path.chmod(0o755)
-
-    # Show status
-    commands = _get_precommit_commands(config)
-    print(f"Installed pre-commit hook at {hook_path}")
-    if commands:
-        print(f"Configured commands: {', '.join(commands)}")
-    else:
-        print("No commands configured yet.")
-        print("Add commands to .lq/config.toml:")
-        print("  [hooks]")
-        print('  pre-commit = ["lint", "test"]')
 
 
 def _install_git_hook(
@@ -462,7 +386,8 @@ def cmd_hooks_uninstall(args: argparse.Namespace) -> None:
     elif target == "drone":
         _uninstall_drone_ci()
     elif target == "claude-code":
-        _uninstall_claude_code_hooks()
+        record = getattr(args, "record", False)
+        _uninstall_claude_code_hooks(record=record)
     else:
         print(f"Error: Unknown target '{target}'", file=sys.stderr)
         print("Available targets: git, github, gitlab, drone, claude-code", file=sys.stderr)
@@ -628,11 +553,31 @@ def cmd_hooks_status(args: argparse.Namespace) -> None:
     # Claude Code hooks status
     print()
     print("Claude Code Hooks:")
-    claude_hook = Path(".claude/hooks/blq-suggest.sh")
-    if claude_hook.exists():
-        print(f"  suggest      [installed] {claude_hook}")
+    claude_suggest = Path(".claude/hooks/blq-suggest.sh")
+    claude_record_pre = Path(".claude/hooks/blq-record-pre.sh")
+    claude_record_post = Path(".claude/hooks/blq-record-post.sh")
+
+    if claude_suggest.exists():
+        print(f"  suggest      [installed] {claude_suggest}")
     else:
         print("  suggest      [not installed]")
+
+    if claude_record_pre.exists():
+        print(f"  record-pre   [installed] {claude_record_pre}")
+    else:
+        print("  record-pre   [not installed]")
+
+    if claude_record_post.exists():
+        print(f"  record-post  [installed] {claude_record_post}")
+    else:
+        print("  record-post  [not installed]")
+
+    # Check pending directory for record hooks
+    pending_dir = Path(".lq/hooks/pending")
+    if pending_dir.exists():
+        pending_files = list(pending_dir.glob("*"))
+        if pending_files:
+            print(f"  pending      {len(pending_files)} pending attempt(s)")
 
     # Legacy config-based hooks
     legacy_commands = _get_precommit_commands(config)
@@ -787,35 +732,128 @@ fi
 exit 0
 """
 
+# Hook script content for Claude Code record pre hook (PreToolUse)
+CLAUDE_RECORD_PRE_HOOK = """#!/bin/bash
+# Claude Code PreToolUse hook - records command attempt
+# Installed by: blq hooks install claude-code --record
 
-def _install_claude_code_hooks(force: bool = False) -> bool:
+set -e
+
+INPUT=$(cat)
+COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+
+# Skip if no command or blq not available
+[[ -z "$COMMAND" ]] && exit 0
+command -v blq >/dev/null 2>&1 || exit 0
+[[ ! -d .lq ]] && exit 0
+
+# Record attempt
+RESULT=$(blq record-invocation attempt --command "$COMMAND" --json 2>/dev/null || true)
+[[ -z "$RESULT" ]] && exit 0
+
+ATTEMPT_ID=$(echo "$RESULT" | jq -r '.attempt_id // empty')
+[[ -z "$ATTEMPT_ID" ]] && exit 0
+
+# Store attempt_id for PostToolUse (keyed by command hash)
+PENDING_DIR=".lq/hooks/pending"
+mkdir -p "$PENDING_DIR"
+CMD_HASH=$(echo -n "$COMMAND" | sha256sum | cut -c1-16)
+echo "$ATTEMPT_ID" > "$PENDING_DIR/$CMD_HASH"
+
+# Silent - no output to agent
+exit 0
+"""
+
+# Hook script content for Claude Code record post hook (PostToolUse)
+CLAUDE_RECORD_POST_HOOK = """#!/bin/bash
+# Claude Code PostToolUse hook - records command outcome
+# Installed by: blq hooks install claude-code --record
+
+set -e
+
+INPUT=$(cat)
+COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+EXIT_CODE=$(echo "$INPUT" | jq -r '.tool_result.exitCode // 0')
+STDOUT=$(echo "$INPUT" | jq -r '.tool_result.stdout // empty')
+
+# Skip if no command or blq not available
+[[ -z "$COMMAND" ]] && exit 0
+command -v blq >/dev/null 2>&1 || exit 0
+[[ ! -d .lq ]] && exit 0
+
+# Look for pending attempt
+PENDING_DIR=".lq/hooks/pending"
+CMD_HASH=$(echo -n "$COMMAND" | sha256sum | cut -c1-16)
+ATTEMPT_FILE="$PENDING_DIR/$CMD_HASH"
+
+if [[ -f "$ATTEMPT_FILE" ]]; then
+    ATTEMPT_ID=$(cat "$ATTEMPT_FILE")
+    rm -f "$ATTEMPT_FILE"
+
+    # Record outcome with attempt link
+    RESULT=$(echo "$STDOUT" | blq record-invocation outcome \
+        --attempt "$ATTEMPT_ID" \
+        --exit "$EXIT_CODE" \
+        --parse \
+        --json 2>/dev/null || true)
+else
+    # Standalone mode - no prior attempt
+    RESULT=$(echo "$STDOUT" | blq record-invocation outcome \
+        --command "$COMMAND" \
+        --exit "$EXIT_CODE" \
+        --parse \
+        --json 2>/dev/null || true)
+fi
+
+[[ -z "$RESULT" ]] && exit 0
+
+# Extract event counts
+ERRORS=$(echo "$RESULT" | jq -r '.events.errors // 0')
+WARNINGS=$(echo "$RESULT" | jq -r '.events.warnings // 0')
+RUN_ID=$(echo "$RESULT" | jq -r '.run_id // empty')
+
+# Only output if there are issues
+if [[ "$ERRORS" -gt 0 || "$WARNINGS" -gt 0 ]]; then
+    SUMMARY="blq: Recorded ${ERRORS} errors, ${WARNINGS} warnings"
+    [[ -n "$RUN_ID" ]] && SUMMARY="$SUMMARY (run_id: $RUN_ID)"
+
+    jq -n --arg summary "$SUMMARY" '{
+        decision: "continue",
+        hookSpecificOutput: {
+            additionalContext: $summary
+        }
+    }'
+fi
+
+exit 0
+"""
+
+def _install_claude_code_hooks(
+    force: bool = False,
+    record: bool = False,
+    record_hooks: list[str] | None = None,
+) -> bool:
     """Install Claude Code hooks for blq integration.
+
+    Args:
+        force: Overwrite existing hooks
+        record: Install record-invocation hooks for passive command tracking
+        record_hooks: Which record hooks to install ("pre", "post", or both)
 
     Installs:
     - .claude/hooks/blq-suggest.sh: PostToolUse hook that suggests using blq MCP tools
+    - .claude/hooks/blq-record-pre.sh: PreToolUse hook for recording attempts
+    - .claude/hooks/blq-record-post.sh: PostToolUse hook for recording outcomes
 
     Returns True if any hooks were installed/updated.
     """
     hooks_dir = Path(".claude/hooks")
     hooks_dir.mkdir(parents=True, exist_ok=True)
 
-    hook_file = hooks_dir / "blq-suggest.sh"
     settings_file = Path(".claude/settings.json")
+    installed_hooks: list[str] = []
 
-    # Write hook script
-    hook_existed = hook_file.exists()
-    if not hook_existed or force:
-        hook_file.write_text(CLAUDE_SUGGEST_HOOK)
-        hook_file.chmod(0o755)
-        print(f"{'Updated' if hook_existed else 'Created'} {hook_file}")
-
-    # Update .claude/settings.json
-    hook_config = {
-        "matcher": "Bash",
-        "hooks": [{"type": "command", "command": ".claude/hooks/blq-suggest.sh"}],
-    }
-
-    settings_updated = False
+    # Load existing settings
     if settings_file.exists():
         try:
             with open(settings_file) as f:
@@ -827,46 +865,159 @@ def _install_claude_code_hooks(force: bool = False) -> bool:
 
     if "hooks" not in settings:
         settings["hooks"] = {}
-    if "PostToolUse" not in settings["hooks"]:
-        settings["hooks"]["PostToolUse"] = []
 
-    # Check if hook already registered
-    post_hooks = settings["hooks"]["PostToolUse"]
-    blq_hook_exists = any(
-        h.get("matcher") == "Bash"
-        and any(hh.get("command", "").endswith("blq-suggest.sh") for hh in h.get("hooks", []))
-        for h in post_hooks
-    )
+    settings_modified = False
 
-    if not blq_hook_exists:
-        post_hooks.append(hook_config)
+    # Install suggest hook (always, unless only --record specified)
+    if not record:
+        hook_file = hooks_dir / "blq-suggest.sh"
+        hook_existed = hook_file.exists()
+        if not hook_existed or force:
+            hook_file.write_text(CLAUDE_SUGGEST_HOOK)
+            hook_file.chmod(0o755)
+            print(f"{'Updated' if hook_existed else 'Created'} {hook_file}")
+            installed_hooks.append("blq-suggest.sh")
+
+        # Register suggest hook in settings
+        if "PostToolUse" not in settings["hooks"]:
+            settings["hooks"]["PostToolUse"] = []
+
+        post_hooks = settings["hooks"]["PostToolUse"]
+        suggest_hook_exists = any(
+            h.get("matcher") == "Bash"
+            and any(hh.get("command", "").endswith("blq-suggest.sh") for hh in h.get("hooks", []))
+            for h in post_hooks
+        )
+
+        if not suggest_hook_exists:
+            hook_config = {
+                "matcher": "Bash",
+                "hooks": [{"type": "command", "command": ".claude/hooks/blq-suggest.sh"}],
+            }
+            post_hooks.append(hook_config)
+            settings_modified = True
+            print(f"Registered blq-suggest.sh in {settings_file}")
+
+    # Install record hooks if requested
+    if record:
+        effective_record_hooks = record_hooks or ["pre", "post"]
+
+        # Install pre hook (PreToolUse)
+        if "pre" in effective_record_hooks:
+            pre_hook_file = hooks_dir / "blq-record-pre.sh"
+            pre_existed = pre_hook_file.exists()
+            if not pre_existed or force:
+                pre_hook_file.write_text(CLAUDE_RECORD_PRE_HOOK)
+                pre_hook_file.chmod(0o755)
+                print(f"{'Updated' if pre_existed else 'Created'} {pre_hook_file}")
+                installed_hooks.append("blq-record-pre.sh")
+
+            # Register in PreToolUse
+            if "PreToolUse" not in settings["hooks"]:
+                settings["hooks"]["PreToolUse"] = []
+
+            pre_hooks = settings["hooks"]["PreToolUse"]
+            pre_record_exists = any(
+                h.get("matcher") == "Bash"
+                and any(
+                    hh.get("command", "").endswith("blq-record-pre.sh")
+                    for hh in h.get("hooks", [])
+                )
+                for h in pre_hooks
+            )
+
+            if not pre_record_exists:
+                pre_config = {
+                    "matcher": "Bash",
+                    "hooks": [{"type": "command", "command": ".claude/hooks/blq-record-pre.sh"}],
+                }
+                pre_hooks.append(pre_config)
+                settings_modified = True
+                print(f"Registered blq-record-pre.sh in {settings_file}")
+
+        # Install post hook (PostToolUse)
+        if "post" in effective_record_hooks:
+            post_hook_file = hooks_dir / "blq-record-post.sh"
+            post_existed = post_hook_file.exists()
+            if not post_existed or force:
+                post_hook_file.write_text(CLAUDE_RECORD_POST_HOOK)
+                post_hook_file.chmod(0o755)
+                print(f"{'Updated' if post_existed else 'Created'} {post_hook_file}")
+                installed_hooks.append("blq-record-post.sh")
+
+            # Register in PostToolUse
+            if "PostToolUse" not in settings["hooks"]:
+                settings["hooks"]["PostToolUse"] = []
+
+            post_hooks = settings["hooks"]["PostToolUse"]
+            post_record_exists = any(
+                h.get("matcher") == "Bash"
+                and any(
+                    hh.get("command", "").endswith("blq-record-post.sh")
+                    for hh in h.get("hooks", [])
+                )
+                for h in post_hooks
+            )
+
+            if not post_record_exists:
+                post_config = {
+                    "matcher": "Bash",
+                    "hooks": [{"type": "command", "command": ".claude/hooks/blq-record-post.sh"}],
+                }
+                post_hooks.append(post_config)
+                settings_modified = True
+                print(f"Registered blq-record-post.sh in {settings_file}")
+
+        # Create pending directory for state passing
+        pending_dir = Path(".lq/hooks/pending")
+        pending_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save settings if modified
+    if settings_modified:
         with open(settings_file, "w") as f:
             json.dump(settings, f, indent=2)
-        settings_updated = True
-        print(f"Registered hook in {settings_file}")
-    elif not hook_existed:
-        print(f"Hook already registered in {settings_file}")
 
-    if not hook_existed or settings_updated:
+    if installed_hooks or settings_modified:
         print("\nClaude Code hooks installed:")
-        print("  - blq-suggest.sh: suggests using blq MCP tools for registered commands")
+        if not record:
+            print("  - blq-suggest.sh: suggests using blq MCP tools for registered commands")
+        if record:
+            if "pre" in (record_hooks or ["pre", "post"]):
+                print("  - blq-record-pre.sh: records command attempts (PreToolUse)")
+            if "post" in (record_hooks or ["pre", "post"]):
+                print("  - blq-record-post.sh: records command outcomes (PostToolUse)")
         return True
 
     print("Claude Code hooks already installed. Use --force to reinstall.")
     return False
 
 
-def _uninstall_claude_code_hooks() -> None:
-    """Remove Claude Code hooks."""
-    hook_file = Path(".claude/hooks/blq-suggest.sh")
-    settings_file = Path(".claude/settings.json")
+def _uninstall_claude_code_hooks(record: bool = False) -> None:
+    """Remove Claude Code hooks.
 
+    Args:
+        record: If True, only remove record hooks. If False, remove suggest hook.
+    """
+    settings_file = Path(".claude/settings.json")
     removed_any = False
 
-    if hook_file.exists():
-        hook_file.unlink()
-        print(f"Removed {hook_file}")
-        removed_any = True
+    # Define which hook files to remove
+    if record:
+        hook_files = [
+            Path(".claude/hooks/blq-record-pre.sh"),
+            Path(".claude/hooks/blq-record-post.sh"),
+        ]
+        hook_patterns = ["blq-record-pre.sh", "blq-record-post.sh"]
+    else:
+        hook_files = [Path(".claude/hooks/blq-suggest.sh")]
+        hook_patterns = ["blq-suggest.sh"]
+
+    # Remove hook script files
+    for hook_file in hook_files:
+        if hook_file.exists():
+            hook_file.unlink()
+            print(f"Removed {hook_file}")
+            removed_any = True
 
     # Remove from settings.json
     if settings_file.exists():
@@ -874,6 +1025,27 @@ def _uninstall_claude_code_hooks() -> None:
             with open(settings_file) as f:
                 settings = json.load(f)
 
+            settings_modified = False
+
+            # Remove from PreToolUse if removing record hooks
+            if record and "hooks" in settings and "PreToolUse" in settings["hooks"]:
+                pre_hooks = settings["hooks"]["PreToolUse"]
+                original_len = len(pre_hooks)
+                settings["hooks"]["PreToolUse"] = [
+                    h
+                    for h in pre_hooks
+                    if not (
+                        h.get("matcher") == "Bash"
+                        and any(
+                            any(hh.get("command", "").endswith(p) for p in hook_patterns)
+                            for hh in h.get("hooks", [])
+                        )
+                    )
+                ]
+                if len(settings["hooks"]["PreToolUse"]) < original_len:
+                    settings_modified = True
+
+            # Remove from PostToolUse
             if "hooks" in settings and "PostToolUse" in settings["hooks"]:
                 post_hooks = settings["hooks"]["PostToolUse"]
                 original_len = len(post_hooks)
@@ -883,18 +1055,33 @@ def _uninstall_claude_code_hooks() -> None:
                     if not (
                         h.get("matcher") == "Bash"
                         and any(
-                            hh.get("command", "").endswith("blq-suggest.sh")
+                            any(hh.get("command", "").endswith(p) for p in hook_patterns)
                             for hh in h.get("hooks", [])
                         )
                     )
                 ]
                 if len(settings["hooks"]["PostToolUse"]) < original_len:
-                    with open(settings_file, "w") as f:
-                        json.dump(settings, f, indent=2)
-                    print(f"Removed hook registration from {settings_file}")
-                    removed_any = True
+                    settings_modified = True
+
+            if settings_modified:
+                with open(settings_file, "w") as f:
+                    json.dump(settings, f, indent=2)
+                print(f"Removed hook registration from {settings_file}")
+                removed_any = True
+
         except json.JSONDecodeError:
             pass
 
+    # Remove pending directory if removing record hooks
+    if record:
+        pending_dir = Path(".lq/hooks/pending")
+        if pending_dir.exists():
+            import shutil
+
+            shutil.rmtree(pending_dir)
+            print(f"Removed {pending_dir}")
+            removed_any = True
+
     if not removed_any:
-        print("Claude Code hooks not installed.")
+        hook_type = "record" if record else "suggest"
+        print(f"Claude Code {hook_type} hooks not installed.")
