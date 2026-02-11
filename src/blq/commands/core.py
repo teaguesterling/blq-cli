@@ -747,7 +747,9 @@ class BlqConfig:
         )
 
     @classmethod
-    def ensure(cls, start_dir: Path | None = None) -> BlqConfig:
+    def ensure(
+        cls, start_dir: Path | None = None, lq_dir: Path | None = None
+    ) -> BlqConfig:
         """Find configuration or exit with error.
 
         This is a convenience method for CLI commands that require
@@ -755,6 +757,7 @@ class BlqConfig:
 
         Args:
             start_dir: Directory to start searching from (default: cwd)
+            lq_dir: Explicit .lq directory to use (overrides discovery)
 
         Returns:
             BlqConfig if found
@@ -762,6 +765,14 @@ class BlqConfig:
         Raises:
             SystemExit: If .lq directory not found
         """
+        # If explicit lq_dir is provided, use it directly
+        if lq_dir is not None:
+            lq_path = Path(lq_dir).expanduser()
+            if not lq_path.exists():
+                print(f"Error: .lq directory does not exist: {lq_path}", file=sys.stderr)
+                sys.exit(1)
+            return cls.load(lq_path)
+
         config = cls.find(start_dir)
         if config is None:
             print("Error: .lq not initialized. Run 'blq init' first.", file=sys.stderr)
@@ -919,6 +930,11 @@ class RegisteredCommand:
         [commands.test]
         tpl = "pytest {path} {flags}"
         defaults = { path = "tests/", flags = "-v" }
+
+    Suppress known/expected events by fingerprint:
+        [commands.build]
+        cmd = "make"
+        suppress = ["cmake_configuration_35ff8000c51bc964"]
     """
 
     name: str
@@ -930,6 +946,7 @@ class RegisteredCommand:
     format: str = "auto"
     capture: bool = True  # Whether to capture and parse logs (default: True)
     capture_env: list[str] = field(default_factory=list)  # Additional env vars
+    suppress: list[str] = field(default_factory=list)  # Fingerprints to suppress in reports
 
     @property
     def is_template(self) -> bool:
@@ -1021,6 +1038,8 @@ class RegisteredCommand:
             d["capture"] = False
         if self.capture_env:
             d["capture_env"] = self.capture_env
+        if self.suppress:
+            d["suppress"] = self.suppress
         return d
 
 
@@ -1214,6 +1233,11 @@ def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
             if not isinstance(defaults, dict):
                 defaults = {}
 
+            # Get suppress list, ensuring it's a list
+            suppress = config.get("suppress", [])
+            if not isinstance(suppress, list):
+                suppress = []
+
             commands[name] = RegisteredCommand(
                 name=name,
                 cmd=config.get("cmd"),  # None if not present
@@ -1224,6 +1248,7 @@ def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
                 format=config.get("format", "auto"),
                 capture=config.get("capture", True),
                 capture_env=capture_env,
+                suppress=suppress,
             )
     return commands
 
@@ -1233,6 +1258,50 @@ def _save_commands_impl(lq_dir: Path, commands: dict[str, RegisteredCommand]) ->
     commands_path = lq_dir / COMMANDS_FILE
     data = {"commands": {name: cmd.to_dict() for name, cmd in commands.items()}}
     save_toml(commands_path, data)
+
+
+def get_suppressed_fingerprints(
+    config: BlqConfig,
+    source_name: str | None = None,
+) -> list[str]:
+    """Get list of fingerprints to suppress for a given source.
+
+    Suppression is per-command. If source_name is provided, returns fingerprints
+    from that command's suppress list. If source_name is None or not found,
+    returns an empty list.
+
+    Args:
+        config: BlqConfig instance with commands loaded
+        source_name: The command/source name to get suppress list for
+
+    Returns:
+        List of fingerprint strings to suppress
+    """
+    if source_name is None:
+        return []
+
+    # Check if there's a command with this name
+    if source_name in config.commands:
+        return config.commands[source_name].suppress
+
+    return []
+
+
+def get_all_suppressed_fingerprints(config: BlqConfig) -> list[str]:
+    """Get all suppressed fingerprints from all commands.
+
+    This is useful when querying across all sources.
+
+    Args:
+        config: BlqConfig instance with commands loaded
+
+    Returns:
+        Combined list of all fingerprint strings to suppress (deduplicated)
+    """
+    all_fingerprints: set[str] = set()
+    for cmd in config.commands.values():
+        all_fingerprints.update(cmd.suppress)
+    return list(all_fingerprints)
 
 
 # ============================================================================
@@ -1471,6 +1540,23 @@ def get_connection(lq_dir: Path | None = None) -> duckdb.DuckDBPyConnection:
     return ConnectionFactory.create(lq_dir=lq_dir, load_schema=True)
 
 
+def get_lq_dir_from_args(args) -> Path | None:
+    """Get the .lq directory path from parsed arguments.
+
+    Handles the --lq-dir flag.
+
+    Args:
+        args: Parsed arguments with optional 'lq_dir' attribute
+
+    Returns:
+        Path to .lq directory if --lq-dir was specified, None otherwise
+    """
+    lq_dir = getattr(args, "lq_dir", None)
+    if lq_dir:
+        return Path(lq_dir).expanduser()
+    return None
+
+
 def get_data_root(args) -> tuple[Path | None, bool]:
     """Get the data root path based on --global or --database flags.
 
@@ -1501,7 +1587,7 @@ def get_data_root(args) -> tuple[Path | None, bool]:
 def get_store_for_args(args):
     """Get a BlqStorage appropriate for the given args.
 
-    Handles --global and --database flags.
+    Handles --global, --database, and --lq-dir flags.
 
     Args:
         args: Parsed arguments
@@ -1510,6 +1596,15 @@ def get_store_for_args(args):
         BlqStorage instance configured for the appropriate data source
     """
     from blq.storage import BlqStorage
+
+    # Check for --lq-dir flag first (explicit .lq directory)
+    lq_dir = getattr(args, "lq_dir", None)
+    if lq_dir:
+        lq_path = Path(lq_dir).expanduser()
+        if not lq_path.exists():
+            print(f"Error: .lq directory does not exist: {lq_path}", file=sys.stderr)
+            sys.exit(1)
+        return BlqStorage.open(lq_path)
 
     data_root, is_raw = get_data_root(args)
 
@@ -1527,6 +1622,12 @@ def get_store_for_args(args):
         return LogStore.from_parquet_root(data_root)
     else:
         # Standard .lq directory - use BlqStorage
+        # Check for --lq-dir override
+        lq_dir_override = getattr(args, "lq_dir", None)
+        if lq_dir_override:
+            lq_path = Path(lq_dir_override).expanduser()
+            return BlqStorage.open(lq_path)
+
         config = BlqConfig.ensure()
         return BlqStorage.open(config.lq_dir)
 

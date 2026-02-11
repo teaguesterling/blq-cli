@@ -134,11 +134,10 @@ class Column:
 
 # Standard column definitions for different data types
 HISTORY_COLUMNS = [
-    Column("run_ref", "Ref", min_width=6, max_width=12, priority=0),
+    Column("run_ref", "Ref", min_width=6, max_width=18, priority=0, truncate=False),
     Column("counts", "E/W", min_width=3, max_width=7, align="right", priority=0),
     Column("when", "When", min_width=6, max_width=10, priority=1),
-    Column("git_branch", "Branch", min_width=6, max_width=15, priority=2),
-    Column("git_commit", "Commit", min_width=7, max_width=8, priority=2),
+    Column("git_ref", "Git", min_width=10, max_width=20, priority=2),
     Column("command", "Command", min_width=10, max_width=50, priority=3),
 ]
 
@@ -447,7 +446,7 @@ def format_history(
     if output_format == "json":
         return format_json(data)
 
-    # Preprocess: add run_ref, counts, and relative time
+    # Preprocess: add run_ref, counts, relative time, and combined git_ref
     processed = []
     for row in data:
         new_row = dict(row)
@@ -469,6 +468,36 @@ def format_history(
 
         # Create relative time
         new_row["when"] = format_relative_time(row.get("started_at", ""))
+
+        # Create combined git_ref: *hash(branch) or hash(branch)
+        # Smart truncation: keep full hash, truncate long branch names
+        commit = row.get("git_commit") or ""
+        branch = row.get("git_branch") or ""
+        dirty = row.get("git_dirty") or False
+        dirty_prefix = "*" if dirty else ""
+
+        if commit:
+            # Shorten commit to 7 chars
+            short_commit = commit[:7] if len(commit) > 7 else commit
+            if branch:
+                # Max 18 chars total: *1234567(branch...)
+                # prefix (0-1) + hash (7) + parens (2) = 9-10 chars
+                # Leave ~8 chars for branch, truncate if longer
+                max_branch_len = 8
+                if len(branch) > max_branch_len:
+                    branch = branch[: max_branch_len - 1] + "…"
+                new_row["git_ref"] = f"{dirty_prefix}{short_commit}({branch})"
+            else:
+                new_row["git_ref"] = f"{dirty_prefix}{short_commit}"
+        elif branch:
+            # No commit, just branch
+            max_branch_len = 15
+            if len(branch) > max_branch_len:
+                branch = branch[: max_branch_len - 1] + "…"
+            new_row["git_ref"] = f"{dirty_prefix}({branch})"
+        else:
+            new_row["git_ref"] = ""
+
         processed.append(new_row)
 
     if output_format == "markdown":

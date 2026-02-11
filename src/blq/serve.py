@@ -37,6 +37,7 @@ from typing import Any
 import pandas as pd  # type: ignore[import-untyped]
 from fastmcp import FastMCP
 
+from blq.commands.core import get_all_suppressed_fingerprints
 from blq.commands.query_cmd import parse_filter_expression
 from blq.output import format_context
 from blq.storage import BlqStorage
@@ -180,6 +181,36 @@ mcp = FastMCP(
 def _get_storage() -> BlqStorage:
     """Get BlqStorage for current directory."""
     return BlqStorage.open()
+
+
+def _get_suppress_condition(include_suppressed: bool = False) -> str | None:
+    """Get SQL condition to exclude suppressed fingerprints.
+
+    Args:
+        include_suppressed: If True, return None (no filtering)
+
+    Returns:
+        SQL condition string like "(fingerprint IS NULL OR fingerprint NOT IN (...))"
+        or None if no filtering needed.
+    """
+    if include_suppressed:
+        return None
+
+    try:
+        from blq.cli import BlqConfig
+
+        config = BlqConfig.find()
+        if config is None:
+            return None
+
+        suppressed = get_all_suppressed_fingerprints(config)
+        if not suppressed:
+            return None
+
+        fp_list = ", ".join(f"'{fp}'" for fp in suppressed)
+        return f"(fingerprint IS NULL OR fingerprint NOT IN ({fp_list}))"
+    except Exception:
+        return None
 
 
 def _parse_ref(ref: str) -> tuple[str | None, int, int]:
@@ -573,6 +604,7 @@ def _errors_impl(
     run_id: int | None = None,
     source: str | None = None,
     file_pattern: str | None = None,
+    include_suppressed: bool = False,
 ) -> dict[str, Any]:
     """Implementation of errors command."""
     try:
@@ -588,6 +620,11 @@ def _errors_impl(
             conditions.append(f"source_name = '{source}'")
         if file_pattern:
             conditions.append(f"ref_file LIKE '{file_pattern}'")
+
+        # Apply suppression filter
+        suppress_condition = _get_suppress_condition(include_suppressed)
+        if suppress_condition:
+            conditions.append(suppress_condition)
 
         where = " AND ".join(conditions)
 
@@ -629,6 +666,7 @@ def _warnings_impl(
     limit: int = 20,
     run_id: int | None = None,
     source: str | None = None,
+    include_suppressed: bool = False,
 ) -> dict[str, Any]:
     """Implementation of warnings command."""
     try:
@@ -642,6 +680,11 @@ def _warnings_impl(
             conditions.append(f"run_serial = {run_id}")
         if source:
             conditions.append(f"source_name = '{source}'")
+
+        # Apply suppression filter
+        suppress_condition = _get_suppress_condition(include_suppressed)
+        if suppress_condition:
+            conditions.append(suppress_condition)
 
         where = " AND ".join(conditions)
 
@@ -685,6 +728,7 @@ def _events_impl(
     source: str | None = None,
     severity: str | None = None,
     file_pattern: str | None = None,
+    include_suppressed: bool = False,
 ) -> dict[str, Any]:
     """Implementation of events command."""
     try:
@@ -709,6 +753,11 @@ def _events_impl(
                 conditions.append(f"severity IN ({severity_list})")
             else:
                 conditions.append(f"severity = '{severity}'")
+
+        # Apply suppression filter
+        suppress_condition = _get_suppress_condition(include_suppressed)
+        if suppress_condition:
+            conditions.append(suppress_condition)
 
         where = " AND ".join(conditions) if conditions else "1=1"
 
@@ -1952,6 +2001,7 @@ def events(
                 source=source,
                 severity=severity,
                 file_pattern=file_pattern,
+                include_suppressed=False,  # Default: suppress known fingerprints
             )
             event_count = len(result.get("events", []))
             total_events += event_count
@@ -1970,7 +2020,7 @@ def events(
         }
 
     # Single run/all runs mode
-    return _events_impl(limit, run_id, source, severity, file_pattern)
+    return _events_impl(limit, run_id, source, severity, file_pattern, include_suppressed=False)
 
 
 @mcp.tool()

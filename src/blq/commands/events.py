@@ -42,6 +42,39 @@ def _short_fingerprint(fingerprint: str | None, length: int = 16) -> str | None:
     return fingerprint[:length] if len(fingerprint) > length else fingerprint
 
 
+def _output_fields(result: dict, fields: list[str], as_json: bool) -> None:
+    """Output only the specified fields from a result dict.
+
+    For JSON: outputs a filtered dict with only the requested fields.
+    For text: outputs each field as "field: value" on its own line.
+    """
+    # Filter to only requested fields that exist
+    filtered = {}
+    for field in fields:
+        if field in result:
+            filtered[field] = result[field]
+
+    if as_json:
+        print(json.dumps(filtered, indent=2, default=str))
+    else:
+        for field in fields:
+            if field in result:
+                value = result[field]
+                # Format the value appropriately
+                if value is None:
+                    print(f"{field}: null")
+                elif isinstance(value, dict):
+                    # Inline dict as JSON
+                    print(f"{field}: {json.dumps(value, default=str)}")
+                elif isinstance(value, list):
+                    # Inline list as JSON
+                    print(f"{field}: {json.dumps(value, default=str)}")
+                else:
+                    print(f"{field}: {value}")
+            else:
+                print(f"{field}: (not found)")
+
+
 def cmd_event(args: argparse.Namespace) -> None:
     """Show event details by reference.
 
@@ -184,6 +217,8 @@ def cmd_inspect(args: argparse.Namespace) -> None:
     - Git context (blame and history) with --git
     - Fingerprint history with --fingerprint
     - All enrichment with --full
+
+    Use -F/--field to output only specific fields.
     """
     config = BlqConfig.ensure()
 
@@ -199,6 +234,9 @@ def cmd_inspect(args: argparse.Namespace) -> None:
         print("Use 'blq event' to see all events from a run", file=sys.stderr)
         sys.exit(1)
 
+    # Get requested fields (empty list means show all)
+    requested_fields = getattr(args, "field", []) or []
+
     # Determine which enrichments to include
     show_full = getattr(args, "full", False)
     show_source = show_full or getattr(args, "source", False) or config.source_lookup_enabled
@@ -213,20 +251,39 @@ def cmd_inspect(args: argparse.Namespace) -> None:
             print(f"Event {args.ref} not found", file=sys.stderr)
             sys.exit(1)
 
-        if getattr(args, "json", False):
-            # Include context in JSON output
-            result = dict(event)
+        # Build full result dict (used for both JSON and field filtering)
+        result = dict(event)
+
+        # Add enrichments if requested (or if specific fields need them)
+        needs_log_context = not requested_fields or "log_context" in requested_fields
+        needs_source_context = (
+            not requested_fields or "source_context" in requested_fields
+        ) and show_source
+        needs_git_context = (
+            not requested_fields or "git_context" in requested_fields
+        ) and show_git
+        needs_fp_history = (
+            not requested_fields or "fingerprint_history" in requested_fields
+        ) and show_fingerprint
+
+        if needs_log_context:
             result["log_context"] = _get_log_context(config, store, ref, event, args.lines)
 
-            if show_source:
-                result["source_context"] = _get_source_context(config, event, args.lines)
+        if needs_source_context:
+            result["source_context"] = _get_source_context(config, event, args.lines)
 
-            if show_git:
-                result["git_context"] = _get_git_context(config, event)
+        if needs_git_context:
+            result["git_context"] = _get_git_context(config, event)
 
-            if show_fingerprint:
-                result["fingerprint_history"] = _get_fingerprint_history(store, event)
+        if needs_fp_history:
+            result["fingerprint_history"] = _get_fingerprint_history(store, event)
 
+        # Handle specific field output
+        if requested_fields:
+            _output_fields(result, requested_fields, getattr(args, "json", False))
+            return
+
+        if getattr(args, "json", False):
             print(json.dumps(result, indent=2, default=str))
         else:
             # Pretty print event details

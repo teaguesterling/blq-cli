@@ -207,6 +207,80 @@ int main() {
         # Should show both log and source context
         assert "Log Context" in captured.out or "Event: 1:1" in captured.out
 
+    def test_field_filtering_single_field(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
+        """Field filtering with -F shows only specified field."""
+        run_adhoc_command([str(sample_build_script)])
+        capsys.readouterr()
+
+        # Request only fingerprint field
+        args = argparse.Namespace(ref="1:1", lines=3, json=False, field=["fingerprint"])
+        cmd_inspect(args)
+
+        captured = capsys.readouterr()
+        # Should have fingerprint
+        assert "fingerprint:" in captured.out
+        # Should NOT have full event header
+        assert "Event: 1:1" not in captured.out
+        assert "Severity:" not in captured.out
+
+    def test_field_filtering_multiple_fields(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
+        """Field filtering with multiple -F shows all specified fields."""
+        run_adhoc_command([str(sample_build_script)])
+        capsys.readouterr()
+
+        # Request fingerprint and message
+        args = argparse.Namespace(
+            ref="1:1", lines=3, json=False, field=["fingerprint", "message"]
+        )
+        cmd_inspect(args)
+
+        captured = capsys.readouterr()
+        assert "fingerprint:" in captured.out
+        assert "message:" in captured.out
+        # Should NOT have full event header
+        assert "Event: 1:1" not in captured.out
+
+    def test_field_filtering_json_output(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
+        """Field filtering with --json shows only specified fields in JSON."""
+        run_adhoc_command([str(sample_build_script)])
+        capsys.readouterr()
+
+        args = argparse.Namespace(
+            ref="1:1", lines=3, json=True, field=["severity", "fingerprint"]
+        )
+        cmd_inspect(args)
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+
+        # Should have requested fields
+        assert "severity" in data
+        assert "fingerprint" in data
+        # Should NOT have unrequested fields
+        assert "message" not in data
+        assert "log_context" not in data
+
+    def test_field_filtering_missing_field(
+        self, initialized_project, sample_build_script, run_adhoc_command, capsys
+    ):
+        """Field filtering handles non-existent fields gracefully."""
+        run_adhoc_command([str(sample_build_script)])
+        capsys.readouterr()
+
+        args = argparse.Namespace(
+            ref="1:1", lines=3, json=False, field=["nonexistent_field"]
+        )
+        cmd_inspect(args)
+
+        captured = capsys.readouterr()
+        assert "nonexistent_field: (not found)" in captured.out
+
 
 class TestEnhancedEventOutput:
     """Tests for enhanced event command output."""

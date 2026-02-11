@@ -18,6 +18,7 @@ from blq.bird import BirdStore
 from blq.commands.core import (
     BlqConfig,
     EventRef,
+    get_all_suppressed_fingerprints,
     get_store_for_args,
 )
 from blq.output import (
@@ -451,6 +452,7 @@ def cmd_events(args: argparse.Namespace) -> None:
     """
     try:
         store = get_store_for_args(args)
+        config = BlqConfig.find()
 
         # Build SQL query with filters
         conditions = []
@@ -469,6 +471,14 @@ def cmd_events(args: argparse.Namespace) -> None:
         # Source filter
         if getattr(args, "source", None):
             conditions.append(f"source_name = '{args.source}'")
+
+        # Suppression filter (unless --include-suppressed is set)
+        include_suppressed = getattr(args, "include_suppressed", False)
+        if not include_suppressed and config:
+            suppressed = get_all_suppressed_fingerprints(config)
+            if suppressed:
+                fp_list = ", ".join(f"'{fp}'" for fp in suppressed)
+                conditions.append(f"(fingerprint IS NULL OR fingerprint NOT IN ({fp_list}))")
 
         where = " AND ".join(conditions) if conditions else "1=1"
 
@@ -492,12 +502,18 @@ def cmd_events(args: argparse.Namespace) -> None:
 def cmd_errors(args: argparse.Namespace) -> None:
     """Show recent errors (alias for `blq events --severity error`)."""
     args.severity = "error"
+    # Ensure include_suppressed attribute exists
+    if not hasattr(args, "include_suppressed"):
+        args.include_suppressed = False
     cmd_events(args)
 
 
 def cmd_warnings(args: argparse.Namespace) -> None:
     """Show recent warnings (alias for `blq events --severity warning`)."""
     args.severity = "warning"
+    # Ensure include_suppressed attribute exists
+    if not hasattr(args, "include_suppressed"):
+        args.include_suppressed = False
     cmd_events(args)
 
 

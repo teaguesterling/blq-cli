@@ -195,6 +195,19 @@ def main() -> None:
 
     # Global flags
     parser.add_argument(
+        "-C",
+        "--dir",
+        metavar="PATH",
+        dest="change_dir",
+        help="Change to directory before running (like git -C)",
+    )
+    parser.add_argument(
+        "--lq-dir",
+        metavar="PATH",
+        dest="lq_dir",
+        help="Use specific .lq directory (overrides discovery)",
+    )
+    parser.add_argument(
         "-F",
         "--log-format",
         default="auto",
@@ -399,6 +412,11 @@ def main() -> None:
     p_status.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     p_status.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_status.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
+    p_status.add_argument(
+        "--include-suppressed",
+        action="store_true",
+        help="Include events with suppressed fingerprints in counts",
+    )
     p_status.set_defaults(func=cmd_status)
 
     # info - detailed info about a specific run
@@ -439,6 +457,11 @@ def main() -> None:
     p_events.add_argument("--limit", "-n", type=int, default=20, help="Max results")
     p_events.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_events.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
+    p_events.add_argument(
+        "--include-suppressed",
+        action="store_true",
+        help="Include events with suppressed fingerprints",
+    )
     p_events.set_defaults(func=cmd_events)
 
     # errors (alias for events --severity error)
@@ -448,6 +471,11 @@ def main() -> None:
     p_errors.add_argument("--compact", "-c", action="store_true", help="Compact format")
     p_errors.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_errors.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
+    p_errors.add_argument(
+        "--include-suppressed",
+        action="store_true",
+        help="Include events with suppressed fingerprints",
+    )
     p_errors.set_defaults(func=cmd_errors)
 
     # warnings (alias for events --severity warning)
@@ -456,6 +484,11 @@ def main() -> None:
     p_warnings.add_argument("--limit", "-n", type=int, default=10, help="Max results")
     p_warnings.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_warnings.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
+    p_warnings.add_argument(
+        "--include-suppressed",
+        action="store_true",
+        help="Include events with suppressed fingerprints",
+    )
     p_warnings.set_defaults(func=cmd_warnings)
 
     # summary
@@ -552,6 +585,14 @@ def main() -> None:
     p_inspect.add_argument(
         "--full", action="store_true", help="Include all enrichment (source, git, fingerprint)"
     )
+    p_inspect.add_argument(
+        "-F",
+        "--field",
+        action="append",
+        default=[],
+        metavar="FIELD",
+        help="Output only specified field(s). Can repeat: -F fingerprint -F message",
+    )
     p_inspect.set_defaults(func=cmd_inspect)
 
     # commands (with subcommands for list, register, unregister)
@@ -622,6 +663,51 @@ def main() -> None:
         "--json", "-j", action="store_true", help="Output as JSON (for hooks)"
     )
     p_commands_suggest.set_defaults(func=cmd_suggest)
+
+    # commands config (modify command settings including suppress)
+    from blq.commands.management_cmd import cmd_commands_config
+
+    p_commands_config = commands_subparsers.add_parser(
+        "config", help="Configure a registered command's settings"
+    )
+    p_commands_config.add_argument("name", help="Command name to configure")
+    p_commands_config.add_argument(
+        "--suppress-event",
+        "-e",
+        action="append",
+        default=[],
+        metavar="REF",
+        help="Add fingerprint of event ref to suppress list (e.g., build:12:1)",
+    )
+    p_commands_config.add_argument(
+        "--suppress-fp",
+        "-f",
+        action="append",
+        default=[],
+        metavar="FINGERPRINT",
+        help="Add fingerprint directly to suppress list",
+    )
+    p_commands_config.add_argument(
+        "--unsuppress-fp",
+        "-u",
+        action="append",
+        default=[],
+        metavar="FINGERPRINT",
+        help="Remove fingerprint from suppress list",
+    )
+    p_commands_config.add_argument(
+        "--list",
+        "-l",
+        action="store_true",
+        help="List current suppressed fingerprints",
+    )
+    p_commands_config.add_argument(
+        "--clear-suppress",
+        action="store_true",
+        help="Clear all suppressed fingerprints",
+    )
+    p_commands_config.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_commands_config.set_defaults(func=cmd_commands_config)
 
     # Default: commands without subcommand shows list
     def commands_default(args: argparse.Namespace) -> None:
@@ -1134,6 +1220,20 @@ def main() -> None:
     if not args.command:
         parser.print_help()
         sys.exit(1)
+
+    # Handle -C/--dir: change to specified directory before running command
+    import os
+    from pathlib import Path
+
+    if getattr(args, "change_dir", None):
+        change_dir = Path(args.change_dir).expanduser()
+        if not change_dir.exists():
+            print(f"Error: Directory does not exist: {change_dir}", file=sys.stderr)
+            sys.exit(1)
+        if not change_dir.is_dir():
+            print(f"Error: Not a directory: {change_dir}", file=sys.stderr)
+            sys.exit(1)
+        os.chdir(change_dir)
 
     args.func(args)
 
