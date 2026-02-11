@@ -11,14 +11,91 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
+import random
+import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import duckdb
+
+# Logger for lock contention warnings
+logger = logging.getLogger("blq-bird")
+
+# Type variable for retry function
+T = TypeVar("T")
+
+# Default retry settings for lock contention
+DEFAULT_MAX_RETRIES = 5
+DEFAULT_INITIAL_DELAY = 0.05  # 50ms
+DEFAULT_MAX_DELAY = 2.0  # 2 seconds
+DEFAULT_BACKOFF_FACTOR = 2.0
+
+
+def _is_lock_error(error: Exception) -> bool:
+    """Check if an exception is a database lock error."""
+    error_str = str(error).lower()
+    return any(
+        phrase in error_str
+        for phrase in ["database is locked", "could not set lock", "lock timeout"]
+    )
+
+
+def retry_on_lock(
+    func: Callable[..., T],
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    initial_delay: float = DEFAULT_INITIAL_DELAY,
+    max_delay: float = DEFAULT_MAX_DELAY,
+    backoff_factor: float = DEFAULT_BACKOFF_FACTOR,
+) -> T:
+    """Execute a function with retry on database lock errors.
+
+    Uses exponential backoff with jitter to avoid thundering herd.
+
+    Args:
+        func: Function to execute (no arguments)
+        max_retries: Maximum number of retry attempts
+        initial_delay: Initial delay between retries in seconds
+        max_delay: Maximum delay between retries in seconds
+        backoff_factor: Multiplier for delay after each retry
+
+    Returns:
+        Result of the function
+
+    Raises:
+        The last exception if all retries fail
+    """
+    delay = initial_delay
+    last_error: Exception | None = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            return func()
+        except duckdb.Error as e:
+            if not _is_lock_error(e):
+                raise  # Not a lock error, don't retry
+
+            last_error = e
+            if attempt < max_retries:
+                # Add jitter (±25%) to avoid synchronized retries
+                jitter = delay * 0.25 * (2 * random.random() - 1)
+                sleep_time = min(delay + jitter, max_delay)
+                logger.debug(
+                    f"Database locked, retry {attempt + 1}/{max_retries} "
+                    f"after {sleep_time:.3f}s"
+                )
+                time.sleep(sleep_time)
+                delay = min(delay * backoff_factor, max_delay)
+
+    # All retries exhausted
+    assert last_error is not None
+    logger.warning(f"Database lock retry exhausted after {max_retries} attempts")
+    raise last_error
 
 # Schema version
 BIRD_SCHEMA_VERSION = "2.1.0"
@@ -291,6 +368,35 @@ class BirdStore:
         return cls(lq_dir, conn)
 
     @classmethod
+    def open_with_retry(
+        cls,
+        lq_dir: Path | str,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        initial_delay: float = DEFAULT_INITIAL_DELAY,
+    ) -> BirdStore:
+        """Open or create a BirdStore with retry on lock contention.
+
+        Use this when opening from code that may run concurrently with other
+        writers (e.g., parallel command execution, hooks).
+
+        Args:
+            lq_dir: Path to .lq directory
+            max_retries: Maximum number of retry attempts
+            initial_delay: Initial delay between retries in seconds
+
+        Returns:
+            BirdStore instance
+
+        Raises:
+            duckdb.Error: If all retries fail
+        """
+        return retry_on_lock(
+            lambda: cls.open(lq_dir),
+            max_retries=max_retries,
+            initial_delay=initial_delay,
+        )
+
+    @classmethod
     def _ensure_schema(
         cls, conn: duckdb.DuckDBPyConnection, lq_dir: Path, force: bool = False
     ) -> None:
@@ -400,6 +506,24 @@ class BirdStore:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.close()
+
+    def execute_with_retry(
+        self,
+        func: Callable[[], T],
+        max_retries: int = DEFAULT_MAX_RETRIES,
+    ) -> T:
+        """Execute a function with retry on lock errors.
+
+        Use this for critical write operations that must succeed.
+
+        Args:
+            func: Function to execute (should use self._conn)
+            max_retries: Maximum number of retry attempts
+
+        Returns:
+            Result of the function
+        """
+        return retry_on_lock(func, max_retries=max_retries)
 
     # =========================================================================
     # Session Management

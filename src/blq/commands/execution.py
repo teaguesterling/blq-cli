@@ -216,8 +216,9 @@ def _execute_with_live_output(
 
     # =========================================================================
     # Window 1: Pre-execution DB access (minimal lock time)
+    # Uses retry to handle potential lock contention from concurrent commands
     # =========================================================================
-    with BirdStore.open(lq_dir) as store:
+    with BirdStore.open_with_retry(lq_dir) as store:
         # Ensure session exists
         store.ensure_session(
             session_id=effective_session_id,
@@ -257,7 +258,8 @@ def _execute_with_live_output(
     def _update_pid_async(pid: int) -> None:
         """Update attempt PID in a background thread to minimize lock time."""
         try:
-            with BirdStore.open(lq_dir) as pid_store:
+            # Use retry to handle lock contention with main execution
+            with BirdStore.open_with_retry(lq_dir, max_retries=3) as pid_store:
                 pid_store.update_attempt_pid(attempt_id, pid)
         except Exception:
             # Non-critical - PID is also in live metadata
@@ -387,8 +389,9 @@ def _execute_with_live_output(
 
     # =========================================================================
     # Window 2: Post-execution DB access (minimal lock time)
+    # Uses retry to handle potential lock contention from concurrent commands
     # =========================================================================
-    with BirdStore.open(lq_dir) as store:
+    with BirdStore.open_with_retry(lq_dir) as store:
         # Write outcome - command is now 'completed'
         outcome = OutcomeRecord(
             attempt_id=attempt_id,

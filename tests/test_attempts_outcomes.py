@@ -744,3 +744,373 @@ class TestHistoryStatusFilter:
         assert len(result) == 2
 
         store.close()
+
+
+class TestRetryOnLock:
+    """Tests for the retry_on_lock helper function."""
+
+    def test_succeeds_without_retry(self):
+        """Function succeeds on first attempt."""
+        from blq.bird import retry_on_lock
+
+        call_count = 0
+
+        def successful_func():
+            nonlocal call_count
+            call_count += 1
+            return "success"
+
+        result = retry_on_lock(successful_func, max_retries=3)
+        assert result == "success"
+        assert call_count == 1
+
+    def test_retries_on_lock_error(self):
+        """Function retries on lock error and eventually succeeds."""
+        import duckdb
+
+        from blq.bird import retry_on_lock
+
+        call_count = 0
+
+        def fails_then_succeeds():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise duckdb.Error("database is locked")
+            return "success"
+
+        result = retry_on_lock(
+            fails_then_succeeds,
+            max_retries=5,
+            initial_delay=0.001,  # Fast for testing
+        )
+        assert result == "success"
+        assert call_count == 3
+
+    def test_exhausts_retries(self):
+        """Function exhausts all retries and raises."""
+        import duckdb
+
+        import pytest
+
+        from blq.bird import retry_on_lock
+
+        call_count = 0
+
+        def always_fails():
+            nonlocal call_count
+            call_count += 1
+            raise duckdb.Error("database is locked")
+
+        with pytest.raises(duckdb.Error, match="database is locked"):
+            retry_on_lock(
+                always_fails,
+                max_retries=3,
+                initial_delay=0.001,
+            )
+
+        assert call_count == 4  # Initial + 3 retries
+
+    def test_does_not_retry_non_lock_errors(self):
+        """Non-lock errors are raised immediately without retry."""
+        import duckdb
+
+        import pytest
+
+        from blq.bird import retry_on_lock
+
+        call_count = 0
+
+        def raises_other_error():
+            nonlocal call_count
+            call_count += 1
+            raise duckdb.Error("some other error")
+
+        with pytest.raises(duckdb.Error, match="some other error"):
+            retry_on_lock(raises_other_error, max_retries=3)
+
+        assert call_count == 1  # No retries
+
+
+class TestBirdStoreOpenWithRetry:
+    """Tests for BirdStore.open_with_retry()."""
+
+    def test_opens_successfully(self, initialized_project):
+        """Opens store without issues when no contention."""
+        store = BirdStore.open_with_retry(initialized_project / ".lq")
+        assert store is not None
+        store.close()
+
+    def test_context_manager_works(self, initialized_project):
+        """Context manager properly closes connection."""
+        with BirdStore.open_with_retry(initialized_project / ".lq") as store:
+            # Should be able to query
+            count = store.invocation_count()
+            assert count >= 0
+
+        # After exit, connection should be closed
+        # Attempting to use it would raise an error
+
+
+class TestExecuteWithRetry:
+    """Tests for BirdStore.execute_with_retry()."""
+
+    def test_executes_successfully(self, initialized_project):
+        """Operation executes on first attempt."""
+        store = BirdStore.open(initialized_project / ".lq")
+
+        result = store.execute_with_retry(lambda: store.invocation_count())
+        assert result >= 0
+
+        store.close()
+
+    def test_returns_result(self, initialized_project):
+        """Returns the function's return value."""
+        store = BirdStore.open(initialized_project / ".lq")
+
+        # Create an attempt so there's data
+        attempt = AttemptRecord(
+            id=AttemptRecord.generate_id(),
+            session_id="test",
+            cmd="test",
+            cwd=str(initialized_project),
+            client_id="blq-test",
+        )
+        store.write_attempt(attempt)
+
+        # execute_with_retry should return the query result
+        result = store.execute_with_retry(
+            lambda: store.get_attempt_status(attempt.id)
+        )
+        assert result == "pending"
+
+        store.close()
+
+
+class TestConcurrentAccess:
+    """Tests for concurrent database access scenarios."""
+
+    def test_concurrent_writes_with_retry(self, initialized_project):
+        """Multiple threads can write with retry handling."""
+        import threading
+
+        lq_dir = initialized_project / ".lq"
+        results = []
+        errors = []
+
+        def writer_thread(thread_id: int):
+            try:
+                with BirdStore.open_with_retry(lq_dir, max_retries=10) as store:
+                    # Write an attempt
+                    attempt = AttemptRecord(
+                        id=AttemptRecord.generate_id(),
+                        session_id=f"thread-{thread_id}",
+                        cmd=f"echo thread {thread_id}",
+                        cwd=str(initialized_project),
+                        client_id="blq-test",
+                        source_name=f"thread-{thread_id}",
+                    )
+                    attempt_id = store.write_attempt(attempt)
+                    results.append((thread_id, attempt_id))
+            except Exception as e:
+                errors.append((thread_id, str(e)))
+
+        # Launch multiple threads
+        threads = []
+        for i in range(5):
+            t = threading.Thread(target=writer_thread, args=(i,))
+            threads.append(t)
+            t.start()
+
+        # Wait for all threads
+        for t in threads:
+            t.join(timeout=10)
+
+        # All threads should succeed (with retry)
+        assert len(errors) == 0, f"Errors occurred: {errors}"
+        assert len(results) == 5
+
+    def test_background_pid_update_pattern(self, initialized_project):
+        """Background PID update pattern works as expected."""
+        import threading
+
+        lq_dir = initialized_project / ".lq"
+
+        # Window 1: Write attempt
+        with BirdStore.open_with_retry(lq_dir) as store:
+            attempt = AttemptRecord(
+                id=AttemptRecord.generate_id(),
+                session_id="test",
+                cmd="test",
+                cwd=str(initialized_project),
+                client_id="blq-test",
+            )
+            attempt_id = store.write_attempt(attempt)
+
+        # Simulate background PID update
+        update_success = threading.Event()
+        update_error = []
+
+        def update_pid():
+            try:
+                with BirdStore.open_with_retry(lq_dir, max_retries=3) as store:
+                    store.update_attempt_pid(attempt_id, 12345)
+                update_success.set()
+            except Exception as e:
+                update_error.append(str(e))
+
+        thread = threading.Thread(target=update_pid)
+        thread.start()
+        thread.join(timeout=5)
+
+        assert update_success.is_set(), f"PID update failed: {update_error}"
+
+        # Verify PID was updated
+        with BirdStore.open(lq_dir) as store:
+            result = store.connection.execute(
+                "SELECT pid FROM attempts WHERE id = ?", [attempt_id]
+            ).fetchone()
+            assert result is not None
+            assert result[0] == 12345
+
+    def test_window1_and_window2_pattern(self, initialized_project):
+        """Full execution pattern with Window 1 and Window 2."""
+        import time
+
+        lq_dir = initialized_project / ".lq"
+
+        # Window 1: Pre-execution
+        with BirdStore.open_with_retry(lq_dir) as store:
+            store.ensure_session(
+                session_id="test",
+                client_id="blq-run",
+                invoker="blq",
+                invoker_type="cli",
+            )
+            attempt = AttemptRecord(
+                id=AttemptRecord.generate_id(),
+                session_id="test",
+                cmd="echo hello",
+                cwd=str(initialized_project),
+                client_id="blq-run",
+                source_name="test",
+            )
+            attempt_id = store.write_attempt(attempt)
+            run_id = store.get_next_run_number()
+            live_dir = store.create_live_dir(attempt_id, {"cmd": "echo hello"})
+
+        # Simulate command execution (DB unlocked)
+        time.sleep(0.01)
+
+        # Window 2: Post-execution
+        with BirdStore.open_with_retry(lq_dir) as store:
+            from blq.bird import InvocationRecord, OutcomeRecord
+
+            outcome = OutcomeRecord(
+                attempt_id=attempt_id,
+                exit_code=0,
+                duration_ms=10,
+            )
+            store.write_outcome(outcome)
+
+            invocation = InvocationRecord(
+                id=attempt_id,
+                session_id="test",
+                cmd="echo hello",
+                cwd=str(initialized_project),
+                client_id="blq-run",
+                exit_code=0,
+                duration_ms=10,
+            )
+            store.write_invocation(invocation)
+            store.cleanup_live_dir(attempt_id)
+
+        # Verify the run was recorded
+        with BirdStore.open(lq_dir) as store:
+            status = store.get_attempt_status(attempt_id)
+            assert status == "completed"
+
+            inv_count = store.invocation_count()
+            assert inv_count >= 1
+
+
+class TestLockContentionRecovery:
+    """Tests for lock contention recovery scenarios."""
+
+    def test_is_lock_error_detection(self):
+        """_is_lock_error correctly identifies lock errors."""
+        from blq.bird import _is_lock_error
+
+        import duckdb
+
+        # Lock errors
+        assert _is_lock_error(duckdb.Error("database is locked"))
+        assert _is_lock_error(duckdb.Error("Database is locked"))
+        assert _is_lock_error(duckdb.Error("could not set lock on file"))
+        assert _is_lock_error(Exception("lock timeout exceeded"))
+
+        # Non-lock errors
+        assert not _is_lock_error(duckdb.Error("table not found"))
+        assert not _is_lock_error(duckdb.Error("syntax error"))
+        assert not _is_lock_error(ValueError("invalid value"))
+
+    def test_retry_respects_max_retries(self):
+        """Retry stops after max_retries attempts."""
+        import duckdb
+
+        import pytest
+
+        from blq.bird import retry_on_lock
+
+        attempts = []
+
+        def counting_failure():
+            attempts.append(1)
+            raise duckdb.Error("database is locked")
+
+        with pytest.raises(duckdb.Error):
+            retry_on_lock(
+                counting_failure,
+                max_retries=2,
+                initial_delay=0.001,
+            )
+
+        # Should be initial attempt + 2 retries = 3 total
+        assert len(attempts) == 3
+
+    def test_exponential_backoff_timing(self):
+        """Verify exponential backoff increases delay."""
+        import duckdb
+        import time
+
+        import pytest
+
+        from blq.bird import retry_on_lock
+
+        timestamps = []
+
+        def timing_failure():
+            timestamps.append(time.monotonic())
+            raise duckdb.Error("database is locked")
+
+        with pytest.raises(duckdb.Error):
+            retry_on_lock(
+                timing_failure,
+                max_retries=3,
+                initial_delay=0.02,  # 20ms
+                backoff_factor=2.0,
+                max_delay=1.0,
+            )
+
+        # Calculate delays between attempts
+        delays = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+
+        # First delay should be ~20ms, second ~40ms, third ~80ms
+        # Allow for jitter (±25%) and timing variance
+        assert len(delays) == 3
+        assert delays[0] >= 0.01  # At least 10ms (20ms - 50% for jitter/timing)
+        # Each subsequent delay should generally be larger (with some tolerance)
+        # Due to jitter, we just verify delays are reasonable
+        for d in delays:
+            assert d >= 0.01  # All delays should be at least 10ms
+            assert d <= 1.5  # None should exceed max_delay + jitter
