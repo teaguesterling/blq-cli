@@ -111,6 +111,7 @@ blq info test:5               # Details for a specific run
 | `blq register` | Register a reusable command |
 | `blq unregister` | Remove a registered command |
 | `blq commands` | List registered commands |
+| `blq config` | View/edit user configuration |
 | `blq prune` | Remove old logs |
 | `blq formats` | List available log formats |
 | `blq completions` | Generate shell completions (bash/zsh/fish) |
@@ -120,12 +121,13 @@ blq info test:5               # Details for a specific run
 | Command | Description |
 |---------|-------------|
 | `blq mcp install` | Create/update .mcp.json for AI agents |
+| `blq mcp install --hooks` | Also install Claude Code hooks |
 | `blq mcp serve` | Start MCP server |
-| `blq hooks install` | Install git pre-commit hook |
-| `blq hooks remove` | Remove git pre-commit hook |
+| `blq hooks install git` | Install git pre-commit hook |
+| `blq hooks install claude-code` | Install Claude Code hooks for agent integration |
+| `blq hooks uninstall <target>` | Remove hooks (git, github, gitlab, claude-code) |
 | `blq hooks status` | Show hook status |
-| `blq hooks add <cmd>` | Add command to pre-commit hook |
-| `blq hooks list` | List commands in pre-commit hook |
+| `blq hooks generate <cmds>` | Generate portable hook scripts |
 
 ## Query Examples
 
@@ -395,8 +397,22 @@ auto_init = true          # Auto-init .lq/ when registering commands
 [mcp]
 safe_mode = false         # Default to safe mode for MCP server
 
+[hooks]
+auto_claude_code = true   # Auto-install Claude Code hooks with mcp install
+
 [defaults]
 extra_capture_env = ["MY_CUSTOM_VAR"]  # Additional env vars to capture
+```
+
+Manage configuration via CLI:
+
+```bash
+blq config                    # Show non-default settings
+blq config --all              # Show all settings with defaults
+blq config set hooks.auto_claude_code true
+blq config get init.auto_mcp
+blq config unset register.auto_init
+blq config --edit             # Open in $EDITOR
 ```
 
 With `auto_init = true`, you can register commands without explicitly running `blq init` first:
@@ -412,20 +428,45 @@ blq includes an MCP server for AI agent integration:
 
 ```bash
 blq mcp install              # Create .mcp.json config
+blq mcp install --hooks      # Also install Claude Code hooks
 blq mcp serve                # stdio transport (Claude Desktop)
 blq mcp serve --transport sse  # HTTP/SSE transport
 ```
 
-Tools available: `run`, `exec`, `query`, `errors`, `warnings`, `events`, `event`, `context`, `output`, `status`, `info`, `history`, `diff`, `register_command`, `unregister_command`, `list_commands`, `reset`
+Tools available: `run`, `query`, `events`, `inspect`, `output`, `status`, `info`, `history`, `diff`, `commands`, `register_command`, `unregister_command`, `clean`
 
 **Security:** Disable sensitive tools via config:
 ```toml
 # .lq/config.toml
 [mcp]
-disabled_tools = ["exec", "reset"]
+disabled_tools = ["clean", "register_command"]
 ```
 
 See [MCP Guide](docs/mcp.md) for details.
+
+## Claude Code Integration
+
+blq integrates with Claude Code via hooks that help agents use blq's structured output instead of raw Bash:
+
+```bash
+blq hooks install claude-code    # Install suggest hook
+blq hooks uninstall claude-code  # Remove hooks
+```
+
+The suggest hook runs after Bash commands and notifies Claude when a registered blq command could have been used instead:
+
+```
+Tip: Use blq MCP tool run(command="test") instead.
+Using the blq MCP run tool parses output into structured events,
+reducing context usage. Query errors with events() or inspect().
+```
+
+**Auto-install with MCP:** Set `hooks.auto_claude_code = true` in user config, then hooks install automatically with `blq mcp install`:
+
+```bash
+blq config set hooks.auto_claude_code true
+blq mcp install  # Now includes Claude Code hooks
+```
 
 ## Global Options
 

@@ -365,6 +365,18 @@ In addition to tools, blq provides read-only resources:
 
 Resources are useful for embedding data in prompts or quick reads without calling tools.
 
+## Claude Code Integration
+
+If blq's Claude Code hooks are installed (via `blq hooks install claude-code`), the agent will receive suggestions when Bash commands match registered blq commands:
+
+```
+Tip: Use blq MCP tool run(command="test") instead.
+Using the blq MCP run tool parses output into structured events,
+reducing context usage. Query errors with events() or inspect().
+```
+
+This helps guide agents toward using blq's structured tools instead of raw Bash output.
+
 ## Summary
 
 blq provides structured access to build/test results that both humans and agents can query. Use the MCP tools to:

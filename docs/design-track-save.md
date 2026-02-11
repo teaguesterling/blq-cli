@@ -414,8 +414,8 @@ Installs full recording hooks (Phase 4):
 | Phase | Description | Status |
 |-------|-------------|--------|
 | Phase 1 | `blq commands suggest` + basic hook | ✅ Implemented |
-| Phase 2 | `blq record attempt` command | Planned |
-| Phase 3 | `blq record outcome` command | Planned |
+| Phase 2 | `blq record attempt` command | 🚧 In Progress |
+| Phase 3 | `blq record outcome` command | 🚧 In Progress |
 | Phase 4 | Full pre/post hook integration | Planned |
 | Phase 5 | `blq output` grep/context | Future |
 
