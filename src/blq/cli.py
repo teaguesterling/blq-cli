@@ -87,6 +87,7 @@ from blq.commands import (
     cmd_warnings,
     cmd_watch,
 )
+from blq.commands.config_cmd import cmd_config
 from blq.commands.core import (
     GLOBAL_PROJECTS_PATH,
     # Re-export commonly used items for backward compatibility
@@ -739,10 +740,20 @@ def main() -> None:
     p_mcp_install.add_argument(
         "--force", "-f", action="store_true", help="Overwrite existing blq config"
     )
-    p_mcp_install.add_argument(
+    # Mutually exclusive hooks flags
+    mcp_hooks_group = p_mcp_install.add_mutually_exclusive_group()
+    mcp_hooks_group.add_argument(
         "--hooks",
         action="store_true",
-        help="Also install Claude Code hooks (same as 'blq hooks install claude-code')",
+        dest="hooks",
+        default=None,
+        help="Install Claude Code hooks (overrides hooks.auto_claude_code config)",
+    )
+    mcp_hooks_group.add_argument(
+        "--no-hooks",
+        action="store_false",
+        dest="hooks",
+        help="Skip Claude Code hooks (overrides hooks.auto_claude_code config)",
     )
     p_mcp_install.set_defaults(func=cmd_mcp_install)
 
@@ -773,6 +784,53 @@ def main() -> None:
         help="Disable tools that modify state (exec, clean, register_command, unregister_command)",
     )
     p_mcp_serve.set_defaults(func=cmd_mcp_serve)
+
+    # =========================================================================
+    # Config command
+    # =========================================================================
+
+    p_config = subparsers.add_parser("config", help="Manage user configuration")
+    p_config.add_argument(
+        "--path",
+        action="store_true",
+        help="Show config file path",
+    )
+    p_config.add_argument(
+        "--edit",
+        action="store_true",
+        help="Open config in $EDITOR",
+    )
+    p_config.add_argument(
+        "--all",
+        action="store_true",
+        help="Show all settings including defaults",
+    )
+    p_config.add_argument(
+        "--json",
+        "-j",
+        action="store_true",
+        help="Output as JSON",
+    )
+
+    config_subparsers = p_config.add_subparsers(dest="config_subcommand", help="Config subcommand")
+
+    # config get
+    p_config_get = config_subparsers.add_parser("get", help="Get a config value")
+    p_config_get.add_argument("key", help="Config key (e.g., init.auto_mcp)")
+    p_config_get.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # config set
+    p_config_set = config_subparsers.add_parser("set", help="Set a config value")
+    p_config_set.add_argument("key", help="Config key (e.g., init.auto_mcp)")
+    p_config_set.add_argument("value", help="Value to set")
+
+    # config unset
+    p_config_unset = config_subparsers.add_parser(
+        "unset", help="Unset a config value (revert to default)"
+    )
+    p_config_unset.add_argument("key", help="Config key to unset")
+
+    p_config.set_defaults(func=cmd_config)
 
     # =========================================================================
     # Hooks commands

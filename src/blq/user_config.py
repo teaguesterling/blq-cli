@@ -54,6 +54,9 @@ class UserConfig:
         auto_prune = false        # Enable automatic pruning
         prune_days = 30           # Auto-prune logs older than N days
 
+        [hooks]
+        auto_claude_code = false  # Auto-install Claude Code hooks with mcp install
+
         [defaults]
         extra_capture_env = ["MY_CUSTOM_VAR"]
     """
@@ -81,6 +84,9 @@ class UserConfig:
     # Storage preferences
     auto_prune: bool = False  # Enable automatic pruning
     prune_days: int = 30  # Auto-prune logs older than N days
+
+    # Hooks preferences
+    hooks_auto_claude_code: bool = False  # Auto-install Claude Code hooks with mcp install
 
     # Default capture_env additions
     extra_capture_env: list[str] = field(default_factory=list)
@@ -141,6 +147,7 @@ class UserConfig:
         mcp_safe_mode = False
         auto_prune = False
         prune_days = 30
+        hooks_auto_claude_code = False
         extra_capture_env: list[str] = []
         loaded_from_file = False
 
@@ -197,6 +204,12 @@ class UserConfig:
                     if "prune_days" in storage_section:
                         prune_days = int(storage_section["prune_days"])
 
+                # Parse [hooks] section
+                hooks_section = data.get("hooks", {})
+                if isinstance(hooks_section, dict):
+                    if "auto_claude_code" in hooks_section:
+                        hooks_auto_claude_code = bool(hooks_section["auto_claude_code"])
+
                 # Parse [defaults] section
                 defaults_section = data.get("defaults", {})
                 if isinstance(defaults_section, dict):
@@ -221,6 +234,7 @@ class UserConfig:
             mcp_safe_mode=mcp_safe_mode,
             auto_prune=auto_prune,
             prune_days=prune_days,
+            hooks_auto_claude_code=hooks_auto_claude_code,
             extra_capture_env=extra_capture_env,
             _loaded_from_file=loaded_from_file,
         )
@@ -291,6 +305,13 @@ class UserConfig:
             storage_section["prune_days"] = self.prune_days
         if storage_section:
             data["storage"] = storage_section
+
+        # [hooks] section
+        hooks_section: dict[str, Any] = {}
+        if self.hooks_auto_claude_code:  # Only save if True (False is default)
+            hooks_section["auto_claude_code"] = self.hooks_auto_claude_code
+        if hooks_section:
+            data["hooks"] = hooks_section
 
         # [defaults] section
         defaults_section: dict[str, Any] = {}

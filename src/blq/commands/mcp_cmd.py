@@ -17,11 +17,26 @@ from pathlib import Path
 def cmd_mcp_install(args: argparse.Namespace) -> None:
     """Create or update .mcp.json with blq server configuration.
 
-    Optionally installs Claude Code hooks with --hooks flag.
+    Optionally installs Claude Code hooks:
+    - --hooks: explicitly install hooks
+    - --no-hooks: explicitly skip hooks
+    - Neither: use hooks.auto_claude_code from user config
     """
+    from blq.user_config import UserConfig
+
     mcp_file = Path(".mcp.json")
     force = getattr(args, "force", False)
-    install_hooks = getattr(args, "hooks", False)
+
+    # Determine whether to install hooks
+    # args.hooks is None if neither --hooks nor --no-hooks was passed
+    hooks_arg = getattr(args, "hooks", None)
+    if hooks_arg is None:
+        # Neither flag passed, use user config
+        user_config = UserConfig.load()
+        install_hooks = user_config.hooks_auto_claude_code
+    else:
+        # Explicit flag passed
+        install_hooks = hooks_arg
 
     # Default blq server config
     blq_config = {
@@ -77,8 +92,9 @@ def cmd_mcp_install(args: argparse.Namespace) -> None:
         print("  - MCP server: blq mcp serve")
         if hook_installed:
             print("  - Claude Code hook: suggests using blq MCP tools for registered commands")
-        if not install_hooks:
+        elif not install_hooks:
             print("\nTip: Use 'blq hooks install claude-code' to add Claude Code hooks")
+            print("     Or set hooks.auto_claude_code = true in user config")
 
 
 def cmd_mcp_serve(args: argparse.Namespace) -> None:
