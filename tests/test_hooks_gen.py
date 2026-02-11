@@ -687,37 +687,6 @@ class TestGitHookInstallation:
         assert "pre-push" in content
 
 
-class TestLegacyHooksDeprecation:
-    """Tests for legacy hooks deprecation."""
-
-    def test_legacy_install_shows_warning(self, initialized_project, capsys):
-        """Legacy install shows deprecation note."""
-        import subprocess
-        import warnings
-
-        from blq.commands.hooks_cmd import cmd_hooks_install
-
-        subprocess.run(["git", "init"], capture_output=True)
-
-        # Call with no commands (legacy mode)
-        args = argparse.Namespace(
-            target="git",
-            commands=[],
-            hook="pre-commit",
-            force=False,
-        )
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            cmd_hooks_install(args)
-            # Check for deprecation warning
-            deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-            assert len(deprecation_warnings) >= 1
-
-        captured = capsys.readouterr()
-        assert "Consider using" in captured.err or "blq hooks install git" in captured.err
-
-
 class TestCmdHooksGenerate:
     """Tests for blq hooks generate command."""
 

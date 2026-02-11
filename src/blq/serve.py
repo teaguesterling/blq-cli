@@ -265,11 +265,12 @@ def _run_impl(
                 exit_code = full_result.get("exit_code", 0)
                 summary = full_result.get("summary", {})
                 errors = full_result.get("errors", [])
+                status = full_result.get("status", "FAIL" if exit_code != 0 else "OK")
                 has_errors = exit_code != 0 or len(errors) > 0
 
                 concise: dict[str, Any] = {
                     "run_ref": f"{source_name}:{run_id}" if run_id else None,
-                    "status": full_result.get("status"),
+                    "status": status,
                     "exit_code": exit_code,
                     "summary": summary,
                 }
@@ -283,13 +284,21 @@ def _run_impl(
                 if duration > 5:
                     concise["duration_sec"] = round(duration, 1)
 
-                # Include tail and output_stats for failures
+                # Include tail conditionally:
+                # - Failed + errors: 2 lines (summary only)
+                # - Failed + no errors: all lines (fallback for debugging)
+                # - Success: none
                 output_stats = full_result.get("output_stats", {})
                 tail = output_stats.get("tail", [])
                 total_lines = output_stats.get("lines", 0)
 
-                if has_errors and tail:
-                    concise["tail"] = tail
+                if status == "FAIL" and tail:
+                    if has_errors:
+                        # Just summary lines when we have structured errors
+                        concise["tail"] = tail[-2:]
+                    else:
+                        # Full tail as fallback when no errors extracted
+                        concise["tail"] = tail
                     if total_lines > len(tail):
                         concise["output_stats"] = {
                             "lines": total_lines,
@@ -425,11 +434,12 @@ def _exec_impl(
                 exit_code = full_result.get("exit_code", 0)
                 summary = full_result.get("summary", {})
                 errors = full_result.get("errors", [])
+                status = full_result.get("status", "FAIL" if exit_code != 0 else "OK")
                 has_errors = exit_code != 0 or len(errors) > 0
 
                 concise: dict[str, Any] = {
                     "run_ref": f"{source_name}:{run_id}" if run_id else None,
-                    "status": full_result.get("status"),
+                    "status": status,
                     "exit_code": exit_code,
                     "summary": summary,
                 }
@@ -443,13 +453,21 @@ def _exec_impl(
                 if duration > 5:
                     concise["duration_sec"] = round(duration, 1)
 
-                # Include tail and output_stats for failures
+                # Include tail conditionally:
+                # - Failed + errors: 2 lines (summary only)
+                # - Failed + no errors: all lines (fallback for debugging)
+                # - Success: none
                 output_stats = full_result.get("output_stats", {})
                 tail = output_stats.get("tail", [])
                 total_lines = output_stats.get("lines", 0)
 
-                if has_errors and tail:
-                    concise["tail"] = tail
+                if status == "FAIL" and tail:
+                    if has_errors:
+                        # Just summary lines when we have structured errors
+                        concise["tail"] = tail[-2:]
+                    else:
+                        # Full tail as fallback when no errors extracted
+                        concise["tail"] = tail
                     if total_lines > len(tail):
                         concise["output_stats"] = {
                             "lines": total_lines,
@@ -745,7 +763,8 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
         if result is None:
             return None
 
-        columns = store.sql("SELECT * FROM blq_load_events() LIMIT 0").columns
+        rel = store.sql("SELECT * FROM blq_load_events() LIMIT 0")
+        columns = rel.columns  # type: ignore[union-attr]  # Always DuckDBPyRelation when no params
         event_data = dict(zip(columns, result))
 
         # Environment is now stored as MAP, convert to dict if needed
@@ -813,7 +832,8 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
         if result is None:
             return {"error": f"Event {ref} not found"}
 
-        columns = storage.sql("SELECT * FROM blq_load_events() LIMIT 0").columns
+        rel = storage.sql("SELECT * FROM blq_load_events() LIMIT 0")
+        columns = rel.columns  # type: ignore[union-attr]  # Always DuckDBPyRelation when no params
         event_data = dict(zip(columns, result))
 
         log_line_start_raw = event_data.get("log_line_start")
@@ -898,7 +918,8 @@ def _inspect_impl(
         if result is None:
             return {"error": f"Event {ref} not found"}
 
-        columns = storage.sql("SELECT * FROM blq_load_events() LIMIT 0").columns
+        rel = storage.sql("SELECT * FROM blq_load_events() LIMIT 0")
+        columns = rel.columns  # type: ignore[union-attr]  # Always DuckDBPyRelation when no params
         event_data = dict(zip(columns, result))
 
         # Build response
@@ -969,7 +990,7 @@ def _inspect_impl(
                     from pathlib import Path
 
                     file_path = str(Path(ref_root) / ref_file) if ref_root else ref_file
-                    ctx = get_file_context(file_path, line=ref_line_val, history_limit=5)
+                    ctx = get_file_context(file_path, line=ref_line_val, history_limit=2)
 
                     git_context = {"file": ref_file, "line": ref_line_val}
 

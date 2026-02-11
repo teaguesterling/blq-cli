@@ -271,10 +271,10 @@ def _show_stored_output(
 ) -> None:
     """Show output from blob storage (for completed commands)."""
     # Get output from blob storage
-    content_bytes = store.get_output_content(attempt_id, "combined")
+    content_bytes = store.read_output(attempt_id, "combined")
     if not content_bytes:
         # Try stdout if combined not available
-        content_bytes = store.get_output_content(attempt_id, "stdout")
+        content_bytes = store.read_output(attempt_id, "stdout")
 
     if not content_bytes:
         print("(no output stored)")

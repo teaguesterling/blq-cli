@@ -384,7 +384,7 @@ def _execute_with_live_output(
         client_id=client_id,
         timestamp=started_at,
         duration_ms=duration_ms,
-        exit_code=exit_code if not timed_out else None,
+        exit_code=exit_code if not timed_out else -1,  # -1 indicates timeout
         executable=executable_path,
         format_hint=format_hint if format_hint != "auto" else None,
         hostname=hostname,

@@ -367,15 +367,13 @@ def _get_source_context(
 def _get_git_context(
     config: BlqConfig,
     event: dict,
-    history_limit: int = 5,
+    history_limit: int = 2,
 ) -> dict | None:
     """Get git context for an event (blame and history).
 
     Returns dict with:
-        - last_author: who last modified the line
-        - last_commit: commit hash
-        - last_modified: timestamp
-        - recent_commits: list of recent commits to the file
+        - blame: who last modified the line (author, commit, modified)
+        - recent_commits: most recent commits to the file (default: 2)
     """
     ref_file = event.get("ref_file")
     ref_line = event.get("ref_line")
