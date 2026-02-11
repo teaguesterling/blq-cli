@@ -28,6 +28,9 @@ from blq.config_format import (
     save_toml,
 )
 
+# Git integration - re-exported for backward compatibility
+from blq.git import GitInfo, capture_git_info  # noqa: F401
+
 if TYPE_CHECKING:
     pass
 
@@ -1780,62 +1783,6 @@ def find_executable(command: str) -> str | None:
 
     # Use shutil.which to find in PATH
     return shutil.which(exe_name)
-
-
-@dataclass
-class GitInfo:
-    """Git repository state at time of run."""
-
-    commit: str | None = None
-    branch: str | None = None
-    dirty: bool | None = None
-
-
-def capture_git_info() -> GitInfo:
-    """Capture current git repository state.
-
-    Returns:
-        GitInfo with commit hash, branch name, and dirty status.
-        Fields are None if not in a git repo or git not available.
-    """
-    info = GitInfo()
-
-    try:
-        # Get current commit hash
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            info.commit = result.stdout.strip()
-
-        # Get current branch name
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            info.branch = result.stdout.strip()
-
-        # Check if working directory is dirty
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            info.dirty = len(result.stdout.strip()) > 0
-
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        # Git not available or timed out
-        pass
-
-    return info
 
 
 # CI provider detection: env var to check -> (provider name, env vars to capture)

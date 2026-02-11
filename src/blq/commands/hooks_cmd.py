@@ -25,6 +25,7 @@ from blq.commands.hooks_gen import (
     get_hooks_dir,
     write_hook_script,
 )
+from blq.git import find_git_dir
 
 # Marker to identify blq-managed hooks
 HOOK_MARKER = "# blq-managed-hook"
@@ -42,20 +43,6 @@ blq hooks run
 # Future: exit with error count if block_on_new_errors is enabled
 exit 0
 """
-
-
-def _find_git_dir() -> Path | None:
-    """Find .git directory from cwd or parents.
-
-    Returns:
-        Path to .git directory, or None if not in a git repository.
-    """
-    cwd = Path.cwd()
-    for p in [cwd, *list(cwd.parents)]:
-        git_dir = p / ".git"
-        if git_dir.is_dir():
-            return git_dir
-    return None
 
 
 def _is_blq_hook(hook_path: Path) -> bool:
@@ -235,7 +222,7 @@ def _cmd_hooks_install_legacy(args: argparse.Namespace) -> None:
     config = BlqConfig.ensure()
 
     # Find git directory
-    git_dir = _find_git_dir()
+    git_dir = find_git_dir()
     if git_dir is None:
         print("Error: Not in a git repository.", file=sys.stderr)
         sys.exit(1)
@@ -281,7 +268,7 @@ def _install_git_hook(
     force: bool,
 ) -> None:
     """Install a git hook that calls .lq/hooks/*.sh scripts."""
-    git_dir = _find_git_dir()
+    git_dir = find_git_dir()
     if git_dir is None:
         print("Error: Not in a git repository.", file=sys.stderr)
         sys.exit(1)
@@ -484,7 +471,7 @@ def cmd_hooks_uninstall(args: argparse.Namespace) -> None:
 
 def _uninstall_git_hook(hook_name: str = "pre-commit") -> None:
     """Remove a git hook."""
-    git_dir = _find_git_dir()
+    git_dir = find_git_dir()
     if git_dir is None:
         print("Error: Not in a git repository.", file=sys.stderr)
         sys.exit(1)
@@ -595,7 +582,7 @@ def cmd_hooks_status(args: argparse.Namespace) -> None:
 
     # Show git hook status
     print()
-    git_dir = _find_git_dir()
+    git_dir = find_git_dir()
     print("Git Hooks:")
     if git_dir is None:
         print("  (not a git repository)")
