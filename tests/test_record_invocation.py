@@ -550,14 +550,11 @@ class TestRecordIntegration:
         result = json.loads(captured_output.getvalue())
         attempt_id = result["attempt_id"]
 
-        # Check if events exist (may be 0 if duck_hunt not available)
+        # Verify the invocation was recorded (events may be 0 if duck_hunt not available)
         store = BirdStore.open(initialized_project / ".lq")
-        event_count = store.connection.execute(
+        store.connection.execute(
             "SELECT COUNT(*) FROM events WHERE invocation_id = ?",
             [attempt_id],
-        ).fetchone()[0]
+        ).fetchone()[0]  # Just verify query succeeds
         store.close()
-
-        # We don't assert event_count > 0 because duck_hunt may not be available
-        # The important thing is that no error occurred
         assert result["recorded"] is True

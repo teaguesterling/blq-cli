@@ -7,8 +7,6 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from blq.git import (
     BlameInfo,
     CommitInfo,
@@ -278,8 +276,8 @@ class TestPublicAPI:
 
     def test_get_context_uses_provider(self):
         """Test get_context delegates to provider."""
-        with patch("blq.git.SubprocessProvider") as MockProvider:
-            mock_instance = MockProvider.return_value
+        with patch("blq.git.SubprocessProvider") as mock_provider:
+            mock_instance = mock_provider.return_value
             mock_instance.get_context.return_value = GitContext(commit="abc123")
 
             ctx = get_context()
@@ -289,8 +287,8 @@ class TestPublicAPI:
 
     def test_get_file_context_uses_provider(self):
         """Test get_file_context delegates to provider."""
-        with patch("blq.git.SubprocessProvider") as MockProvider:
-            mock_instance = MockProvider.return_value
+        with patch("blq.git.SubprocessProvider") as mock_provider:
+            mock_instance = mock_provider.return_value
             mock_instance.get_file_context.return_value = GitFileContext(
                 path="test.py"
             )
@@ -302,8 +300,8 @@ class TestPublicAPI:
 
     def test_get_blame_uses_provider(self):
         """Test get_blame delegates to provider."""
-        with patch("blq.git.SubprocessProvider") as MockProvider:
-            mock_instance = MockProvider.return_value
+        with patch("blq.git.SubprocessProvider") as mock_provider:
+            mock_instance = mock_provider.return_value
             mock_instance.get_blame.return_value = BlameInfo(
                 commit="abc123",
                 author="Alice",
@@ -319,8 +317,8 @@ class TestPublicAPI:
 
     def test_get_file_history_uses_provider(self):
         """Test get_file_history delegates to provider."""
-        with patch("blq.git.SubprocessProvider") as MockProvider:
-            mock_instance = MockProvider.return_value
+        with patch("blq.git.SubprocessProvider") as mock_provider:
+            mock_instance = mock_provider.return_value
             mock_instance.get_file_history.return_value = [
                 CommitInfo(
                     hash="abc123",
@@ -675,13 +673,13 @@ class TestProviderSelection:
 
     def test_selects_subprocess_when_no_connection(self):
         """Test subprocess is selected when no connection provided."""
-        with patch("blq.git.SubprocessProvider") as MockProvider:
-            mock_instance = MockProvider.return_value
+        with patch("blq.git.SubprocessProvider") as mock_provider:
+            mock_instance = mock_provider.return_value
             mock_instance.get_context.return_value = GitContext()
 
             get_context()
 
-            MockProvider.assert_called_once()
+            mock_provider.assert_called_once()
 
     def test_selects_duck_tails_when_available(self):
         """Test duck_tails is selected when extension is loaded."""
@@ -689,23 +687,23 @@ class TestProviderSelection:
         # is_duck_tails_available check succeeds
         mock_conn.execute.return_value = None
 
-        with patch("blq.git.DuckTailsProvider") as MockProvider:
-            mock_instance = MockProvider.return_value
+        with patch("blq.git.DuckTailsProvider") as mock_provider:
+            mock_instance = mock_provider.return_value
             mock_instance.get_context.return_value = GitContext()
 
             get_context(conn=mock_conn)
 
-            MockProvider.assert_called_once()
+            mock_provider.assert_called_once()
 
     def test_falls_back_to_subprocess_when_duck_tails_unavailable(self):
         """Test falls back to subprocess when duck_tails query fails."""
         mock_conn = MagicMock()
         mock_conn.execute.side_effect = Exception("Not loaded")
 
-        with patch("blq.git.SubprocessProvider") as MockProvider:
-            mock_instance = MockProvider.return_value
+        with patch("blq.git.SubprocessProvider") as mock_provider:
+            mock_instance = mock_provider.return_value
             mock_instance.get_context.return_value = GitContext()
 
             get_context(conn=mock_conn)
 
-            MockProvider.assert_called_once()
+            mock_provider.assert_called_once()
