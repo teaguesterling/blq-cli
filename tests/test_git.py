@@ -12,17 +12,21 @@ import pytest
 from blq.git import (
     BlameInfo,
     CommitInfo,
+    DuckTailsProvider,
     GitContext,
     GitFileContext,
     SubprocessProvider,
     capture_git_info,
+    ensure_duck_tails,
     find_git_dir,
     find_git_root,
     get_blame,
     get_context,
     get_file_context,
     get_file_history,
+    is_duck_tails_available,
     is_git_repo,
+    try_load_duck_tails,
 )
 
 
@@ -451,3 +455,257 @@ class TestIntegration:
         if root is not None:
             # Should find a .git directory
             assert (root / ".git").exists() or (root / ".git").is_file()
+
+
+class TestDuckTailsExtensionLoading:
+    """Tests for duck_tails extension loading functions."""
+
+    def test_try_load_duck_tails_success(self):
+        """Test successful duck_tails load."""
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value = None
+
+        result = try_load_duck_tails(mock_conn)
+
+        assert result is True
+        mock_conn.execute.assert_called_once_with("LOAD duck_tails")
+
+    def test_try_load_duck_tails_failure(self):
+        """Test failed duck_tails load."""
+        mock_conn = MagicMock()
+        mock_conn.execute.side_effect = Exception("Extension not found")
+
+        result = try_load_duck_tails(mock_conn)
+
+        assert result is False
+
+    def test_is_duck_tails_available_true(self):
+        """Test duck_tails available check when loaded."""
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value = None
+
+        result = is_duck_tails_available(mock_conn)
+
+        assert result is True
+        mock_conn.execute.assert_called_once_with("SELECT * FROM git_log() LIMIT 0")
+
+    def test_is_duck_tails_available_false(self):
+        """Test duck_tails available check when not loaded."""
+        mock_conn = MagicMock()
+        mock_conn.execute.side_effect = Exception("Function not found")
+
+        result = is_duck_tails_available(mock_conn)
+
+        assert result is False
+
+    def test_ensure_duck_tails_already_loaded(self):
+        """Test ensure when duck_tails is already loaded."""
+        mock_conn = MagicMock()
+        # First call (is_duck_tails_available) succeeds
+        mock_conn.execute.return_value = None
+
+        result = ensure_duck_tails(mock_conn)
+
+        assert result is True
+        # Should only check availability once
+        mock_conn.execute.assert_called_once()
+
+    def test_ensure_duck_tails_load_success(self):
+        """Test ensure loads duck_tails when not available."""
+        mock_conn = MagicMock()
+        # First call fails (not loaded), second succeeds (LOAD), third succeeds (verify)
+        mock_conn.execute.side_effect = [
+            Exception("Not loaded"),  # is_duck_tails_available
+            None,  # LOAD duck_tails
+            None,  # is_duck_tails_available after load
+        ]
+
+        result = ensure_duck_tails(mock_conn)
+
+        assert result is True
+        assert mock_conn.execute.call_count == 3
+
+    def test_ensure_duck_tails_load_failure(self):
+        """Test ensure when duck_tails cannot be loaded."""
+        mock_conn = MagicMock()
+        mock_conn.execute.side_effect = Exception("Not available")
+
+        result = ensure_duck_tails(mock_conn)
+
+        assert result is False
+
+
+class TestDuckTailsProvider:
+    """Tests for DuckTailsProvider."""
+
+    def test_init(self):
+        """Test provider initialization."""
+        mock_conn = MagicMock()
+        provider = DuckTailsProvider(mock_conn)
+
+        assert provider.conn is mock_conn
+        assert provider.cwd == Path.cwd()
+        assert isinstance(provider._subprocess, SubprocessProvider)
+
+    def test_get_context_basic(self):
+        """Test basic context capture via duck_tails."""
+        mock_conn = MagicMock()
+
+        # Mock git_log() result
+        mock_conn.execute.return_value.fetchone.side_effect = [
+            ("abc123def456", "Alice", datetime(2024, 1, 15), "Test commit"),  # git_log
+            ("main",),  # git_branches
+        ]
+
+        provider = DuckTailsProvider(mock_conn)
+        # Mock the subprocess fallback for dirty status
+        with patch.object(provider._subprocess, "get_context") as mock_sub:
+            mock_sub.return_value = GitContext(dirty=False)
+            with patch.object(provider._subprocess, "_run_git") as mock_git:
+                mock_git.return_value = "/path/to/repo"
+
+                ctx = provider.get_context()
+
+        assert ctx.commit == "abc123def456"
+        assert ctx.author == "Alice"
+        assert ctx.branch == "main"
+        assert ctx.dirty is False
+
+    def test_get_context_fallback_on_error(self):
+        """Test fallback to subprocess when duck_tails fails."""
+        mock_conn = MagicMock()
+        mock_conn.execute.side_effect = Exception("Query failed")
+
+        provider = DuckTailsProvider(mock_conn)
+        with patch.object(provider._subprocess, "get_context") as mock_sub:
+            mock_sub.return_value = GitContext(
+                commit="abc123",
+                branch="main",
+                dirty=False,
+            )
+            with patch.object(provider._subprocess, "_run_git") as mock_git:
+                mock_git.return_value = "/path/to/repo"
+
+                ctx = provider.get_context()
+
+        assert ctx.commit == "abc123"
+        assert ctx.branch == "main"
+
+    def test_get_file_context_with_duck_tails(self):
+        """Test file context using duck_tails."""
+        mock_conn = MagicMock()
+
+        # Mock git_log for file history
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("abc123", "abc1234", "Alice", datetime(2024, 1, 15), "First commit"),
+            ("def456", "def4567", "Bob", datetime(2024, 1, 14), "Second commit"),
+        ]
+
+        provider = DuckTailsProvider(mock_conn)
+        with patch.object(provider._subprocess, "get_blame") as mock_blame:
+            mock_blame.return_value = None
+
+            ctx = provider.get_file_context("test.py", line=42)
+
+        assert ctx.path == "test.py"
+        assert ctx.line == 42
+        assert len(ctx.recent_commits) == 2
+        assert ctx.recent_commits[0].author == "Alice"
+
+    def test_get_file_context_fallback(self):
+        """Test file context falls back to subprocess."""
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.side_effect = Exception("Query failed")
+
+        provider = DuckTailsProvider(mock_conn)
+        with patch.object(provider._subprocess, "get_blame") as mock_blame:
+            mock_blame.return_value = None
+            with patch.object(provider._subprocess, "get_file_history") as mock_hist:
+                mock_hist.return_value = [
+                    CommitInfo(
+                        hash="abc123",
+                        short_hash="abc1234",
+                        author="Alice",
+                        time=datetime(2024, 1, 15),
+                        message="Test",
+                    )
+                ]
+
+                ctx = provider.get_file_context("test.py")
+
+        assert len(ctx.recent_commits) == 1
+        mock_hist.assert_called_once()
+
+    def test_get_blame_delegates_to_subprocess(self):
+        """Test blame always uses subprocess."""
+        mock_conn = MagicMock()
+        provider = DuckTailsProvider(mock_conn)
+
+        with patch.object(provider._subprocess, "get_blame") as mock_blame:
+            mock_blame.return_value = BlameInfo(
+                commit="abc123",
+                author="Alice",
+                time=datetime(2024, 1, 15),
+                line_number=42,
+                line_content="code",
+            )
+
+            blame = provider.get_blame("test.py", 42)
+
+        assert blame is not None
+        assert blame.author == "Alice"
+        mock_blame.assert_called_once_with("test.py", 42)
+
+    def test_get_file_history_with_duck_tails(self):
+        """Test file history using duck_tails."""
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("abc123", "abc1234", "Alice", datetime(2024, 1, 15), "First"),
+        ]
+
+        provider = DuckTailsProvider(mock_conn)
+        history = provider.get_file_history("test.py", limit=5)
+
+        assert len(history) == 1
+        assert history[0].author == "Alice"
+
+
+class TestProviderSelection:
+    """Tests for provider selection logic."""
+
+    def test_selects_subprocess_when_no_connection(self):
+        """Test subprocess is selected when no connection provided."""
+        with patch("blq.git.SubprocessProvider") as MockProvider:
+            mock_instance = MockProvider.return_value
+            mock_instance.get_context.return_value = GitContext()
+
+            get_context()
+
+            MockProvider.assert_called_once()
+
+    def test_selects_duck_tails_when_available(self):
+        """Test duck_tails is selected when extension is loaded."""
+        mock_conn = MagicMock()
+        # is_duck_tails_available check succeeds
+        mock_conn.execute.return_value = None
+
+        with patch("blq.git.DuckTailsProvider") as MockProvider:
+            mock_instance = MockProvider.return_value
+            mock_instance.get_context.return_value = GitContext()
+
+            get_context(conn=mock_conn)
+
+            MockProvider.assert_called_once()
+
+    def test_falls_back_to_subprocess_when_duck_tails_unavailable(self):
+        """Test falls back to subprocess when duck_tails query fails."""
+        mock_conn = MagicMock()
+        mock_conn.execute.side_effect = Exception("Not loaded")
+
+        with patch("blq.git.SubprocessProvider") as MockProvider:
+            mock_instance = MockProvider.return_value
+            mock_instance.get_context.return_value = GitContext()
+
+            get_context(conn=mock_conn)
+
+            MockProvider.assert_called_once()

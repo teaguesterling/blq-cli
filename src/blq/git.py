@@ -29,16 +29,29 @@ if TYPE_CHECKING:
     import duckdb
 
 __all__ = [
+    # Data structures
     "GitContext",
     "GitFileContext",
     "CommitInfo",
     "BlameInfo",
+    # Providers
+    "SubprocessProvider",
+    "DuckTailsProvider",
+    # Extension loading
+    "try_load_duck_tails",
+    "is_duck_tails_available",
+    "ensure_duck_tails",
+    # Public API
     "get_context",
     "get_file_context",
     "get_blame",
     "get_file_history",
     "find_git_root",
+    "find_git_dir",
     "is_git_repo",
+    # Backward compatibility
+    "GitInfo",
+    "capture_git_info",
 ]
 
 
@@ -410,11 +423,12 @@ class DuckTailsProvider:
 
         try:
             # Get HEAD commit info
+            # duck_tails git_log() columns: commit_hash, author_name, message, author_date
             result = self.conn.execute("""
                 SELECT
                     commit_hash,
-                    author,
-                    commit_time,
+                    author_name,
+                    author_date,
                     message
                 FROM git_log()
                 LIMIT 1
@@ -427,10 +441,11 @@ class DuckTailsProvider:
                 ctx.message = result[3]
 
             # Get current branch
+            # duck_tails git_branches() columns: branch_name, commit_hash, is_current
             branch_result = self.conn.execute("""
-                SELECT name
+                SELECT branch_name
                 FROM git_branches()
-                WHERE is_head = true
+                WHERE is_current = true
             """).fetchone()
 
             if branch_result:
@@ -442,7 +457,7 @@ class DuckTailsProvider:
             ctx.commit = basic.commit
             ctx.branch = basic.branch
 
-        # Dirty status - duck_tails may not expose this, use subprocess
+        # Dirty status - duck_tails doesn't expose working tree status
         ctx.dirty = self._subprocess.get_context().dirty
 
         # Repository root
@@ -451,18 +466,16 @@ class DuckTailsProvider:
             ctx.repo_root = Path(root)
 
         if extended and ctx.commit:
-            try:
-                # Files changed in HEAD
-                files_result = self.conn.execute("""
-                    SELECT files_changed
-                    FROM git_log()
-                    LIMIT 1
-                """).fetchone()
-
-                if files_result and files_result[0]:
-                    ctx.files_changed = list(files_result[0])
-            except Exception:
-                pass
+            # Files changed in HEAD - duck_tails doesn't have this, use subprocess
+            files_output = self._subprocess._run_git(
+                "diff-tree",
+                "--no-commit-id",
+                "--name-only",
+                "-r",
+                "HEAD",
+            )
+            if files_output:
+                ctx.files_changed = files_output.splitlines()
 
             # Remote URL via subprocess
             ctx.remote_url = self._subprocess._run_git("remote", "get-url", "origin")
@@ -478,7 +491,7 @@ class DuckTailsProvider:
         """Get git context for a specific file using duck_tails."""
         ctx = GitFileContext(path=path, line=line)
 
-        # Blame - fall back to subprocess (duck_tails may not have blame)
+        # Blame - duck_tails doesn't have blame, use subprocess
         if line is not None:
             blame = self._subprocess.get_blame(path, line)
             if blame:
@@ -486,22 +499,22 @@ class DuckTailsProvider:
                 ctx.last_commit = blame.commit
                 ctx.last_modified = blame.time
 
-        # Recent commits - try duck_tails first
+        # Recent commits - use duck_tails file-specific git_log
         try:
+            # duck_tails supports git_log('git://path@HEAD') for file-specific history
+            git_path = f"git://{path}@HEAD"
             result = self.conn.execute(
-                """
+                f"""
                 SELECT
                     commit_hash,
                     substr(commit_hash, 1, 7) as short_hash,
-                    author,
-                    commit_time,
+                    author_name,
+                    author_date,
                     message
-                FROM git_log()
-                WHERE list_contains(files_changed, ?)
-                ORDER BY commit_time DESC
-                LIMIT ?
-            """,
-                [path, history_limit],
+                FROM git_log('{git_path}')
+                ORDER BY author_date DESC
+                LIMIT {history_limit}
+            """
             ).fetchall()
 
             for row in result:
@@ -527,20 +540,20 @@ class DuckTailsProvider:
     def get_file_history(self, path: str, limit: int = 5) -> list[CommitInfo]:
         """Get recent commits touching a file."""
         try:
+            # duck_tails supports git_log('git://path@HEAD') for file-specific history
+            git_path = f"git://{path}@HEAD"
             result = self.conn.execute(
-                """
+                f"""
                 SELECT
                     commit_hash,
                     substr(commit_hash, 1, 7) as short_hash,
-                    author,
-                    commit_time,
+                    author_name,
+                    author_date,
                     message
-                FROM git_log()
-                WHERE list_contains(files_changed, ?)
-                ORDER BY commit_time DESC
-                LIMIT ?
-            """,
-                [path, limit],
+                FROM git_log('{git_path}')
+                ORDER BY author_date DESC
+                LIMIT {limit}
+            """
             ).fetchall()
 
             return [
@@ -555,6 +568,57 @@ class DuckTailsProvider:
             ]
         except Exception:
             return self._subprocess.get_file_history(path, limit)
+
+
+# =============================================================================
+# Extension Loading
+# =============================================================================
+
+
+def try_load_duck_tails(conn: duckdb.DuckDBPyConnection) -> bool:
+    """Try to load the duck_tails extension into a DuckDB connection.
+
+    Args:
+        conn: DuckDB connection to load the extension into.
+
+    Returns:
+        True if duck_tails was loaded successfully, False otherwise.
+    """
+    try:
+        conn.execute("LOAD duck_tails")
+        return True
+    except Exception:
+        return False
+
+
+def is_duck_tails_available(conn: duckdb.DuckDBPyConnection) -> bool:
+    """Check if duck_tails extension is available and functional.
+
+    Args:
+        conn: DuckDB connection to check.
+
+    Returns:
+        True if duck_tails is loaded and git_log() works.
+    """
+    try:
+        conn.execute("SELECT * FROM git_log() LIMIT 0")
+        return True
+    except Exception:
+        return False
+
+
+def ensure_duck_tails(conn: duckdb.DuckDBPyConnection) -> bool:
+    """Ensure duck_tails is loaded, attempting to load if not already.
+
+    Args:
+        conn: DuckDB connection.
+
+    Returns:
+        True if duck_tails is available (was loaded or already loaded).
+    """
+    if is_duck_tails_available(conn):
+        return True
+    return try_load_duck_tails(conn) and is_duck_tails_available(conn)
 
 
 # =============================================================================
@@ -575,12 +639,8 @@ def _get_provider(
     Falls back to subprocess otherwise.
     """
     if conn is not None:
-        try:
-            # Check if duck_tails is loaded by running a simple query
-            conn.execute("SELECT * FROM git_log() LIMIT 0")
+        if is_duck_tails_available(conn):
             return DuckTailsProvider(conn, cwd=cwd)
-        except Exception:
-            pass
 
     return SubprocessProvider(cwd=cwd)
 
