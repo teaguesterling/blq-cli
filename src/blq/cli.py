@@ -526,13 +526,30 @@ def main() -> None:
 
     # inspect
     p_inspect = subparsers.add_parser(
-        "inspect", help="Show comprehensive event details with dual context"
+        "inspect", help="Show comprehensive event details with context and enrichment"
     )
     p_inspect.add_argument("ref", help="Event reference (e.g., test:24:1)")
     p_inspect.add_argument(
         "--lines", "-n", type=int, default=5, help="Context lines before/after (default: 5)"
     )
     p_inspect.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    # Enrichment flags
+    p_inspect.add_argument(
+        "--source", "-s", action="store_true",
+        help="Include source file context around error location"
+    )
+    p_inspect.add_argument(
+        "--git", "-g", action="store_true",
+        help="Include git context (blame and recent commits)"
+    )
+    p_inspect.add_argument(
+        "--fingerprint", "-f", action="store_true",
+        help="Include fingerprint history (occurrences, regression detection)"
+    )
+    p_inspect.add_argument(
+        "--full", action="store_true",
+        help="Include all enrichment (source, git, fingerprint)"
+    )
     p_inspect.set_defaults(func=cmd_inspect)
 
     # commands (with subcommands for list, register, unregister)
@@ -870,6 +887,18 @@ def main() -> None:
     p_hooks_install.add_argument(
         "--force", "-f", action="store_true", help="Overwrite existing hook/workflow"
     )
+    # Claude Code record hooks options
+    p_hooks_install.add_argument(
+        "--record",
+        "-R",
+        action="store_true",
+        help="Install record-invocation hooks for passive command tracking (claude-code only)",
+    )
+    p_hooks_install.add_argument(
+        "--record-hooks",
+        metavar="HOOKS",
+        help="Comma-separated record hooks to install: pre,post (default: both)",
+    )
     p_hooks_install.set_defaults(func=cmd_hooks_install)
 
     # hooks uninstall (new name, was 'remove')
@@ -884,6 +913,12 @@ def main() -> None:
     )
     p_hooks_uninstall.add_argument(
         "--hook", default="pre-commit", help="Git hook name (default: pre-commit)"
+    )
+    p_hooks_uninstall.add_argument(
+        "--record",
+        "-R",
+        action="store_true",
+        help="Uninstall record-invocation hooks (claude-code only)",
     )
     p_hooks_uninstall.set_defaults(func=cmd_hooks_uninstall)
 

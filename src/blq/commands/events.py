@@ -16,6 +16,7 @@ from blq.commands.core import (
     BlqConfig,
     EventRef,
 )
+from blq.git import get_file_context
 from blq.output import format_context, format_errors, get_output_format, read_source_context
 from blq.storage import BlqStorage
 
@@ -175,10 +176,14 @@ def cmd_context(args: argparse.Namespace) -> None:
 
 
 def cmd_inspect(args: argparse.Namespace) -> None:
-    """Show comprehensive event details with dual context display.
+    """Show comprehensive event details with context and enrichment.
 
-    Shows event metadata plus both log context (where the error appears in output)
-    and source context (where the error is in the source file) when enabled.
+    Shows event metadata plus:
+    - Log context (where the error appears in output)
+    - Source context (where the error is in the source file) with --source
+    - Git context (blame and history) with --git
+    - Fingerprint history with --fingerprint
+    - All enrichment with --full
     """
     config = BlqConfig.ensure()
 
@@ -194,6 +199,12 @@ def cmd_inspect(args: argparse.Namespace) -> None:
         print("Use 'blq event' to see all events from a run", file=sys.stderr)
         sys.exit(1)
 
+    # Determine which enrichments to include
+    show_full = getattr(args, "full", False)
+    show_source = show_full or getattr(args, "source", False) or config.source_lookup_enabled
+    show_git = show_full or getattr(args, "git", False)
+    show_fingerprint = show_full or getattr(args, "fingerprint", False)
+
     try:
         store = BlqStorage.open(config.lq_dir)
         event = store.event(ref.run_id, ref.event_id)
@@ -206,10 +217,16 @@ def cmd_inspect(args: argparse.Namespace) -> None:
             # Include context in JSON output
             result = dict(event)
             result["log_context"] = _get_log_context(config, store, ref, event, args.lines)
-            if config.source_lookup_enabled:
+
+            if show_source:
                 result["source_context"] = _get_source_context(config, event, args.lines)
-            else:
-                result["source_context"] = None
+
+            if show_git:
+                result["git_context"] = _get_git_context(config, event)
+
+            if show_fingerprint:
+                result["fingerprint_history"] = _get_fingerprint_history(store, event)
+
             print(json.dumps(result, indent=2, default=str))
         else:
             # Pretty print event details
@@ -231,9 +248,9 @@ def cmd_inspect(args: argparse.Namespace) -> None:
             if code:
                 print(f"  Code: {code}")
 
-            # Fingerprint
+            # Fingerprint (brief)
             fingerprint = event.get("fingerprint")
-            if fingerprint:
+            if fingerprint and not show_fingerprint:
                 print(f"  Fingerprint: {_short_fingerprint(fingerprint)}")
 
             # Message (last in header section)
@@ -246,19 +263,36 @@ def cmd_inspect(args: argparse.Namespace) -> None:
 
             print()
 
-            # Log context
+            # Log context (always shown)
             log_context = _get_log_context(config, store, ref, event, args.lines)
             if log_context:
                 print("== Log Context ==")
                 print(log_context)
                 print()
 
-            # Source context (if enabled)
-            if config.source_lookup_enabled:
+            # Source context
+            if show_source:
                 source_context = _get_source_context(config, event, args.lines)
                 if source_context:
                     print("== Source Context ==")
                     print(source_context)
+                    print()
+
+            # Git context
+            if show_git:
+                git_context = _get_git_context(config, event)
+                if git_context:
+                    print("== Git Context ==")
+                    print(_format_git_context(git_context))
+                    print()
+
+            # Fingerprint history
+            if show_fingerprint:
+                fp_history = _get_fingerprint_history(store, event)
+                if fp_history:
+                    print("== Fingerprint History ==")
+                    print(_format_fingerprint_history(fp_history))
+                    print()
 
     except duckdb.Error as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -328,3 +362,206 @@ def _get_source_context(
         ref_root=config.ref_root,
         context=context_lines,
     )
+
+
+def _get_git_context(
+    config: BlqConfig,
+    event: dict,
+    history_limit: int = 5,
+) -> dict | None:
+    """Get git context for an event (blame and history).
+
+    Returns dict with:
+        - last_author: who last modified the line
+        - last_commit: commit hash
+        - last_modified: timestamp
+        - recent_commits: list of recent commits to the file
+    """
+    ref_file = event.get("ref_file")
+    ref_line = event.get("ref_line")
+
+    if not ref_file:
+        return None
+
+    try:
+        # Resolve file path relative to ref_root
+        from pathlib import Path
+
+        if config.ref_root:
+            file_path = str(Path(config.ref_root) / ref_file)
+        else:
+            file_path = ref_file
+
+        ctx = get_file_context(file_path, line=ref_line, history_limit=history_limit)
+
+        result: dict = {
+            "file": ref_file,
+            "line": ref_line,
+        }
+
+        if ctx.last_author:
+            result["blame"] = {
+                "author": ctx.last_author,
+                "commit": ctx.last_commit,
+                "modified": ctx.last_modified.isoformat() if ctx.last_modified else None,
+            }
+
+        if ctx.recent_commits:
+            result["recent_commits"] = [
+                {
+                    "hash": c.short_hash,
+                    "author": c.author,
+                    "time": c.time.isoformat(),
+                    "message": c.message,
+                }
+                for c in ctx.recent_commits
+            ]
+
+        return result
+    except Exception:
+        return None
+
+
+def _get_fingerprint_history(
+    store: BlqStorage,
+    event: dict,
+) -> dict | None:
+    """Get fingerprint history for an event.
+
+    Returns dict with:
+        - fingerprint: the fingerprint value
+        - first_seen: first occurrence (run_ref, timestamp)
+        - last_seen: most recent occurrence
+        - occurrences: total count
+        - is_regression: True if was fixed then reappeared
+    """
+    fingerprint = event.get("fingerprint")
+    if not fingerprint:
+        return None
+
+    try:
+        # Query all occurrences of this fingerprint using parameterized query
+        result = store.sql(
+            """
+            SELECT
+                run_serial,
+                run_ref,
+                timestamp,
+                tag
+            FROM blq_load_events()
+            WHERE fingerprint = ?
+            ORDER BY timestamp ASC
+            """,
+            [fingerprint],
+        ).fetchall()
+
+        if not result:
+            return None
+
+        first = result[0]
+        last = result[-1]
+
+        # Detect regression: check if there are gaps in run_serials
+        is_regression = False
+        if len(result) >= 2:
+            run_serials = [r[0] for r in result]
+            # If there's a gap > 1 between consecutive occurrences, it's a regression
+            for i in range(1, len(run_serials)):
+                if run_serials[i] - run_serials[i - 1] > 1:
+                    is_regression = True
+                    break
+
+        return {
+            "fingerprint": fingerprint[:16] + "..." if len(fingerprint) > 16 else fingerprint,
+            "first_seen": {
+                "run_ref": first[1],
+                "timestamp": first[2].isoformat() if first[2] else None,
+            },
+            "last_seen": {
+                "run_ref": last[1],
+                "timestamp": last[2].isoformat() if last[2] else None,
+            },
+            "occurrences": len(result),
+            "is_regression": is_regression,
+        }
+    except Exception:
+        return None
+
+
+def _format_git_context(git_ctx: dict) -> str:
+    """Format git context for display."""
+    lines = []
+
+    blame = git_ctx.get("blame")
+    if blame:
+        modified = blame.get("modified", "")
+        if modified:
+            # Parse ISO date and format nicely
+            try:
+                from datetime import datetime
+
+                dt = datetime.fromisoformat(modified)
+                modified = dt.strftime("%Y-%m-%d %H:%M")
+            except (ValueError, TypeError):
+                pass
+        lines.append(f"  Last modified: {modified} by {blame.get('author', '?')}")
+        lines.append(f"  Commit: {blame.get('commit', '?')}")
+
+    commits = git_ctx.get("recent_commits", [])
+    if commits:
+        lines.append("")
+        lines.append("  Recent changes:")
+        for c in commits[:5]:
+            time_str = c.get("time", "")
+            if time_str:
+                try:
+                    from datetime import datetime
+
+                    dt = datetime.fromisoformat(time_str)
+                    time_str = dt.strftime("%Y-%m-%d")
+                except (ValueError, TypeError):
+                    pass
+            msg = c.get("message", "")[:50]
+            lines.append(f"    {c.get('hash', '?')} ({time_str}) {msg}")
+
+    return "\n".join(lines)
+
+
+def _format_fingerprint_history(fp_hist: dict) -> str:
+    """Format fingerprint history for display."""
+    lines = []
+
+    lines.append(f"  Fingerprint: {fp_hist.get('fingerprint', '?')}")
+
+    first = fp_hist.get("first_seen", {})
+    if first:
+        ts = first.get("timestamp", "")
+        if ts:
+            try:
+                from datetime import datetime
+
+                dt = datetime.fromisoformat(ts)
+                ts = dt.strftime("%Y-%m-%d %H:%M")
+            except (ValueError, TypeError):
+                pass
+        lines.append(f"  First seen: {first.get('run_ref', '?')} ({ts})")
+
+    last = fp_hist.get("last_seen", {})
+    if last:
+        ts = last.get("timestamp", "")
+        if ts:
+            try:
+                from datetime import datetime
+
+                dt = datetime.fromisoformat(ts)
+                ts = dt.strftime("%Y-%m-%d %H:%M")
+            except (ValueError, TypeError):
+                pass
+        lines.append(f"  Last seen: {last.get('run_ref', '?')} ({ts})")
+
+    lines.append(f"  Occurrences: {fp_hist.get('occurrences', 0)}")
+
+    if fp_hist.get("is_regression"):
+        lines.append("  Status: REGRESSION (was fixed, reappeared)")
+
+    return "\n".join(lines)

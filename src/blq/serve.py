@@ -858,20 +858,29 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
         return {"error": f"Event not found: {e}"}
 
 
-def _inspect_impl(ref: str, lines: int = 5) -> dict[str, Any]:
+def _inspect_impl(
+    ref: str,
+    lines: int = 5,
+    include_source: bool = True,
+    include_git: bool = False,
+    include_fingerprint: bool = False,
+) -> dict[str, Any]:
     """Implementation of inspect command.
 
-    Returns comprehensive event details with both log context and source context.
-    Source context is only included when source_lookup is enabled in config.
+    Returns comprehensive event details with context and optional enrichment.
 
     Args:
         ref: Event reference in format "tag:serial:event" or "serial:event"
         lines: Lines of context before/after (default: 5)
+        include_source: Include source file context (default: True)
+        include_git: Include git context - blame and history (default: False)
+        include_fingerprint: Include fingerprint history (default: False)
 
     Returns:
-        Event details with log_context and source_context fields
+        Event details with log_context and optional enrichment fields
     """
     from blq.cli import BlqConfig
+    from blq.git import get_file_context
     from blq.output import read_source_context
 
     try:
@@ -907,7 +916,7 @@ def _inspect_impl(ref: str, lines: int = 5) -> dict[str, Any]:
             "fingerprint": _to_json_safe(event_data.get("fingerprint")),
         }
 
-        # Log context
+        # Log context (always included)
         log_line_start_raw = event_data.get("log_line_start")
         log_line_end_raw = event_data.get("log_line_end") or log_line_start_raw
         log_context = None
@@ -932,21 +941,113 @@ def _inspect_impl(ref: str, lines: int = 5) -> dict[str, Any]:
 
         response["log_context"] = log_context
 
-        # Source context (if enabled)
-        source_context = None
+        # Get config for ref_root
         config = BlqConfig.find()
-        if config is not None and config.source_lookup_enabled:
+        ref_root = config.ref_root if config else None
+
+        # Source context
+        if include_source:
+            source_context = None
             ref_file = event_data.get("ref_file")
-            ref_line = event_data.get("ref_line")
-            if ref_file and ref_line:
+            ref_line_val = event_data.get("ref_line")
+            if ref_file and ref_line_val:
                 source_context = read_source_context(
                     ref_file,
-                    ref_line,
-                    ref_root=config.ref_root,
+                    ref_line_val,
+                    ref_root=ref_root,
                     context=lines,
                 )
+            response["source_context"] = source_context
 
-        response["source_context"] = source_context
+        # Git context
+        if include_git:
+            git_context = None
+            ref_file = event_data.get("ref_file")
+            ref_line_val = event_data.get("ref_line")
+            if ref_file:
+                try:
+                    from pathlib import Path
+
+                    file_path = str(Path(ref_root) / ref_file) if ref_root else ref_file
+                    ctx = get_file_context(file_path, line=ref_line_val, history_limit=5)
+
+                    git_context = {"file": ref_file, "line": ref_line_val}
+
+                    if ctx.last_author:
+                        git_context["blame"] = {
+                            "author": ctx.last_author,
+                            "commit": ctx.last_commit,
+                            "modified": (
+                                ctx.last_modified.isoformat() if ctx.last_modified else None
+                            ),
+                        }
+
+                    if ctx.recent_commits:
+                        git_context["recent_commits"] = [
+                            {
+                                "hash": c.short_hash,
+                                "author": c.author,
+                                "time": c.time.isoformat(),
+                                "message": c.message,
+                            }
+                            for c in ctx.recent_commits
+                        ]
+                except Exception:
+                    pass
+
+            response["git_context"] = git_context
+
+        # Fingerprint history
+        if include_fingerprint:
+            fp_history = None
+            fingerprint = event_data.get("fingerprint")
+            if fingerprint:
+                try:
+                    # Use parameterized query for safety
+                    fp_result = storage.sql(
+                        """
+                        SELECT run_serial, run_ref, timestamp, tag
+                        FROM blq_load_events()
+                        WHERE fingerprint = ?
+                        ORDER BY timestamp ASC
+                        """,
+                        [fingerprint],
+                    ).fetchall()
+
+                    if fp_result:
+                        first = fp_result[0]
+                        last = fp_result[-1]
+
+                        # Detect regression
+                        is_regression = False
+                        if len(fp_result) >= 2:
+                            run_serials = [r[0] for r in fp_result]
+                            for i in range(1, len(run_serials)):
+                                if run_serials[i] - run_serials[i - 1] > 1:
+                                    is_regression = True
+                                    break
+
+                        fp_history = {
+                            "fingerprint": (
+                                fingerprint[:16] + "..."
+                                if len(fingerprint) > 16
+                                else fingerprint
+                            ),
+                            "first_seen": {
+                                "run_ref": first[1],
+                                "timestamp": first[2].isoformat() if first[2] else None,
+                            },
+                            "last_seen": {
+                                "run_ref": last[1],
+                                "timestamp": last[2].isoformat() if last[2] else None,
+                            },
+                            "occurrences": len(fp_result),
+                            "is_regression": is_regression,
+                        }
+                except Exception:
+                    pass
+
+            response["fingerprint_history"] = fp_history
 
         return response
     except (ValueError, FileNotFoundError) as e:
@@ -1769,16 +1870,18 @@ def inspect(
     lines: int = 5,
     include_log_context: bool = True,
     include_source_context: bool = True,
+    include_git_context: bool = False,
+    include_fingerprint_history: bool = False,
     # Batch mode
     refs: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Get comprehensive event details with context.
+    """Get comprehensive event details with context and enrichment.
 
-    Returns event details with optional log context (where the error appears
-    in command output) and source context (where it is in source files).
-
-    For basic event details only, use include_log_context=False and
-    include_source_context=False.
+    Returns event details with optional context and enrichment:
+    - log_context: Where the error appears in command output
+    - source_context: Where the error is in source files
+    - git_context: Git blame and recent commits for the file
+    - fingerprint_history: Occurrence history and regression detection
 
     Args:
         ref: Event reference in format "tag:serial:event" (e.g., "build:1:3")
@@ -1786,12 +1889,14 @@ def inspect(
         lines: Lines of context before/after (default: 5)
         include_log_context: Include surrounding log lines (default: true)
         include_source_context: Include source file context (default: true)
+        include_git_context: Include git blame and history (default: false)
+        include_fingerprint_history: Include fingerprint occurrence history (default: false)
         refs: List of event references for batch mode (overrides `ref`)
 
     Returns:
         Event details with ref, severity, ref_file, ref_line, ref_column,
-        message, tool_name, category, code, fingerprint, log_context,
-        and source_context (based on include_* flags).
+        message, tool_name, category, code, fingerprint, and context/enrichment
+        fields based on include_* flags.
         In batch mode, returns list of event details.
     """
     # Batch mode: get details for multiple events
@@ -1800,14 +1905,18 @@ def inspect(
         found = 0
 
         for r in refs:
-            result = _inspect_impl(r, lines)
+            result = _inspect_impl(
+                r,
+                lines,
+                include_source=include_source_context,
+                include_git=include_git_context,
+                include_fingerprint=include_fingerprint_history,
+            )
             if "error" not in result:
                 found += 1
-                # Optionally strip context based on flags
+                # Optionally strip log context
                 if not include_log_context:
                     result.pop("log_context", None)
-                if not include_source_context:
-                    result.pop("source_context", None)
                 events_list.append({"ref": r, "event": result})
             else:
                 events_list.append({"ref": r, "event": None, "error": result.get("error")})
@@ -1819,13 +1928,17 @@ def inspect(
         }
 
     # Single event mode
-    result = _inspect_impl(ref, lines)
+    result = _inspect_impl(
+        ref,
+        lines,
+        include_source=include_source_context,
+        include_git=include_git_context,
+        include_fingerprint=include_fingerprint_history,
+    )
 
-    # Strip context if not requested
+    # Strip log context if not requested
     if not include_log_context:
         result.pop("log_context", None)
-    if not include_source_context:
-        result.pop("source_context", None)
 
     return result
 

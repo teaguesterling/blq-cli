@@ -551,15 +551,28 @@ class BlqStorage:
     # SQL Queries
     # =========================================================================
 
-    def sql(self, query: str) -> duckdb.DuckDBPyRelation:
-        """Execute a SQL query.
+    def sql(
+        self, query: str, params: list | None = None
+    ) -> duckdb.DuckDBPyRelation | duckdb.DuckDBPyConnection:
+        """Execute a SQL query with optional parameters.
 
         Args:
-            query: SQL query string
+            query: SQL query string. Use ? for parameter placeholders.
+            params: Optional list of parameter values for prepared statement.
 
         Returns:
-            DuckDB relation. Call .df() for DataFrame, .fetchall() for tuples.
+            DuckDB relation (without params) or connection (with params).
+            Both support .fetchall() for tuples and .fetchone() for single row.
+
+        Example:
+            # Without parameters - returns relation
+            store.sql("SELECT * FROM blq_load_events()")
+
+            # With parameters - returns connection (safe from SQL injection)
+            store.sql("SELECT * FROM blq_load_events() WHERE fingerprint = ?", [fp])
         """
+        if params is not None:
+            return self._conn.execute(query, params)
         return self._conn.sql(query)
 
     # =========================================================================
