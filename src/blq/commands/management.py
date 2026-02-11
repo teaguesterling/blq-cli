@@ -11,7 +11,6 @@ import shutil
 import sys
 import time
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import duckdb
 
@@ -537,9 +536,12 @@ def cmd_history(args: argparse.Namespace) -> None:
         # Map CLI status names to database status values
         # "running" is user-friendly alias for "pending"
         status_map = {"running": "pending", "completed": "completed", "orphaned": "orphaned"}
-        db_status = status_map.get(status_filter) if status_filter and status_filter != "all" else None
-
         if status_filter and status_filter != "all":
+            db_status = status_map.get(status_filter)
+        else:
+            db_status = None
+
+        if db_status:
             # Use blq_history_status() macro for status filtering
             if db_status:
                 status_sql = f"'{db_status}'"

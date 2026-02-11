@@ -11,7 +11,8 @@ Usage with Claude Code hooks:
     ATTEMPT_ID=$(echo "$ATTEMPT" | jq -r '.attempt_id')
 
     # PostToolUse hook records outcome at completion
-    echo "$output" | blq record-invocation outcome --attempt $ATTEMPT_ID --exit $exit_code --parse --json
+    echo "$output" | blq record-invocation outcome \\
+        --attempt $ATTEMPT_ID --exit $exit_code --parse --json
 """
 
 from __future__ import annotations
@@ -434,7 +435,8 @@ Usage with Claude Code hooks:
   ATTEMPT_ID=$(echo "$ATTEMPT" | jq -r '.attempt_id')
 
   # PostToolUse hook
-  echo "$output" | blq record-invocation outcome --attempt $ATTEMPT_ID --exit $exit_code --parse --json
+  echo "$output" | blq record-invocation outcome \\
+      --attempt $ATTEMPT_ID --exit $exit_code --parse --json
 
 Examples:
   # Record attempt

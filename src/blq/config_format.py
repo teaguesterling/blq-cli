@@ -14,7 +14,7 @@ from typing import Any
 if sys.version_info >= (3, 11):
     import tomllib
 else:
-    import tomli as tomllib
+    import tomli as tomllib  # type: ignore[import-not-found]
 
 # TOML writing: always use tomli_w
 import tomli_w
@@ -34,7 +34,8 @@ def load_toml(path: Path) -> dict[str, Any]:
         tomllib.TOMLDecodeError: If TOML is invalid
     """
     with open(path, "rb") as f:
-        return tomllib.load(f)
+        result: dict[str, Any] = tomllib.load(f)
+        return result
 
 
 def save_toml(path: Path, data: dict[str, Any]) -> None:

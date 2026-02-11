@@ -1223,11 +1223,13 @@ def _build_event_summaries(events: list[dict[str, Any]]) -> dict[str, Any]:
 
     # Sort by count descending
     by_fingerprint = sorted(
-        fingerprint_counts.values(), key=lambda x: x["count"], reverse=True
+        fingerprint_counts.values(),
+        key=lambda x: int(x["count"]),  # type: ignore[arg-type]
+        reverse=True,
     )
     by_file = sorted(
         [{"file": f, "count": c} for f, c in file_counts.items()],
-        key=lambda x: x["count"],
+        key=lambda x: int(x["count"]),  # type: ignore[call-overload]
         reverse=True,
     )
 
@@ -1361,7 +1363,9 @@ def _info_impl(ref: str) -> dict[str, Any]:
                 "info_count": 0,
                 "event_count": 0,
                 "started_at": str(row.get("started_at", "")),
-                "completed_at": str(row.get("completed_at", "")) if attempt_status != "pending" else None,
+                "completed_at": (
+                    str(row.get("completed_at", "")) if attempt_status != "pending" else None
+                ),
                 "cwd": _to_json_safe(row.get("cwd")),
                 "executable_path": _to_json_safe(row.get("executable")),
                 "hostname": _to_json_safe(row.get("hostname")),
@@ -2147,7 +2151,9 @@ def info(
                         if config:
                             bird_store = BirdStore.open(config.lq_dir)
                             try:
-                                content = bird_store.read_live_output(attempt_id, "combined", tail=tail)
+                                content = bird_store.read_live_output(
+                                    attempt_id, "combined", tail=tail
+                                )
                                 if content:
                                     log_lines = content.splitlines()
                             finally:
