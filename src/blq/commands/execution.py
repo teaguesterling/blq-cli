@@ -477,6 +477,7 @@ def _execute_with_live_output(
         warnings=[_make_event_summary(run_id, e) for e in warning_events[:error_limit]],
         parquet_path=str(lq_dir / "blq.duckdb"),
         output_stats=output_stats,
+        source_name=source_name,
     )
 
 
@@ -746,6 +747,7 @@ def _execute_command(
         errors=[_make_event_summary(run_id, e) for e in error_events[:error_limit]],
         warnings=[_make_event_summary(run_id, e) for e in warning_events[:error_limit]],
         parquet_path=str(filepath),
+        source_name=source_name,
         output_stats=output_stats,
     )
 
@@ -1102,7 +1104,10 @@ def cmd_exec(args: argparse.Namespace) -> None:
         import os
 
         first_token = cmd_args[0]
-        source_name = os.path.basename(first_token)
+        # Handle case where command is passed as single quoted string
+        # e.g., "echo hello" -> extract just "echo"
+        base = os.path.basename(first_token)
+        source_name = base.split()[0] if " " in base else base
 
     # Determine capture mode (default: capture)
     should_capture = not args.no_capture

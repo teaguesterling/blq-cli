@@ -737,6 +737,7 @@ def _events_impl(
                     "message": _to_json_safe(row.get("message")),
                     "tool_name": _to_json_safe(row.get("tool_name")),
                     "category": _to_json_safe(row.get("category")),
+                    "fingerprint": _to_json_safe(row.get("fingerprint")),
                     "log_line": _safe_int(row.get("log_line_start")),
                 }
             )
@@ -1190,6 +1191,87 @@ def _status_impl() -> dict[str, Any]:
         return {"sources": sources}
     except FileNotFoundError:
         return {"sources": []}
+
+
+def _build_event_summaries(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build aggregated summaries from a list of events.
+
+    Returns:
+        Dict with:
+        - by_fingerprint: list of {fingerprint, count, example_message, example_ref}
+        - by_file: list of {file, count}
+    """
+    # Aggregate by fingerprint
+    fingerprint_counts: dict[str, dict[str, Any]] = {}
+    for event in events:
+        fp = event.get("fingerprint") or "unknown"
+        if fp not in fingerprint_counts:
+            fingerprint_counts[fp] = {
+                "fingerprint": fp,
+                "count": 0,
+                "example_message": event.get("message"),
+                "example_ref": event.get("ref"),
+            }
+        fingerprint_counts[fp]["count"] += 1
+
+    # Aggregate by file
+    file_counts: dict[str, int] = {}
+    for event in events:
+        ref_file = event.get("ref_file")
+        if ref_file:
+            file_counts[ref_file] = file_counts.get(ref_file, 0) + 1
+
+    # Sort by count descending
+    by_fingerprint = sorted(
+        fingerprint_counts.values(), key=lambda x: x["count"], reverse=True
+    )
+    by_file = sorted(
+        [{"file": f, "count": c} for f, c in file_counts.items()],
+        key=lambda x: x["count"],
+        reverse=True,
+    )
+
+    return {
+        "by_fingerprint": by_fingerprint[:10],  # Top 10
+        "by_file": by_file[:10],  # Top 10
+    }
+
+
+def _get_affected_commits(
+    files: list[str], limit: int = 5
+) -> list[dict[str, Any]]:
+    """Get recent git commits that touched the affected files."""
+    try:
+        from blq.git import get_file_context
+
+        # Collect unique commits across all files
+        seen_commits: dict[str, dict[str, Any]] = {}
+        for file_path in files[:5]:  # Limit files to check
+            try:
+                ctx = get_file_context(file_path, history_limit=3)
+                for commit in ctx.recent_commits:
+                    if commit.short_hash not in seen_commits:
+                        seen_commits[commit.short_hash] = {
+                            "hash": commit.short_hash,
+                            "author": commit.author,
+                            "time": commit.time.isoformat() if commit.time else None,
+                            "message": commit.message,
+                            "files": [file_path],
+                        }
+                    else:
+                        seen_commits[commit.short_hash]["files"].append(file_path)
+            except Exception:
+                continue
+
+        # Sort by time (most recent first) and limit
+        commits = sorted(
+            seen_commits.values(),
+            key=lambda x: x.get("time") or "",
+            reverse=True,
+        )
+        return commits[:limit]
+    except Exception:
+        return []
 
 
 def _info_impl(ref: str) -> dict[str, Any]:
@@ -2154,6 +2236,20 @@ def info(
                     else:
                         # Full format without context
                         result["events"] = raw_events
+
+                    # Add aggregated summaries for failed runs
+                    if raw_events and result.get("status") in ("FAIL", None):
+                        summaries = _build_event_summaries(raw_events)
+                        result["summary"] = summaries
+
+                        # Get affected commits for files with errors
+                        affected_files = [
+                            f["file"] for f in summaries.get("by_file", [])
+                        ]
+                        if affected_files:
+                            commits = _get_affected_commits(affected_files)
+                            if commits:
+                                result["summary"]["affected_commits"] = commits
             except Exception:
                 pass  # Silently skip if can't fetch additional data
 
@@ -2310,6 +2406,28 @@ def _last_impl(
             result["events"] = events_list
             if context is not None:
                 result["errors_by_category"] = errors_by_category
+
+            # Add aggregated summaries for failed runs
+            if events_list and result.get("status") in ("FAIL", None):
+                # Convert events to dict format for summary builder
+                raw_events = []
+                for _, erow in events_df.iterrows():
+                    raw_events.append({
+                        "fingerprint": _to_json_safe(erow.get("fingerprint")),
+                        "message": _to_json_safe(erow.get("message")),
+                        "ref": _to_json_safe(erow.get("ref")),
+                        "ref_file": _to_json_safe(erow.get("ref_file")),
+                    })
+
+                summaries = _build_event_summaries(raw_events)
+                result["summary"] = summaries
+
+                # Get affected commits for files with errors
+                affected_files = [f["file"] for f in summaries.get("by_file", [])]
+                if affected_files:
+                    commits = _get_affected_commits(affected_files)
+                    if commits:
+                        result["summary"]["affected_commits"] = commits
 
         return result
 

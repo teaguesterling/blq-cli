@@ -182,6 +182,7 @@ class RunResult:
     warnings: list[EventSummary] = field(default_factory=list)
     parquet_path: str | None = None
     output_stats: dict[str, int | list[str]] = field(default_factory=dict)
+    source_name: str | None = None  # Tag for run_ref (e.g., "build", "test", "pytest")
 
     def to_json(self, include_warnings: bool = False) -> str:
         """Convert to JSON string."""
@@ -196,6 +197,8 @@ class RunResult:
             "summary": self.summary,
             "errors": [asdict(e) for e in self.errors],
         }
+        if self.source_name:
+            data["source_name"] = self.source_name
         if include_warnings:
             data["warnings"] = [asdict(w) for w in self.warnings]
         if self.output_stats:
