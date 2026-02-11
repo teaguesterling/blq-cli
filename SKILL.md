@@ -153,6 +153,7 @@ blq.diff(run1=3, run2=4)  # What changed between runs?
 | `errors(limit, run_id, source)` | Get error events |
 | `warnings(limit, run_id, source)` | Get warning events |
 | `event(ref)` | Full details for one event |
+| `inspect(ref, lines, ...)` | Full details with log/source context and optional enrichment (git, fingerprint) |
 | `context(ref, lines)` | Log lines around an event |
 | `output(run_id, stream, tail, head)` | Raw stdout/stderr for a run |
 | `diff(run1, run2)` | Compare errors between runs |
@@ -164,6 +165,57 @@ blq.diff(run1=3, run2=4)  # What changed between runs?
 | `batch_run(commands)` | Run multiple commands in sequence |
 | `batch_errors(run_ids)` | Get errors from multiple runs |
 | `batch_event(refs)` | Get details for multiple events |
+
+### Event Enrichment with `inspect`
+
+The `inspect` tool supports optional enrichment to provide deeper context:
+
+| Parameter | Description |
+|-----------|-------------|
+| `include_source_context` | Source file lines around error location (default: true) |
+| `include_git_context` | Git blame and recent commits for the file |
+| `include_fingerprint_history` | Error occurrence history and regression detection |
+
+```python
+# Basic inspect (log + source context)
+blq.inspect(ref="build:1:3")
+
+# With git context (who last modified, recent commits)
+blq.inspect(ref="build:1:3", include_git_context=True)
+
+# With fingerprint history (is this error new or recurring?)
+blq.inspect(ref="build:1:3", include_fingerprint_history=True)
+
+# Full enrichment
+blq.inspect(
+    ref="build:1:3",
+    include_source_context=True,
+    include_git_context=True,
+    include_fingerprint_history=True
+)
+```
+
+**Git context** shows who last modified the error location:
+```json
+{
+  "git_context": {
+    "blame": {"author": "alice@example.com", "commit": "abc1234"},
+    "recent_commits": [{"hash": "abc1234", "message": "Refactor data processing"}]
+  }
+}
+```
+
+**Fingerprint history** tracks error occurrences and detects regressions:
+```json
+{
+  "fingerprint_history": {
+    "fingerprint": "7f3a2b1c4d5e...",
+    "first_seen": {"run_ref": "build:1"},
+    "occurrences": 4,
+    "is_regression": true
+  }
+}
+```
 
 ## Registering Commands
 

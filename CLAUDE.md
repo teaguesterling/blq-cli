@@ -58,6 +58,8 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **Claude Code hooks** integration (`blq hooks install claude-code`)
 - **`hooks.auto_claude_code`** config for auto-installing Claude Code hooks
 - **Dry-run mode** (`blq run <cmd> --dry-run`) to preview expanded commands
+- **Unified git module** (`blq.git`) with provider abstraction (subprocess + duck_tails)
+- **Event enrichment** for inspect command (`--source`, `--git`, `--fingerprint`, `--full`)
 - Full mypy type checking compliance
 - 600+ unit tests
 - Comprehensive documentation (README, docs/)

@@ -197,7 +197,7 @@ This is the recommended starting point - you can see errors with their surroundi
 | Tool | Purpose |
 |------|---------|
 | `events(severity, limit, run_id, ...)` | Get events (use `severity="error"` for errors, `severity="warning"` for warnings) |
-| `inspect(ref, lines, ...)` | Full details with log and source context (supports batch mode with `refs` param) |
+| `inspect(ref, lines, ...)` | Full details with log/source context and optional enrichment (git, fingerprint) |
 | `output(run_id, stream, tail, head)` | Raw stdout/stderr for a run |
 | `diff(run1, run2)` | Compare errors between runs |
 | `query(sql, filter, limit)` | Query with SQL or filter expressions (e.g., `filter="severity=error"`) |
@@ -214,6 +214,66 @@ Multiple filters are AND'd together (space or comma separated):
 ```python
 blq.query(filter="severity=error ref_file~test")  # Errors in test files
 blq.query(filter="tool_name=pytest category=test")  # pytest test failures
+```
+
+#### Event Enrichment with `inspect`
+
+The `inspect` tool supports optional enrichment to provide deeper context:
+
+| Parameter | Description |
+|-----------|-------------|
+| `include_source_context` | Source file lines around error location (default: true) |
+| `include_git_context` | Git blame and recent commits for the file |
+| `include_fingerprint_history` | Error occurrence history and regression detection |
+
+```python
+# Basic inspect (log + source context)
+blq.inspect(ref="build:1:3")
+
+# With git context (who last modified, recent commits)
+blq.inspect(ref="build:1:3", include_git_context=True)
+
+# With fingerprint history (is this error new or recurring?)
+blq.inspect(ref="build:1:3", include_fingerprint_history=True)
+
+# Full enrichment
+blq.inspect(
+    ref="build:1:3",
+    include_source_context=True,
+    include_git_context=True,
+    include_fingerprint_history=True
+)
+
+# Batch mode with enrichment
+blq.inspect(
+    ref="build:1:1",
+    refs=["build:1:1", "build:1:2", "build:1:3"],
+    include_git_context=True
+)
+```
+
+**Git context** shows who last modified the error location and recent file changes:
+```json
+{
+  "git_context": {
+    "file": "src/main.py",
+    "line": 42,
+    "blame": {"author": "alice@example.com", "commit": "abc1234"},
+    "recent_commits": [{"hash": "abc1234", "message": "Refactor data processing"}]
+  }
+}
+```
+
+**Fingerprint history** tracks error occurrences and detects regressions:
+```json
+{
+  "fingerprint_history": {
+    "fingerprint": "7f3a2b1c4d5e...",
+    "first_seen": {"run_ref": "build:1"},
+    "occurrences": 4,
+    "is_regression": true
+  }
+}
 ```
 
 ### Command Management
