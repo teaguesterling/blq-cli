@@ -454,14 +454,34 @@ def format_history(
         tag = row.get("tag") or row.get("source_name") or ""
         run_id = row.get("run_id") or row.get("run_serial") or ""
         if tag and run_id:
-            new_row["run_ref"] = f"{tag}:{run_id}"
+            base_ref = f"{tag}:{run_id}"
         else:
-            new_row["run_ref"] = str(run_id)
+            base_ref = str(run_id)
 
-        # Create sparse counts: ✓ if clean, else errors/warnings
+        # Add status prefix: ▶ running, ✗ failed, (space) success
+        status = row.get("status")
+        errors = row.get("error_count") or 0
+        exit_code = row.get("exit_code")
+
+        if status == "pending":
+            new_row["run_ref"] = f"▶ {base_ref}"
+        elif errors > 0 or (exit_code is not None and exit_code != 0):
+            new_row["run_ref"] = f"✗ {base_ref}"
+        else:
+            new_row["run_ref"] = f"  {base_ref}"
+
+        # Create sparse counts: ✓ if clean, … if pending with no events, else errors/warnings
+        status = row.get("status")
         errors = row.get("error_count") or 0
         warnings = row.get("warning_count") or 0
-        if errors == 0 and warnings == 0:
+
+        if status == "pending":
+            # Show … until events are detected, then show actual counts
+            if errors == 0 and warnings == 0:
+                new_row["counts"] = "…"
+            else:
+                new_row["counts"] = f"{errors}/{warnings}"
+        elif errors == 0 and warnings == 0:
             new_row["counts"] = "✓"
         else:
             new_row["counts"] = f"{errors}/{warnings}"
@@ -544,22 +564,28 @@ def format_status(
     processed = []
     for row in data:
         new_row = dict(row)
-        errors = row.get("error_count") or row.get("errors") or 0
-        warnings = row.get("warning_count") or row.get("warnings") or 0
-        unique_errors = row.get("unique_error_count")
-        unique_warnings = row.get("unique_warning_count")
+        status = row.get("status")
 
-        if errors == 0 and warnings == 0:
-            new_row["counts"] = "✓"
+        # Handle pending/running status
+        if status == "pending":
+            new_row["counts"] = "…"
         else:
-            # Show unique count if different from total: "3 (2)" means 3 errors, 2 unique
-            error_str = str(errors)
-            if unique_errors is not None and unique_errors != errors:
-                error_str = f"{errors}({unique_errors})"
-            warning_str = str(warnings)
-            if unique_warnings is not None and unique_warnings != warnings:
-                warning_str = f"{warnings}({unique_warnings})"
-            new_row["counts"] = f"{error_str}/{warning_str}"
+            errors = row.get("error_count") or row.get("errors") or 0
+            warnings = row.get("warning_count") or row.get("warnings") or 0
+            unique_errors = row.get("unique_error_count")
+            unique_warnings = row.get("unique_warning_count")
+
+            if errors == 0 and warnings == 0:
+                new_row["counts"] = "✓"
+            else:
+                # Show unique count if different from total: "3 (2)" means 3 errors, 2 unique
+                error_str = str(errors)
+                if unique_errors is not None and unique_errors != errors:
+                    error_str = f"{errors}({unique_errors})"
+                warning_str = str(warnings)
+                if unique_warnings is not None and unique_warnings != warnings:
+                    warning_str = f"{warnings}({unique_warnings})"
+                new_row["counts"] = f"{error_str}/{warning_str}"
         processed.append(new_row)
 
     if output_format == "markdown":

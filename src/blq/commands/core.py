@@ -747,9 +747,7 @@ class BlqConfig:
         )
 
     @classmethod
-    def ensure(
-        cls, start_dir: Path | None = None, lq_dir: Path | None = None
-    ) -> BlqConfig:
+    def ensure(cls, start_dir: Path | None = None, lq_dir: Path | None = None) -> BlqConfig:
         """Find configuration or exit with error.
 
         This is a convenience method for CLI commands that require

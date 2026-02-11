@@ -29,7 +29,7 @@ def cmd_commands_config(args: argparse.Namespace) -> None:
     command_name = args.name
     if command_name not in config.commands:
         print(f"Error: Command '{command_name}' is not registered", file=sys.stderr)
-        print(f"Use 'blq commands list' to see registered commands", file=sys.stderr)
+        print("Use 'blq commands list' to see registered commands", file=sys.stderr)
         sys.exit(1)
 
     cmd = config.commands[command_name]
@@ -119,7 +119,7 @@ def cmd_commands_config(args: argparse.Namespace) -> None:
             elif len(matches) > 1:
                 print(
                     f"Warning: '{fp}' matches multiple fingerprints: "
-                    f"{[m[:16]+'...' for m in matches]}",
+                    f"{[m[:16] + '...' for m in matches]}",
                     file=sys.stderr,
                 )
 

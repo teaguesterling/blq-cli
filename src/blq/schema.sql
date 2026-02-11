@@ -118,12 +118,7 @@ SELECT
     warning_count AS warnings,
     age(now(), started_at::TIMESTAMP) AS age
 FROM blq_load_source_status()
-ORDER BY
-    CASE WHEN badge = '[FAIL]' THEN 0
-         WHEN badge = '[WARN]' THEN 1
-         WHEN badge = '[ .. ]' THEN 2
-         ELSE 3 END,
-    source_name;
+ORDER BY started_at DESC;
 
 -- Verbose status with more details
 CREATE OR REPLACE MACRO blq_status_verbose() AS TABLE

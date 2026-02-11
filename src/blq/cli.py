@@ -81,7 +81,6 @@ from blq.commands import (
     cmd_sql,
     cmd_status,
     cmd_suggest,
-    cmd_summary,
     cmd_sync,
     cmd_unregister,
     cmd_warnings,
@@ -141,7 +140,6 @@ __all__ = [
     "cmd_shell",
     "cmd_sql",
     "cmd_status",
-    "cmd_summary",
     "cmd_sync",
     "cmd_unregister",
     "cmd_warnings",
@@ -356,7 +354,7 @@ def main() -> None:
 
     # exec - ad-hoc command execution (never uses registry)
     p_exec = subparsers.add_parser(
-        "exec", aliases=["e"], help="Execute ad-hoc command and capture output"
+        "exec", aliases=["x"], help="Execute ad-hoc command and capture output"
     )
     p_exec.add_argument("command", nargs=argparse.REMAINDER, help="Command to execute")
     p_exec.add_argument("--name", "-n", help="Source name (default: command name)")
@@ -420,7 +418,7 @@ def main() -> None:
     p_status.set_defaults(func=cmd_status)
 
     # info - detailed info about a specific run
-    p_info = subparsers.add_parser("info", help="Show detailed info about a run")
+    p_info = subparsers.add_parser("info", aliases=["I"], help="Show detailed info about a run")
     p_info.add_argument("ref", help="Run ref (e.g., 'test:5') or invocation_id (UUID)")
     p_info.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     p_info.add_argument("--details", "-d", action="store_true", help="Show all fields")
@@ -447,7 +445,9 @@ def main() -> None:
     p_last.set_defaults(func=cmd_last)
 
     # events (main command for viewing events with severity filter)
-    p_events = subparsers.add_parser("events", help="Show events (errors, warnings, info)")
+    p_events = subparsers.add_parser(
+        "events", aliases=["e"], help="Show events (errors, warnings, info)"
+    )
     p_events.add_argument(
         "--severity",
         "-S",
@@ -491,15 +491,8 @@ def main() -> None:
     )
     p_warnings.set_defaults(func=cmd_warnings)
 
-    # summary
-    p_summary = subparsers.add_parser("summary", help="Aggregate summary")
-    p_summary.add_argument("--latest", "-l", action="store_true", help="Latest run only")
-    p_summary.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-    p_summary.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
-    p_summary.set_defaults(func=cmd_summary)
-
     # history
-    p_history = subparsers.add_parser("history", help="Show run history")
+    p_history = subparsers.add_parser("history", aliases=["h"], help="Show run history")
     p_history.add_argument(
         "ref", nargs="?", help="Filter by tag or ref (e.g., 'test' or 'test:24')"
     )
@@ -550,7 +543,9 @@ def main() -> None:
     p_event.set_defaults(func=cmd_event)
 
     # context
-    p_context = subparsers.add_parser("context", help="Show context lines around an event")
+    p_context = subparsers.add_parser(
+        "context", aliases=["c"], help="Show context lines around an event"
+    )
     p_context.add_argument("ref", help="Event reference (e.g., 5:3)")
     p_context.add_argument(
         "--lines", "-n", type=int, default=3, help="Context lines before/after (default: 3)"
@@ -559,7 +554,9 @@ def main() -> None:
 
     # inspect
     p_inspect = subparsers.add_parser(
-        "inspect", help="Show comprehensive event details with context and enrichment"
+        "inspect",
+        aliases=["i"],
+        help="Show comprehensive event details with context and enrichment",
     )
     p_inspect.add_argument("ref", help="Event reference (e.g., test:24:1)")
     p_inspect.add_argument(
@@ -596,7 +593,7 @@ def main() -> None:
     p_inspect.set_defaults(func=cmd_inspect)
 
     # commands (with subcommands for list, register, unregister)
-    p_commands = subparsers.add_parser("commands", help="Manage registered commands")
+    p_commands = subparsers.add_parser("commands", aliases=["C"], help="Manage registered commands")
     commands_subparsers = p_commands.add_subparsers(
         dest="commands_command", help="Commands subcommand"
     )
@@ -1044,9 +1041,7 @@ def main() -> None:
     # Watch command
     # =========================================================================
 
-    p_watch = subparsers.add_parser(
-        "watch", aliases=["w"], help="Watch for changes and re-run commands"
-    )
+    p_watch = subparsers.add_parser("watch", help="Watch for changes and re-run commands")
     p_watch.add_argument("commands", nargs="*", help="Commands to run (default: all registered)")
     p_watch.add_argument(
         "--include",

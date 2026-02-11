@@ -29,7 +29,6 @@ from blq.commands.management import (
     cmd_last,
     cmd_prune,
     cmd_status,
-    cmd_summary,
     cmd_warnings,
 )
 from blq.commands.mcp_cmd import cmd_mcp_install, cmd_mcp_serve
@@ -82,7 +81,6 @@ __all__ = [
     "cmd_events",
     "cmd_errors",
     "cmd_warnings",
-    "cmd_summary",
     "cmd_history",
     "cmd_prune",
     "cmd_formats",

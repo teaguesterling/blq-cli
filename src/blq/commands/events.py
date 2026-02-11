@@ -259,9 +259,7 @@ def cmd_inspect(args: argparse.Namespace) -> None:
         needs_source_context = (
             not requested_fields or "source_context" in requested_fields
         ) and show_source
-        needs_git_context = (
-            not requested_fields or "git_context" in requested_fields
-        ) and show_git
+        needs_git_context = (not requested_fields or "git_context" in requested_fields) and show_git
         needs_fp_history = (
             not requested_fields or "fingerprint_history" in requested_fields
         ) and show_fingerprint

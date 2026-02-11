@@ -233,9 +233,7 @@ int main() {
         capsys.readouterr()
 
         # Request fingerprint and message
-        args = argparse.Namespace(
-            ref="1:1", lines=3, json=False, field=["fingerprint", "message"]
-        )
+        args = argparse.Namespace(ref="1:1", lines=3, json=False, field=["fingerprint", "message"])
         cmd_inspect(args)
 
         captured = capsys.readouterr()
@@ -251,9 +249,7 @@ int main() {
         run_adhoc_command([str(sample_build_script)])
         capsys.readouterr()
 
-        args = argparse.Namespace(
-            ref="1:1", lines=3, json=True, field=["severity", "fingerprint"]
-        )
+        args = argparse.Namespace(ref="1:1", lines=3, json=True, field=["severity", "fingerprint"])
         cmd_inspect(args)
 
         captured = capsys.readouterr()
@@ -273,9 +269,7 @@ int main() {
         run_adhoc_command([str(sample_build_script)])
         capsys.readouterr()
 
-        args = argparse.Namespace(
-            ref="1:1", lines=3, json=False, field=["nonexistent_field"]
-        )
+        args = argparse.Namespace(ref="1:1", lines=3, json=False, field=["nonexistent_field"])
         cmd_inspect(args)
 
         captured = capsys.readouterr()

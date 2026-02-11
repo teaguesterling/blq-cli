@@ -459,11 +459,49 @@ GROUP BY i.id, i.source_name, i.source_type, i.cmd, i.timestamp, i.duration_ms,
          i.exit_code, i.cwd, i.executable, i.hostname, i.platform, i.arch,
          i.git_commit, i.git_branch, i.git_dirty, i.ci, i.tag, i.date;
 
--- Load latest run per source with status badge
+-- Load latest run per source with status badge (includes pending/running)
 CREATE OR REPLACE MACRO blq_load_source_status() AS TABLE
+WITH all_runs AS (
+    -- Completed runs with event counts
+    SELECT
+        source_name,
+        blq_status_badge(error_count, warning_count, exit_code) AS badge,
+        error_count,
+        warning_count,
+        info_count,
+        event_count,
+        unique_error_count,
+        unique_warning_count,
+        started_at,
+        completed_at,
+        exit_code,
+        run_id,
+        invocation_id,
+        'completed' AS status
+    FROM blq_load_runs()
+    UNION ALL
+    -- Pending/running attempts (no event counts yet)
+    SELECT
+        source_name,
+        '[ .. ]' AS badge,
+        0 AS error_count,
+        0 AS warning_count,
+        0 AS info_count,
+        0 AS event_count,
+        0 AS unique_error_count,
+        0 AS unique_warning_count,
+        started_at,
+        NULL AS completed_at,
+        NULL AS exit_code,
+        run_id,
+        attempt_id AS invocation_id,
+        'pending' AS status
+    FROM blq_load_attempts()
+    WHERE status = 'pending'
+)
 SELECT
     source_name,
-    blq_status_badge(error_count, warning_count, exit_code) AS badge,
+    badge,
     error_count,
     warning_count,
     info_count,
@@ -474,12 +512,13 @@ SELECT
     completed_at,
     exit_code,
     run_id,
-    invocation_id
-FROM blq_load_runs()
+    invocation_id,
+    status
+FROM all_runs
 QUALIFY row_number() OVER (PARTITION BY source_name ORDER BY started_at DESC) = 1
 ORDER BY source_name;
 
--- Quick status overview
+-- Quick status overview (ordered by age, newest first)
 CREATE OR REPLACE MACRO blq_status() AS TABLE
 SELECT
     badge,
@@ -492,11 +531,7 @@ SELECT
     unique_warning_count,
     age(now(), started_at::TIMESTAMP) AS age
 FROM blq_load_source_status()
-ORDER BY
-    CASE WHEN badge = '[FAIL]' THEN 0
-         WHEN badge = '[WARN]' THEN 1
-         ELSE 2 END,
-    source_name;
+ORDER BY started_at DESC;
 
 -- Recent errors
 CREATE OR REPLACE MACRO blq_errors(n := 10) AS TABLE

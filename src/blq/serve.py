@@ -1202,15 +1202,21 @@ def _status_impl() -> dict[str, Any]:
         if not storage.has_data():
             return {"sources": []}
 
-        # Get status for each source (blq_load_runs includes error_count/warning_count)
-        runs_df = storage.runs().df()
+        # Get status for each source (includes pending/running via blq_load_source_status)
+        runs_df = storage.sql("""
+            SELECT * FROM blq_load_source_status()
+            ORDER BY started_at DESC
+        """).df()
         sources = []
 
         for _, row in runs_df.iterrows():
             error_count = _safe_int(row.get("error_count")) or 0
             warning_count = _safe_int(row.get("warning_count")) or 0
+            run_status = _to_json_safe(row.get("status"))
 
-            if error_count > 0:
+            if run_status == "pending":
+                status_str = "RUNNING"
+            elif error_count > 0:
                 status_str = "FAIL"
             elif warning_count > 0:
                 status_str = "WARN"
@@ -1324,7 +1330,11 @@ def _get_affected_commits(files: list[str], limit: int = 5) -> list[dict[str, An
 
 
 def _info_impl(ref: str) -> dict[str, Any]:
-    """Implementation of info command - get detailed run info."""
+    """Implementation of info command - get detailed run info.
+
+    Accepts run ref (e.g., 'test:5'), source name (e.g., 'test'), or invocation_id (UUID).
+    When given a source name, returns the most recent run for that source.
+    """
     try:
         storage = _get_storage()
         if not storage.has_data():
@@ -1332,6 +1342,9 @@ def _info_impl(ref: str) -> dict[str, Any]:
 
         # Check if it's a UUID (invocation_id) or a run ref
         is_uuid = len(ref) == 36 and ref.count("-") == 4
+        is_source_name = False
+        tag = None
+        run_serial = None
 
         if is_uuid:
             # Query by invocation_id
@@ -1340,21 +1353,31 @@ def _info_impl(ref: str) -> dict[str, Any]:
                 WHERE invocation_id = '{ref}'
             """).df()
         else:
-            # Parse as run ref
-            tag, run_serial, _ = _parse_ref(ref + ":0")  # Add dummy event_id
-            if tag is not None:
+            # Try to parse as run ref
+            try:
+                tag, run_serial, _ = _parse_ref(ref + ":0")  # Add dummy event_id
+                if tag is not None:
+                    df = storage.sql(f"""
+                        SELECT * FROM blq_load_runs()
+                        WHERE tag = '{tag}' AND run_id = {run_serial}
+                    """).df()
+                else:
+                    df = storage.sql(f"""
+                        SELECT * FROM blq_load_runs()
+                        WHERE run_id = {run_serial}
+                    """).df()
+            except ValueError:
+                # Not a valid run ref - try as source name
+                is_source_name = True
                 df = storage.sql(f"""
-                    SELECT * FROM blq_load_runs()
-                    WHERE tag = '{tag}' AND run_id = {run_serial}
-                """).df()
-            else:
-                df = storage.sql(f"""
-                    SELECT * FROM blq_load_runs()
-                    WHERE run_id = {run_serial}
+                    SELECT * FROM blq_load_attempts()
+                    WHERE source_name = '{ref}'
+                    ORDER BY started_at DESC
+                    LIMIT 1
                 """).df()
 
-        # If not in completed runs, check pending attempts
-        if df.empty:
+        # If not in completed runs, check pending attempts (unless already looked up by source name)
+        if df.empty and not is_source_name:
             if is_uuid:
                 df = storage.sql(f"""
                     SELECT * FROM blq_load_attempts()
@@ -1366,14 +1389,16 @@ def _info_impl(ref: str) -> dict[str, Any]:
                         SELECT * FROM blq_load_attempts()
                         WHERE source_name = '{tag}' AND run_id = {run_serial}
                     """).df()
-                else:
+                elif run_serial is not None:
                     df = storage.sql(f"""
                         SELECT * FROM blq_load_attempts()
                         WHERE run_id = {run_serial}
                     """).df()
 
-            if df.empty:
-                return {"error": f"Run {ref} not found"}
+        if df.empty:
+            if is_source_name:
+                return {"error": f"No runs found for source '{ref}'"}
+            return {"error": f"Run {ref} not found"}
 
             # This is a pending/running attempt
             row = df.iloc[0]
@@ -1514,15 +1539,29 @@ def _history_impl(
                 runs_df = storage.sql(f"""
                     SELECT * FROM blq_history_status({status_sql}, {limit})
                 """).df()
-        elif source:
+        else:
+            # Include pending/running by using blq_load_attempts with event counts
+            source_filter = (
+                f"WHERE (tag = '{source}' OR source_name = '{source}')" if source else ""
+            )
             runs_df = storage.sql(f"""
-                SELECT * FROM blq_load_runs()
-                WHERE source_name = '{source}'
-                ORDER BY run_id DESC
+                SELECT
+                    a.*,
+                    COALESCE(e.error_count, 0) AS error_count,
+                    COALESCE(e.warning_count, 0) AS warning_count
+                FROM blq_load_attempts() a
+                LEFT JOIN (
+                    SELECT
+                        invocation_id,
+                        COUNT(*) FILTER (WHERE severity = 'error') AS error_count,
+                        COUNT(*) FILTER (WHERE severity = 'warning') AS warning_count
+                    FROM events
+                    GROUP BY invocation_id
+                ) e ON a.attempt_id = e.invocation_id
+                {source_filter}
+                ORDER BY a.started_at DESC
                 LIMIT {limit}
             """).df()
-        else:
-            runs_df = storage.runs(limit=limit).df()
 
         runs = []
 

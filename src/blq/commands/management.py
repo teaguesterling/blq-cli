@@ -57,7 +57,8 @@ def cmd_status(args: argparse.Namespace) -> None:
 def cmd_info(args: argparse.Namespace) -> None:
     """Show detailed information about a specific run.
 
-    Accepts a run ref (e.g., 'test:5') or invocation_id (UUID).
+    Accepts a run ref (e.g., 'test:5'), source name (e.g., 'test'), or invocation_id (UUID).
+    When given a source name, shows the most recent run for that source.
     Supports --tail, --head for output viewing and --follow for live streaming.
     """
     ref_arg = args.ref
@@ -71,6 +72,7 @@ def cmd_info(args: argparse.Namespace) -> None:
 
         # Check if it's a UUID (invocation_id) or a run ref
         is_uuid = len(ref_arg) == 36 and ref_arg.count("-") == 4
+        is_source_name = False
 
         # First try to find in completed runs (invocations)
         if is_uuid:
@@ -82,20 +84,25 @@ def cmd_info(args: argparse.Namespace) -> None:
         else:
             try:
                 ref = EventRef.parse(ref_arg)
-            except ValueError as e:
-                print(f"Error: {e}", file=sys.stderr)
-                sys.exit(1)
-
-            result = store.sql(f"""
-                SELECT * FROM blq_load_runs()
-                WHERE run_id = {ref.run_id}
-            """).df()
+                result = store.sql(f"""
+                    SELECT * FROM blq_load_runs()
+                    WHERE run_id = {ref.run_id}
+                """).df()
+            except ValueError:
+                # Not a valid run ref - try as source name
+                is_source_name = True
+                result = store.sql(f"""
+                    SELECT * FROM blq_load_attempts()
+                    WHERE source_name = '{ref_arg}'
+                    ORDER BY started_at DESC
+                    LIMIT 1
+                """).df()
 
         # Check if run is completed or still pending
         run_status = "completed"
         attempt_id = None
 
-        if result.empty:
+        if result.empty and not is_source_name:
             # Not in completed runs - check pending attempts
             if is_uuid:
                 attempt_result = store.sql(f"""
@@ -114,6 +121,14 @@ def cmd_info(args: argparse.Namespace) -> None:
 
             run_data = attempt_result.to_dict(orient="records")[0]
             run_status = run_data.get("status", "pending")
+            attempt_id = str(run_data.get("attempt_id"))
+        elif is_source_name:
+            # Found via source name lookup
+            if result.empty:
+                print(f"No runs found for source '{ref_arg}'", file=sys.stderr)
+                sys.exit(1)
+            run_data = result.to_dict(orient="records")[0]
+            run_status = run_data.get("status", "completed")
             attempt_id = str(run_data.get("attempt_id"))
         else:
             run_data = result.to_dict(orient="records")[0]
@@ -487,7 +502,7 @@ def cmd_events(args: argparse.Namespace) -> None:
         result = store.sql(f"""
             SELECT * FROM blq_load_events()
             WHERE {where}
-            ORDER BY run_id DESC, event_id
+            ORDER BY run_serial DESC, event_id
             LIMIT {limit}
         """).df()
 
@@ -517,24 +532,6 @@ def cmd_warnings(args: argparse.Namespace) -> None:
     cmd_events(args)
 
 
-def cmd_summary(args: argparse.Namespace) -> None:
-    """Show aggregate summary."""
-    try:
-        store = get_store_for_args(args)
-        conn = store.connection
-
-        if args.latest:
-            result = conn.execute("FROM blq_summary_latest()").fetchdf()
-        else:
-            result = conn.execute("FROM blq_summary()").fetchdf()
-
-        data = result.to_dict(orient="records")
-        output_format = get_output_format(args)
-        print(format_status(data, output_format))  # Similar format to status
-    except duckdb.Error as e:
-        print(f"Error: {e}", file=sys.stderr)
-
-
 def cmd_history(args: argparse.Namespace) -> None:
     """Show run history.
 
@@ -557,32 +554,37 @@ def cmd_history(args: argparse.Namespace) -> None:
         else:
             db_status = None
 
+        # Build query using blq_load_attempts() to include pending/running
+        # This gives us all runs regardless of status
+        status_condition = ""
         if db_status:
-            # Use blq_history_status() macro for status filtering
-            if db_status:
-                status_sql = f"'{db_status}'"
-            else:
-                status_sql = "NULL"
+            status_condition = f"WHERE status = '{db_status}'"
 
-            if tag_filter:
-                result = store.sql(f"""
-                    SELECT * FROM blq_history_status({status_sql}, {limit})
-                    WHERE source_name = '{tag_filter}'
-                """).df()
+        tag_condition = ""
+        if tag_filter:
+            if status_condition:
+                tag_condition = f" AND (tag = '{tag_filter}' OR source_name = '{tag_filter}')"
             else:
-                result = store.sql(f"""
-                    SELECT * FROM blq_history_status({status_sql}, {limit})
-                """).df()
-        elif tag_filter:
-            # Filter by tag/source_name only
-            result = store.sql(f"""
-                SELECT * FROM blq_load_runs()
-                WHERE tag = '{tag_filter}' OR source_name = '{tag_filter}'
-                ORDER BY run_id DESC
-                LIMIT {limit}
-            """).df()
-        else:
-            result = store.runs(limit=limit).df()
+                tag_condition = f"WHERE (tag = '{tag_filter}' OR source_name = '{tag_filter}')"
+
+        result = store.sql(f"""
+            SELECT
+                a.*,
+                COALESCE(e.error_count, 0) AS error_count,
+                COALESCE(e.warning_count, 0) AS warning_count
+            FROM blq_load_attempts() a
+            LEFT JOIN (
+                SELECT
+                    invocation_id,
+                    COUNT(*) FILTER (WHERE severity = 'error') AS error_count,
+                    COUNT(*) FILTER (WHERE severity = 'warning') AS warning_count
+                FROM events
+                GROUP BY invocation_id
+            ) e ON a.attempt_id = e.invocation_id
+            {status_condition}{tag_condition}
+            ORDER BY a.started_at DESC
+            LIMIT {limit}
+        """).df()
 
         # Convert to list of dicts for formatting
         data = result.to_dict(orient="records")
