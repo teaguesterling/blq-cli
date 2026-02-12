@@ -459,6 +459,55 @@ GROUP BY i.id, i.source_name, i.source_type, i.cmd, i.timestamp, i.duration_ms,
          i.exit_code, i.cwd, i.executable, i.hostname, i.platform, i.arch,
          i.git_commit, i.git_branch, i.git_dirty, i.ci, i.tag, i.date;
 
+-- ============================================================================
+-- ATTEMPTS/OUTCOMES MACROS (for long-running command support)
+-- ============================================================================
+
+-- Load attempts with status (pending/orphaned/completed)
+CREATE OR REPLACE MACRO blq_load_attempts() AS TABLE
+SELECT
+    ROW_NUMBER() OVER (ORDER BY a.timestamp) AS run_id,
+    a.id AS attempt_id,
+    a.session_id,
+    a.timestamp AS started_at,
+    o.completed_at,
+    a.cwd,
+    a.cmd AS command,
+    a.executable,
+    a.format_hint,
+    a.client_id,
+    a.hostname,
+    a.username,
+    a.tag,
+    a.source_name,
+    a.source_type,
+    a.environment,
+    a.platform,
+    a.arch,
+    a.git_commit,
+    a.git_branch,
+    a.git_dirty,
+    a.ci,
+    a.date,
+    o.exit_code,
+    o.duration_ms,
+    o.signal,
+    o.timeout,
+    -- Status derived from join (BIRD v5 pattern)
+    CASE
+        WHEN o.attempt_id IS NULL THEN 'pending'
+        WHEN o.exit_code IS NULL THEN 'orphaned'
+        ELSE 'completed'
+    END AS status,
+    -- Elapsed time for pending commands
+    CASE
+        WHEN o.attempt_id IS NULL THEN
+            EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - a.timestamp)) * 1000
+        ELSE o.duration_ms
+    END AS elapsed_ms
+FROM attempts a
+LEFT JOIN outcomes o ON a.id = o.attempt_id;
+
 -- Load latest run per source with status badge (includes pending/running)
 CREATE OR REPLACE MACRO blq_load_source_status() AS TABLE
 WITH all_runs AS (
@@ -580,55 +629,6 @@ SELECT
 FROM blq_load_runs()
 ORDER BY started_at DESC
 LIMIT n;
-
--- ============================================================================
--- ATTEMPTS/OUTCOMES MACROS (for long-running command support)
--- ============================================================================
-
--- Load attempts with status (pending/orphaned/completed)
-CREATE OR REPLACE MACRO blq_load_attempts() AS TABLE
-SELECT
-    ROW_NUMBER() OVER (ORDER BY a.timestamp) AS run_id,
-    a.id AS attempt_id,
-    a.session_id,
-    a.timestamp AS started_at,
-    o.completed_at,
-    a.cwd,
-    a.cmd AS command,
-    a.executable,
-    a.format_hint,
-    a.client_id,
-    a.hostname,
-    a.username,
-    a.tag,
-    a.source_name,
-    a.source_type,
-    a.environment,
-    a.platform,
-    a.arch,
-    a.git_commit,
-    a.git_branch,
-    a.git_dirty,
-    a.ci,
-    a.date,
-    o.exit_code,
-    o.duration_ms,
-    o.signal,
-    o.timeout,
-    -- Status derived from join (BIRD v5 pattern)
-    CASE
-        WHEN o.attempt_id IS NULL THEN 'pending'
-        WHEN o.exit_code IS NULL THEN 'orphaned'
-        ELSE 'completed'
-    END AS status,
-    -- Elapsed time for pending commands
-    CASE
-        WHEN o.attempt_id IS NULL THEN
-            EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - a.timestamp)) * 1000
-        ELSE o.duration_ms
-    END AS elapsed_ms
-FROM attempts a
-LEFT JOIN outcomes o ON a.id = o.attempt_id;
 
 -- Get running commands (attempts without outcomes)
 CREATE OR REPLACE MACRO blq_running() AS TABLE

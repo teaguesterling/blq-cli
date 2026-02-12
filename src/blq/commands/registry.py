@@ -12,6 +12,7 @@ import sys
 from blq.commands.core import (
     BlqConfig,
     RegisteredCommand,
+    detect_format_from_command,
 )
 from blq.output import (
     format_commands,
@@ -220,6 +221,13 @@ def cmd_register(args: argparse.Namespace) -> None:
     # Register new command
     capture = not getattr(args, "no_capture", False)
 
+    # Detect format if not specified
+    format_hint = args.format
+    format_detected = False
+    if format_hint is None:
+        format_hint = detect_format_from_command(cmd_str)
+        format_detected = True
+
     if is_template:
         # Template command
         defaults = _parse_defaults(default_args)
@@ -230,11 +238,12 @@ def cmd_register(args: argparse.Namespace) -> None:
             defaults=defaults,
             description=args.description or "",
             timeout=args.timeout,
-            format=args.format,
+            format=format_hint,
             capture=capture,
         )
         defaults_note = f" (defaults: {defaults})" if defaults else ""
-        print(f"Registered template '{name}': {cmd_str}{defaults_note}")
+        format_note = f" [format: {format_hint}]" if format_detected else ""
+        print(f"Registered template '{name}': {cmd_str}{defaults_note}{format_note}")
     else:
         # Simple command
         commands[name] = RegisteredCommand(
@@ -242,11 +251,12 @@ def cmd_register(args: argparse.Namespace) -> None:
             cmd=cmd_str,
             description=args.description or "",
             timeout=args.timeout,
-            format=args.format,
+            format=format_hint,
             capture=capture,
         )
         capture_note = " (no capture)" if not capture else ""
-        print(f"Registered command '{name}': {cmd_str}{capture_note}")
+        format_note = f" [format: {format_hint}]" if format_detected else ""
+        print(f"Registered command '{name}': {cmd_str}{capture_note}{format_note}")
 
     # Save commands to disk
     config.save_commands()

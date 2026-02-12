@@ -1785,8 +1785,10 @@ def _register_command_impl(
                 return result
 
         # Auto-detect format if not specified
+        format_detected = False
         if format is None:
             format = detect_format_from_command(cmd)
+            format_detected = True
 
         commands[name] = RegisteredCommand(
             name=name,
@@ -1798,10 +1800,12 @@ def _register_command_impl(
         )
         config.save_commands()
 
+        format_note = f" [format: {format} (detected)]" if format_detected else ""
         result = {
             "success": True,
-            "message": f"Registered command '{name}': {cmd}",
+            "message": f"Registered command '{name}': {cmd}{format_note}",
             "existing": False,
+            "format_detected": format_detected,
             "command": {
                 "name": name,
                 "cmd": cmd,

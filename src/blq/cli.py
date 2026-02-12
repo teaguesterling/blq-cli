@@ -614,7 +614,9 @@ def main() -> None:
     p_commands_register.add_argument(
         "--timeout", type=int, default=None, help="Timeout in seconds (default: no timeout)"
     )
-    p_commands_register.add_argument("--format", "-f", default="auto", help="Log format hint")
+    p_commands_register.add_argument(
+        "--format", "-f", default=None, help="Log format hint (auto-detected if not specified)"
+    )
     p_commands_register.add_argument(
         "--no-capture", "-N", action="store_true", help="Don't capture logs by default"
     )
