@@ -636,8 +636,8 @@ class TestRegisterCommandTool:
             assert "identical" in result["message"].lower()
 
     @pytest.mark.asyncio
-    async def test_register_idempotent_same_cmd_different_name(self, mcp_server_empty):
-        """Registering same command under different name returns existing."""
+    async def test_register_same_cmd_different_name_fails(self, mcp_server_empty):
+        """Registering same command under different name fails without force."""
         async with Client(mcp_server_empty) as client:
             # First registration
             await client.call_tool(
@@ -652,9 +652,9 @@ class TestRegisterCommandTool:
             )
             result = get_data(raw)
 
-            assert result["success"] is True
-            assert result["existing"] is True
-            assert result["matched_name"] == "hello"
+            assert result["success"] is False
+            assert "already registered" in result["error"]
+            assert result["existing_name"] == "hello"
 
     @pytest.mark.asyncio
     async def test_register_different_command_same_name_fails(self, mcp_server_empty):

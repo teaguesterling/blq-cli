@@ -1764,25 +1764,15 @@ def _register_command_impl(
 
         # Check for existing command with same cmd but different name
         for existing_name, existing in commands.items():
-            if _normalize_cmd(existing.cmd) == normalized_cmd and not force:
-                result = {
-                    "success": True,
-                    "message": f"Using existing command '{existing_name}' (same command)",
-                    "existing": True,
-                    "matched_name": existing_name,
-                    "command": {
-                        "name": existing_name,
-                        "cmd": existing.cmd,
-                        "description": existing.description,
-                        "timeout": existing.timeout,
-                        "capture": existing.capture,
-                        "format": existing.format,
-                    },
+            if existing.cmd and _normalize_cmd(existing.cmd) == normalized_cmd and not force:
+                return {
+                    "success": False,
+                    "error": (
+                        f"Command already registered as '{existing_name}'. "
+                        f"Use run(command='{existing_name}') or force=true to register under new name."
+                    ),
+                    "existing_name": existing_name,
                 }
-                if run_now:
-                    run_result = _run_impl(existing_name, timeout=timeout)
-                    result["run"] = run_result
-                return result
 
         # Auto-detect format if not specified
         format_detected = False

@@ -194,29 +194,29 @@ def cmd_register(args: argparse.Namespace) -> None:
         for existing_name, existing in commands.items():
             existing_cmd = existing.cmd if not existing.is_template else None
             if existing_cmd and _normalize_cmd(existing_cmd) == normalized_cmd and not args.force:
-                print(f"Using existing command '{existing_name}' (same command)")
-                if run_now:
-                    run_args = argparse.Namespace(
-                        command=[existing_name],
-                        name=None,
-                        json=getattr(args, "json", False),
-                        quiet=getattr(args, "quiet", False),
-                        capture=None,
-                        format=None,
-                        timeout=None,
-                        keep_raw=False,
-                        summary=False,
-                        verbose=False,
-                        include_warnings=False,
-                        error_limit=20,
-                        register=False,
-                        positional_args=None,
-                        dry_run=False,
-                        markdown=False,
-                        csv=False,
+                print(
+                    f"Command already registered as '{existing_name}'.\n"
+                    f"  Use 'blq run {existing_name}' or --force to register under new name.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+    # Check for template match (new command would match existing template)
+    if not is_template:
+        for existing_name, existing in commands.items():
+            if existing.is_template and existing.tpl:
+                match_result = _match_template(existing.tpl, cmd_str, existing.defaults)
+                if match_result is not None:
+                    params_str = " ".join(f"{k}={v}" for k, v in match_result.items())
+                    print(
+                        f"Note: This command matches template '{existing_name}': {existing.tpl}",
+                        file=sys.stderr,
                     )
-                    cmd_run(run_args)
-                return
+                    print(
+                        f"  Consider: blq run {existing_name} {params_str}",
+                        file=sys.stderr,
+                    )
+                    break  # Only show first match
 
     # Register new command
     capture = not getattr(args, "no_capture", False)
