@@ -1,17 +1,29 @@
 # blq - Build Log Query
 
-A CLI tool for capturing, querying, and analyzing build/test logs. blq parses 60+ log formats into structured data, stores run history with git context, and provides an MCP server for AI agent integration.
-
-**Documentation:** https://blq-cli.readthedocs.io/
+A CLI tool that turns build output into a queryable database. blq parses 60+ log formats into structured events, stores run history with git context, and provides an MCP server for AI agent integration.
 
 ## Why blq?
 
-Build tools output thousands of lines of text. Finding the actual errors means scrolling through noise. blq solves this by:
+Your build fails. You scroll through 500 lines of output looking for the error. blq solves this:
 
-- **Parsing logs into structured events** - errors, warnings with file:line:column locations
-- **Storing run history** - compare runs, track regressions, see what changed
-- **Capturing context** - git commit, branch, environment, CI info for every run
-- **Providing agent tools** - MCP server lets AI agents query errors without raw log parsing
+```bash
+blq run build
+# build:3 | exit=1 | 12 errors, 35 warnings
+
+blq errors
+# ref       severity  file           line  message
+# build:3:1 error     src/parser.c   142   expected ';' before '}'
+# build:3:2 error     src/parser.c   156   'node' undeclared
+
+blq inspect build:3:1
+# Shows error with source context
+```
+
+**Key benefits:**
+- **Structured events** — Errors with file:line locations, not raw text
+- **Run history** — Every build stored with git commit, branch, environment
+- **Comparison** — `blq diff 4 5` shows what changed between runs
+- **AI agent tools** — MCP server for structured access without log parsing
 
 ## Installation
 
@@ -19,105 +31,73 @@ Build tools output thousands of lines of text. Finding the actual errors means s
 pip install blq-cli
 ```
 
-## Project Setup
-
-Initialize blq in your project:
+## Quick Start
 
 ```bash
 cd your-project
-blq init --detect
+blq init --detect                    # Auto-detect build commands
+
+blq run build                        # Run and capture
+blq errors                           # See what broke
+blq inspect build:3:1                # Drill into specific error
+blq diff 4 5                         # Compare runs
 ```
 
-This will:
-- Create `.lq/` directory for the database
-- Add `.lq/` to `.gitignore`
-- Auto-detect and register build/test commands from Makefile, package.json, pyproject.toml, etc.
-
-### Register Commands
-
-If auto-detect missed something, register commands manually:
+Register commands manually if needed:
 
 ```bash
-blq register build "make -j8"
-blq register test "pytest -v"
-blq register lint "ruff check ."
+blq commands register build "make -j8"
+blq commands register test "pytest -v"
 ```
 
-### Setup for AI Agents (MCP)
+## AI Agent Integration (MCP)
 
 ```bash
-blq mcp install
+blq mcp install                      # Creates .mcp.json
 ```
 
-This creates `.mcp.json` for agent discovery. The MCP server provides tools like `run`, `events`, `inspect`, `diff` for structured build log access.
+Agents can then use tools like `run`, `events`, `inspect`, `diff` to work with structured results instead of parsing raw output. See the [MCP Guide](docs/mcp.md).
 
-## Basic Usage
+## Commands
 
-```bash
-# Run a registered command
-blq run build
-blq run test
+| Command | Description |
+|---------|-------------|
+| `blq run <cmd>` | Run registered command, capture output |
+| `blq errors` | Recent errors |
+| `blq inspect <ref>` | Event details with source context |
+| `blq info <ref>` | Run details |
+| `blq history` | Run history |
+| `blq diff <r1> <r2>` | Compare runs |
+| `blq ci check` | Check for regressions vs baseline |
 
-# View errors from the last run
-blq errors
+## Event References
 
-# See run history
-blq history
+Every error gets a reference like `build:3:1`:
+- `build` — command name
+- `3` — run number
+- `1` — event within run
 
-# Get details on a specific run
-blq info build:5
+Use refs to drill down: `blq inspect build:3:1`, `blq info build:3`
 
-# Inspect a specific error with context
-blq inspect build:5:1
-
-# Compare two runs
-blq diff 4 5
-```
-
-## Key Features
+## Features
 
 | Feature | Description |
 |---------|-------------|
-| **60+ log formats** | GCC, Clang, pytest, mypy, ESLint, TypeScript, Rust, Go, and more |
-| **Run history** | Every run stored with git commit, branch, environment |
-| **Event references** | `build:5:1` format for drilling into specific errors |
-| **Structured output** | JSON, CSV, Markdown for scripts and agents |
-| **MCP server** | AI agents can query errors without parsing raw logs |
-| **CI integration** | `blq ci check` for regression detection, `blq ci comment` for PR comments |
-| **Parameterized commands** | Templates with `{placeholder}` syntax and defaults |
+| **60+ formats** | GCC, Clang, pytest, mypy, ESLint, TypeScript, Rust, Go, etc. |
+| **Run history** | Every run with git commit, branch, environment |
+| **Format detection** | Auto-detects format at registration time |
+| **CI integration** | `blq ci check`, `blq ci comment` for PR feedback |
+| **MCP server** | AI agents query errors without parsing logs |
+| **Python API** | Programmatic access via `LogStore`, `LogQuery` |
 
 ## Documentation
 
-For detailed guides and reference:
-
-- **[Getting Started](https://blq-cli.readthedocs.io/en/latest/getting-started/)** - Installation and first steps
-- **[CLI Reference](https://blq-cli.readthedocs.io/en/latest/cli/)** - All commands and options
-- **[MCP Guide](https://blq-cli.readthedocs.io/en/latest/mcp/)** - AI agent integration
-- **[Python API](https://blq-cli.readthedocs.io/en/latest/python-api/)** - Programmatic access
-
-## Quick Reference
-
-```bash
-# Querying
-blq errors                    # Recent errors
-blq events --severity=warning # Warnings
-blq history                   # Run history
-blq info <ref>                # Run details
-blq inspect <ref>             # Error with context
-
-# Running
-blq run <command>             # Run registered command
-blq run test --json           # JSON output for scripts
-
-# Management
-blq commands                  # List registered commands
-blq register <name> <cmd>     # Add command
-blq clean data                # Clear run history
-
-# CI
-blq ci check --baseline main  # Check for regressions
-blq report                    # Generate markdown report
-```
+- [Getting Started](docs/getting-started.md)
+- [MCP Guide](docs/mcp.md) — AI agent integration
+- [Query Guide](docs/query-guide.md) — Filtering, SQL, output formats
+- [Integration](docs/integration.md) — CI/CD, hooks, shell completions
+- [Python API](docs/python-api.md)
+- [Commands Reference](docs/commands/)
 
 ## License
 
