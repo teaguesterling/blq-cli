@@ -1769,7 +1769,7 @@ def _register_command_impl(
                     "success": False,
                     "error": (
                         f"Command already registered as '{existing_name}'. "
-                        f"Use run(command='{existing_name}') or force=true to register under new name."
+                        f"Use run(command='{existing_name}') or force=true to re-register."
                     ),
                     "existing_name": existing_name,
                 }
