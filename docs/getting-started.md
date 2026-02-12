@@ -37,7 +37,7 @@ blq run build
 ```
 
 ```
-build:3 | exit=1 | 47 events | 12 errors, 35 warnings
+✗ build:3 | FAIL | 4.2s | 12 errors, 35 warnings
 ```
 
 See what broke:
@@ -47,10 +47,10 @@ blq errors
 ```
 
 ```
-ref       severity  ref_file          ref_line  message
-build:3:1 error     src/parser.c      142       expected ';' before '}'
-build:3:2 error     src/parser.c      156       'node' undeclared
-build:3:3 error     src/lexer.c       89        implicit declaration of 'scan_token'
+Source  Ref        Location        Message
+build   build:3:1  src/parser.c:142  expected ';' before '}'
+build   build:3:2  src/parser.c:156  'node' undeclared
+build   build:3:3  src/lexer.c:89    implicit declaration of 'scan_token'
 ```
 
 Drill into a specific error with source context:
@@ -100,11 +100,11 @@ blq history build
 ```
 
 ```
-ref      status  errors  warnings  duration  commit
-build:5  fail    3       12        4.2s      a1b2c3d (HEAD)
-build:4  fail    1       12        3.8s      f4e5d6c
-build:3  pass    0       10        4.1s      b7c8d9e  ← last working
-build:2  fail    5       15        5.2s      1a2b3c4
+Ref        E/W  When     Git              Command
+✗ build:5  3/12 2m ago   *a1b2c3d (main)  make -j8
+✗ build:4  1/12 5m ago   f4e5d6c (main)   make -j8
+  build:3    ✓  8m ago   b7c8d9e (main)   make -j8   ← last working
+✗ build:2  5/15 12m ago  1a2b3c4 (main)   make -j8
 ```
 
 ```bash
@@ -126,7 +126,7 @@ Now AI agents (Claude Code, etc.) can use tools like:
 - `run(command="test")` — run tests, get structured results
 - `events(severity="error")` — get all errors
 - `inspect(ref="test:5:1")` — get error with source context
-- `diff(run1="4", run2="5")` — compare runs
+- `diff(run1="test:4", run2="test:5")` — compare runs
 
 Instead of an agent reading 2000 lines of pytest output, it gets:
 

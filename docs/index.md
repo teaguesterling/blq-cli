@@ -1,65 +1,66 @@
 # blq Documentation
 
-**blq** (Build Log Query) is a command-line tool for capturing, querying, and analyzing build and test logs from a variety of sources and destinations.
+**blq** (Build Log Query) turns build output into a queryable database. Instead of scrolling through logs, ask questions: "What errors?", "What changed?", "Show me that file."
 
-## Why lq?
+## Why blq?
 
-Build and test logs contain valuable information, but they're often:
-- Scattered across CI runs, local builds, and log files
-- Hard to search and correlate
-- Lost after a few days
+- **Structured events** — Errors and warnings with file:line locations, not raw text
+- **Run history** — Every build stored with git context, compare across runs
+- **60+ formats** — GCC, Clang, pytest, mypy, ESLint, TypeScript, Rust, Go, and more
+- **AI agent tools** — MCP server for structured access without log parsing
 
-blq solves this by:
-- **Storing logs locally** using BIRD (DuckDB tables + content-addressed blobs)
-- **Parsing 60+ formats** via the duck_hunt extension
-- **Providing SQL access** for powerful queries
-- **Outputting structured data** for AI agent integration
-- **Live inspection** of running commands with `--follow` and `--status`
-
-## Core Concepts
-
-### Events
-
-Every error, warning, or notable item in a log becomes an **event** with:
-- `severity` - error, warning, info, etc.
-- `ref_file`, `ref_line`, `ref_column` - source location
-- `message` - the error/warning text
-- `error_fingerprint` - unique identifier for deduplication
-
-### Event References
-
-Events are referenced by `run_id:event_id` (e.g., `1:3` means run 1, event 3). This allows drilling down from summaries:
+## Quick Start
 
 ```bash
-blq errors              # Shows refs like 1:3, 1:4
-blq event 1:3           # Get details for specific event
-blq context 1:3         # See surrounding log lines
+pip install blq-cli
+cd your-project
+blq init --detect
+
+blq run build
+blq errors
+blq inspect build:3:1
 ```
 
-### Sources
+## Guides
 
-A **source** is anything that produces logs:
-- A command run (`blq run make`)
-- An imported file (`blq import build.log`)
-- Stdin capture (`make | lq capture`)
+| Guide | Description |
+|-------|-------------|
+| [Getting Started](getting-started.md) | Installation, setup, core workflows |
+| [Query Guide](query-guide.md) | Filtering, SQL, output formats |
+| [MCP Guide](mcp.md) | AI agent integration |
+| [Integration](integration.md) | CI/CD, shell completions, hooks |
+| [Python API](python-api.md) | Programmatic access |
 
-### Storage
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `blq run <cmd>` | Run registered command, capture output |
+| `blq errors` | Recent errors |
+| `blq inspect <ref>` | Event details with source context |
+| `blq diff <r1> <r2>` | Compare runs |
+| `blq history` | Run history |
+| `blq info <ref>` | Run details |
+
+See [Commands Reference](commands/) for all commands.
+
+## Storage
 
 Logs are stored in `.lq/` in your project:
 
 ```
 .lq/
-├── blq.duckdb         # DuckDB database
-├── blobs/             # Content-addressed blob storage
-├── config.toml        # Project configuration
-├── commands.toml      # Registered commands
-└── schema.sql         # SQL schema
+├── blq.duckdb      # DuckDB database
+├── blobs/          # Content-addressed output storage
+├── config.toml     # Project configuration
+└── commands.toml   # Registered commands
 ```
 
-## Quick Links
+## Event References
 
-- [Getting Started](getting-started.md) - Installation and first steps
-- [Commands Reference](commands/) - All commands in detail
-- [Query Guide](query-guide.md) - Querying logs effectively
-- [Python API Guide](python-api.md) - Programmatic access with fluent API
-- [Integration Guide](integration.md) - Using with AI agents and CI/CD
+Every error gets a reference like `build:3:1`:
+- `build` — command name
+- `3` — run number
+- `1` — event within run
+
+Use refs to drill down: `blq inspect build:3:1`, `blq info build:3`

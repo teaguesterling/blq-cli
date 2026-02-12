@@ -1,6 +1,6 @@
 # Python API Guide
 
-bblq provides a fluent Python API for programmatic access to log data. This guide covers the `LogQuery` and `LogStore` classes.
+blq provides a fluent Python API for programmatic access to log data.
 
 ## Quick Start
 
@@ -25,433 +25,168 @@ results = (
 )
 
 # Query a log file directly (without storing)
-events = (
-    LogQuery.from_file("build.log")
-    .filter(severity=["error", "warning"])
-    .df()
-)
+events = LogQuery.from_file("build.log").filter(severity="error").df()
 ```
+
+---
 
 ## LogStore
 
-`LogStore` manages the `.lq` repository and provides access to stored events.
+Manages the `.lq` repository and provides access to stored events.
 
-### Opening a Store
+### Opening
 
 ```python
 from blq import LogStore
 
-# Auto-find .lq in current or parent directories
-store = LogStore.open()
-
-# Explicit path
-store = LogStore.open("/path/to/project/.lq")
+store = LogStore.open()                    # Auto-find .lq
+store = LogStore.open("/path/to/.lq")      # Explicit path
 ```
 
-### Properties
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `path` | `Path` | Path to `.lq` directory |
-| `logs_path` | `Path` | Path to logs subdirectory |
-| `connection` | `DuckDBPyConnection` | Underlying DuckDB connection |
-
-### Methods
-
-#### `events() -> LogQuery`
-
-Query all stored events.
+### Query Methods
 
 ```python
-all_events = store.events().df()
+store.events()           # All events → LogQuery
+store.errors()           # Errors only → LogQuery
+store.warnings()         # Warnings only → LogQuery
+store.run(5)             # Events from run 5 → LogQuery
+store.runs()             # Run summaries → DataFrame
+store.latest_run()       # Most recent run ID → int
+store.event(5, 1)        # Specific event → dict
+store.has_data()         # Has any data → bool
 ```
 
-#### `errors() -> LogQuery`
-
-Convenience method for querying errors (equivalent to `.events().filter(severity="error")`).
+### Direct SQL
 
 ```python
-errors = store.errors().df()
+conn = store.connection
+result = conn.sql("""
+    SELECT ref_file, COUNT(*) as errors
+    FROM blq_load_events()
+    WHERE severity = 'error'
+    GROUP BY ref_file
+""").df()
 ```
 
-#### `warnings() -> LogQuery`
-
-Convenience method for querying warnings.
-
-```python
-warnings = store.warnings().df()
-```
-
-#### `run(run_id: int) -> LogQuery`
-
-Query events from a specific run.
-
-```python
-# Get all events from run 1
-run_events = store.run(1).df()
-
-# Get errors from run 1
-run_errors = store.run(1).filter(severity="error").df()
-```
-
-#### `runs() -> DataFrame`
-
-Get summary of all runs.
-
-```python
-runs = store.runs()
-# Returns: run_id, source_name, source_type, command, started_at, completed_at, exit_code
-```
-
-#### `latest_run() -> int | None`
-
-Get the most recent run ID.
-
-```python
-latest = store.latest_run()  # e.g., 5
-```
-
-#### `event(run_id: int, event_id: int) -> dict | None`
-
-Get a specific event by reference.
-
-```python
-event = store.event(1, 3)  # Equivalent to ref "1:3"
-if event:
-    print(event["message"])
-```
-
-#### `has_data() -> bool`
-
-Check if the store has any data.
-
-```python
-if store.has_data():
-    print(f"Latest run: {store.latest_run()}")
-else:
-    print("No logs stored yet")
-```
+---
 
 ## LogQuery
 
-`LogQuery` provides a fluent interface for building queries. Operations are deferred until a terminal method is called.
+Fluent interface for building queries. Operations are deferred until a terminal method is called.
 
 ### Creating Queries
 
-#### From LogStore
-
 ```python
-store = LogStore.open()
+# From store
 query = store.events()
-```
 
-#### From Log File
-
-Parse a log file using the duck_hunt extension:
-
-```python
+# From log file
 query = LogQuery.from_file("build.log")
 query = LogQuery.from_file("output.log", format="gcc")
-```
 
-#### From Parquet Files
-
-Read parquet files directly:
-
-```python
-query = LogQuery.from_parquet(".lq/logs/")
-query = LogQuery.from_parquet("events.parquet", hive_partitioning=False)
-```
-
-#### From SQL
-
-Create a query from raw SQL:
-
-```python
-conn = store.connection
-query = LogQuery.from_sql(conn, "SELECT * FROM lq_events WHERE run_id = 1")
-```
-
-#### From Table
-
-Query a table or view directly:
-
-```python
-conn = store.connection
-query = LogQuery.from_table(conn, "lq_events")
+# From SQL
+query = LogQuery.from_sql(conn, "SELECT * FROM blq_load_events() WHERE run_serial = 1")
 ```
 
 ### Filtering
 
-#### `filter(_condition=None, **kwargs) -> LogQuery`
-
-Filter rows by conditions. Multiple calls are combined with AND.
-
-**Exact match:**
 ```python
+# Exact match
 query.filter(severity="error")
-query.filter(run_id=1)
-```
 
-**Multiple values (IN clause):**
-```python
+# Multiple values (IN)
 query.filter(severity=["error", "warning"])
-```
 
-**LIKE pattern:**
-```python
+# LIKE pattern
 query.filter(ref_file="%main%")     # Contains 'main'
 query.filter(ref_file="%.py")       # Ends with '.py'
-query.filter(message="%undefined%")  # Contains 'undefined'
-```
 
-**Raw SQL condition:**
-```python
+# Raw SQL condition
 query.filter("ref_line > 100")
-query.filter("ref_file LIKE '%test%' AND severity = 'error'")
-```
 
-**Multiple conditions (AND):**
-```python
+# Multiple conditions (AND)
 query.filter(severity="error", ref_file="main.c")
-# Equivalent to:
-query.filter(severity="error").filter(ref_file="main.c")
-```
 
-#### `exclude(**kwargs) -> LogQuery`
-
-Exclude rows matching conditions (NOT filter).
-
-```python
-query.exclude(severity="info")         # NOT severity = 'info'
-query.exclude(ref_file="%test%")      # NOT ref_file LIKE '%test%'
-```
-
-#### `where(condition: str) -> LogQuery`
-
-Add a raw SQL WHERE condition.
-
-```python
-query.where("ref_line BETWEEN 10 AND 50")
-query.where("ref_file IS NOT NULL")
+# Exclude
+query.exclude(severity="info")
 ```
 
 ### Projection
 
-#### `select(*columns) -> LogQuery`
-
-Select specific columns.
-
 ```python
 query.select("ref_file", "ref_line", "message")
-```
-
-#### `order_by(*columns, desc=False) -> LogQuery`
-
-Order results.
-
-```python
 query.order_by("ref_line")
-query.order_by("severity", "ref_line")
-query.order_by("run_id", desc=True)  # Descending
-```
-
-#### `limit(n: int) -> LogQuery`
-
-Limit number of results.
-
-```python
+query.order_by("run_serial", desc=True)
 query.limit(10)
 ```
 
-### Execution Methods
-
-These methods execute the query and return results.
-
-#### `df() -> DataFrame`
-
-Execute and return a pandas DataFrame.
+### Terminal Methods
 
 ```python
-df = query.df()
-```
-
-#### `fetchall() -> list[tuple]`
-
-Execute and return all rows as tuples.
-
-```python
-rows = query.fetchall()
-for row in rows:
-    print(row)
-```
-
-#### `fetchone() -> tuple | None`
-
-Execute and return the first row.
-
-```python
-row = query.filter(run_id=1, event_id=1).fetchone()
-```
-
-#### `count() -> int`
-
-Count matching rows.
-
-```python
-error_count = query.filter(severity="error").count()
-```
-
-#### `exists() -> bool`
-
-Check if any rows match.
-
-```python
-if query.filter(severity="error").exists():
-    print("Found errors")
+query.df()           # → pandas DataFrame
+query.fetchall()     # → list[tuple]
+query.fetchone()     # → tuple | None
+query.count()        # → int
+query.exists()       # → bool
+query.show()         # Print to stdout
 ```
 
 ### Inspection
 
-#### `columns -> list[str]`
-
-Get column names.
-
 ```python
-cols = query.columns  # ['run_id', 'event_id', 'severity', ...]
+query.columns        # Column names
+query.dtypes         # Column types
+query.describe()     # Statistics
+query.explain()      # Query plan
 ```
 
-#### `dtypes -> list[str]`
+---
 
-Get column types.
+## Aggregation
 
-```python
-types = query.dtypes  # ['BIGINT', 'BIGINT', 'VARCHAR', ...]
-```
-
-#### `describe() -> DataFrame`
-
-Get statistical description.
-
-```python
-stats = query.describe()
-```
-
-#### `show(n=10) -> None`
-
-Print first n rows to stdout.
-
-```python
-query.show()
-query.show(20)
-```
-
-#### `explain() -> str`
-
-Get the query execution plan.
-
-```python
-plan = query.explain()
-print(plan)
-```
-
-### Aggregation
-
-#### `group_by(*columns) -> LogQueryGrouped`
-
-Group by columns for aggregation.
+### Group By
 
 ```python
 grouped = query.group_by("ref_file")
+
+grouped.count()                           # Count per group
+grouped.sum("ref_line")                   # Sum per group
+grouped.avg("ref_line")                   # Average per group
+grouped.min("ref_line")                   # Min per group
+grouped.max("ref_line")                   # Max per group
+grouped.agg(total="COUNT(*)", first="MIN(ref_line)")
 ```
 
-#### `value_counts(column) -> DataFrame`
-
-Count occurrences of each value.
+### Value Counts
 
 ```python
-severity_counts = query.value_counts("severity")
-# Returns DataFrame with 'severity' and 'count' columns, sorted by count descending
+query.value_counts("severity")
+# → DataFrame with 'severity' and 'count' columns
 ```
 
-## LogQueryGrouped
+---
 
-Returned by `group_by()`, provides aggregation methods.
+## Examples
 
-### Methods
-
-#### `count() -> DataFrame`
-
-Count rows in each group.
-
-```python
-errors_by_file = store.errors().group_by("ref_file").count()
-```
-
-#### `sum(column) -> DataFrame`
-
-Sum values in each group.
-
-```python
-totals = query.group_by("category").sum("amount")
-```
-
-#### `avg(column) -> DataFrame`
-
-Average values in each group.
-
-```python
-averages = query.group_by("ref_file").avg("ref_line")
-```
-
-#### `min(column) / max(column) -> DataFrame`
-
-Minimum/maximum values in each group.
-
-```python
-first_errors = store.errors().group_by("ref_file").min("ref_line")
-```
-
-#### `agg(**aggregations) -> DataFrame`
-
-Custom aggregations.
-
-```python
-stats = query.group_by("ref_file").agg(
-    total="COUNT(*)",
-    first_line="MIN(ref_line)",
-    last_line="MAX(ref_line)"
-)
-```
-
-## Complete Examples
-
-### Find Most Error-Prone Files
+### Most Error-Prone Files
 
 ```python
 from blq import LogStore
 
 store = LogStore.open()
-error_counts = (
-    store.errors()
-    .group_by("ref_file")
-    .count()
-)
+error_counts = store.errors().group_by("ref_file").count()
 print(error_counts.head(10))
 ```
 
-### Analyze Build Trends
+### Build Trends
 
 ```python
 from blq import LogStore
 
 store = LogStore.open()
-runs = store.runs()
-
-for _, run in runs.iterrows():
+for _, run in store.runs().iterrows():
     errors = store.run(run["run_id"]).filter(severity="error").count()
-    warnings = store.run(run["run_id"]).filter(severity="warning").count()
-    print(f"Run {run['run_id']}: {errors} errors, {warnings} warnings")
+    print(f"Run {run['run_id']}: {errors} errors")
 ```
 
 ### Filter and Export
@@ -461,7 +196,6 @@ from blq import LogStore
 
 store = LogStore.open()
 
-# Get specific errors and export
 errors = (
     store.errors()
     .filter(ref_file="%src%")
@@ -474,12 +208,12 @@ errors = (
 errors.to_csv("errors_report.csv", index=False)
 ```
 
-### Query Log Files Without Storing
+### Query Log File Directly
 
 ```python
 from blq import LogQuery
 
-# Parse and query a log file directly
+# Parse without storing
 errors = (
     LogQuery.from_file("build.log")
     .filter(severity="error")
@@ -487,47 +221,20 @@ errors = (
     .df()
 )
 
-# Check for specific patterns
+# Check for failures
 if LogQuery.from_file("test.log").filter(message="%FAILED%").exists():
     print("Tests failed!")
 ```
 
-### Direct SQL Access
-
-```python
-from blq import LogStore
-
-store = LogStore.open()
-conn = store.connection
-
-# Run arbitrary SQL
-result = conn.sql("""
-    SELECT
-        ref_file,
-        COUNT(*) as error_count,
-        COUNT(DISTINCT error_fingerprint) as unique_errors
-    FROM lq_events
-    WHERE severity = 'error'
-    GROUP BY ref_file
-    ORDER BY error_count DESC
-    LIMIT 10
-""").df()
-```
-
-## Integration with pandas
-
-`LogQuery` returns pandas DataFrames, enabling further analysis:
+### Integration with pandas/matplotlib
 
 ```python
 from blq import LogStore
 import matplotlib.pyplot as plt
 
 store = LogStore.open()
-
-# Get error counts by severity
 counts = store.events().value_counts("severity")
 
-# Plot with pandas
 counts.plot(kind="bar", x="severity", y="count")
 plt.title("Events by Severity")
 plt.savefig("severity_chart.png")

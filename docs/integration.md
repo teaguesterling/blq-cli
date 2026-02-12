@@ -1,108 +1,82 @@
 # Integration Guide
 
-This guide covers integrating lq with AI agents, CI/CD pipelines, and other tools.
-
-## AI Agent Integration
-
-blq is designed to work well with AI coding assistants like Claude, GPT, and others.
-
-### Structured Output
-
-Use `--json` for machine-readable output:
-
-```bash
-blq run --json --quiet make
-```
-
-Output:
-```json
-{
-  "run_id": 1,
-  "status": "FAIL",
-  "exit_code": 2,
-  "errors": [
-    {
-      "ref": "1:1",
-      "ref_file": "src/main.c",
-      "ref_line": 15,
-      "message": "undefined variable 'foo'"
-    }
-  ]
-}
-```
-
-### Drill-Down Workflow
-
-The structured output includes event references that agents can use to get more context:
-
-```bash
-# Agent runs build, gets error summary
-blq run --json make
-
-# Agent sees ref "1:1", gets details
-blq event 1:1
-
-# Agent needs more context
-blq context 1:1 --lines 5
-```
-
-### Query for Analysis
-
-Agents can query logs directly:
-
-```bash
-# Get all errors as JSON
-blq q --json -f "severity='error'" build.log
-
-# Count errors by file
-blq sql "SELECT ref_file, COUNT(*) as count
-        FROM read_duck_hunt_log('build.log', 'auto')
-        WHERE severity='error'
-        GROUP BY 1
-        ORDER BY 2 DESC"
-```
-
-### Markdown for Reports
-
-For generating reports or PR comments:
-
-```bash
-blq run --markdown make
-blq q --markdown -s ref_file,ref_line,message build.log
-```
+This guide covers integrating blq with CI pipelines, editors, and other tools.
 
 ## CI/CD Integration
 
-### GitHub Actions
+blq provides dedicated CI commands for regression detection and PR feedback.
+
+### Basic CI Workflow
 
 ```yaml
-- name: Build with log capture
-  run: |
-    blq init
-    blq run --json make > build_result.json
-  continue-on-error: true
+# GitHub Actions
+name: CI
+on: [push, pull_request]
 
-- name: Upload build results
-  uses: actions/upload-artifact@v3
-  with:
-    name: build-logs
-    path: |
-      build_result.json
-      .lq/logs/
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        run: |
+          pip install blq-cli
+          blq init --detect --yes
+
+      - name: Build
+        run: blq run build
+
+      - name: Test
+        run: blq run test
+
+      - name: Check for regressions
+        run: blq ci check --baseline main
+
+      - name: Post PR comment
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: blq ci comment --update --diff --baseline main
 ```
+
+### blq ci check
+
+Compare errors against a baseline and exit with appropriate code.
+
+```bash
+blq ci check                      # Auto-detect baseline (main/master)
+blq ci check --baseline main      # Compare against main branch
+blq ci check --baseline 42        # Compare against run ID
+blq ci check --fail-on-any        # Fail if any errors (zero tolerance)
+```
+
+Exit codes:
+- `0` — No new errors
+- `1` — New errors found
+
+### blq ci comment
+
+Post error summaries as GitHub PR comments.
+
+```bash
+blq ci comment                              # Post new comment
+blq ci comment --update                     # Update existing comment
+blq ci comment --diff --baseline main       # Include diff vs baseline
+```
+
+Requires `GITHUB_TOKEN` with PR comment permissions.
 
 ### GitLab CI
 
 ```yaml
 build:
   script:
-    - blq init
-    - blq run --json make | tee build_result.json
-  artifacts:
-    paths:
-      - build_result.json
-      - .lq/logs/
-    when: always
+    - pip install blq-cli
+    - blq init --detect --yes
+    - blq run build
+    - blq run test
+    - blq ci check --baseline main
 ```
 
 ### Jenkins
@@ -112,237 +86,121 @@ pipeline {
     stages {
         stage('Build') {
             steps {
-                sh 'blq init'
-                sh 'blq run --json make > build_result.json || true'
-                archiveArtifacts artifacts: 'build_result.json,.lq/logs/**'
+                sh 'pip install blq-cli'
+                sh 'blq init --detect --yes'
+                sh 'blq run build'
+                sh 'blq ci check --baseline main'
             }
         }
     }
 }
 ```
 
-## Command Registry for CI
+---
 
-Register standard commands for consistent CI builds:
+## AI Agent Integration
+
+blq provides an MCP server for AI agents. See the [MCP Guide](mcp.md) for full documentation.
+
+Quick setup:
 
 ```bash
-# Setup (in repo or CI init)
-blq register build "make -j8" --description "Build project"
-blq register test "pytest -v" --timeout 600
-blq register lint "ruff check ." --format eslint
-
-# CI script
-blq run build
-blq run test
-blq run lint
+blq mcp install    # Creates .mcp.json
 ```
 
-Store `commands.toml` in your repo for reproducibility.
+Agents can then use tools like `run`, `events`, `inspect`, and `diff` to work with structured build results instead of parsing raw output.
 
-### Parameterized Commands
+---
 
-Commands can have placeholders for flexible CI usage:
+## Claude Code Integration
+
+blq can automatically capture commands run by Claude Code.
+
+### Install Hooks
+
+```bash
+blq hooks install claude-code
+```
+
+This registers a pre-command hook that suggests using `blq run` for registered commands.
+
+### Auto-install via Config
+
+Add to `~/.config/blq/config.toml`:
 
 ```toml
-# .lq/commands.toml
-[commands.test]
-tpl = "pytest {path} {flags}"
-defaults = { path = "tests/", flags = "-v" }
-
-[commands.deploy]
-tpl = "kubectl apply -f {manifest} -n {namespace}"
-defaults = { namespace = "default" }
+[hooks]
+auto_claude_code = true
 ```
 
-Use in CI with parameter overrides:
+---
 
-```yaml
-# GitHub Actions
-- name: Run unit tests
-  run: blq run test path=tests/unit/
+## Shell Completions
 
-- name: Run integration tests
-  run: blq run test path=tests/integration/ flags="-v --timeout=300"
-
-- name: Deploy to staging
-  run: blq run deploy manifest=k8s/app.yaml namespace=staging
-```
-
-### Live Inspection
-
-Monitor long-running builds in CI:
+Enable tab completion:
 
 ```bash
-# Check for running commands
-blq history --status=running
+# Bash (add to ~/.bashrc)
+eval "$(blq completions bash)"
 
-# Get output from a running command
-blq info build:5 --tail=50
+# Zsh (add to ~/.zshrc)
+eval "$(blq completions zsh)"
 
-# Follow output in real-time
-blq info build:5 --follow
+# Fish
+blq completions fish > ~/.config/fish/completions/blq.fish
 ```
 
-The MCP server also supports live inspection, allowing AI agents to monitor builds while they're running.
-
-## MCP Server Integration
-
-blq provides an MCP (Model Context Protocol) server for AI agent integration.
-
-### Quick Start
-
-```bash
-# Create .mcp.json for agent discovery
-blq mcp install
-
-# Start the MCP server
-blq mcp serve
-```
-
-### Available Tools
-
-The MCP server exposes these tools:
-
-| Tool | Description |
-|------|-------------|
-| `run` | Run a registered command |
-| `query` | Query logs with SQL |
-| `errors` | Get recent errors |
-| `warnings` | Get recent warnings |
-| `event` | Get event details |
-| `context` | Get log context around event |
-| `status` | Get status summary |
-| `history` | Get run history |
-| `diff` | Compare errors between runs |
-| `register_command` | Register a new command |
-| `list_commands` | List all registered commands |
-
-### Resources
-
-Resources provide read-only access to data:
-
-- `blq://guide` - Agent usage guide
-- `blq://status` - Current status
-- `blq://errors` - Recent errors
-- `blq://errors/{run_id}` - Errors for a specific run
-- `blq://warnings` - Recent warnings
-- `blq://commands` - Registered commands
-
-See [MCP Guide](mcp.md) for full documentation.
-
-## Shell Integration
-
-### Bash Alias
-
-```bash
-# In ~/.bashrc
-alias make='blq run make'
-alias pytest='blq run pytest'
-```
-
-### Fish Function
-
-```fish
-function make --wraps make
-    blq run make $argv
-end
-```
-
-### Zsh Hook
-
-```zsh
-# Capture all failed commands
-preexec() {
-    if [[ $? -ne 0 ]]; then
-        blq import /tmp/last_output.log --name "$1"
-    fi
-}
-```
-
-## Data Export
-
-### Export to Parquet
-
-The data is already in parquet format:
-
-```bash
-cp -r .lq/logs/ /path/to/export/
-```
-
-### Export to CSV
-
-```bash
-blq sql "COPY (SELECT * FROM lq_events) TO 'events.csv' (HEADER)"
-```
-
-### Export to JSON Lines
-
-```bash
-blq sql "COPY (SELECT * FROM lq_events) TO 'events.jsonl'"
-```
+---
 
 ## Programmatic Access
 
 ### Python API
 
-blq provides a fluent Python API for programmatic access:
-
-```python
-from blq import LogStore, LogQuery
-
-# Open the repository
-store = LogStore.open()
-
-# Query errors with chaining
-errors = (
-    store.errors()
-    .filter(ref_file="%main%")
-    .select("ref_file", "ref_line", "message")
-    .order_by("ref_line")
-    .limit(10)
-    .df()
-)
-
-# Query a log file directly (without storing)
-events = LogQuery.from_file("build.log").filter(severity="error").df()
-
-# Aggregations
-errors_by_file = store.errors().group_by("ref_file").count()
-severity_counts = store.events().value_counts("severity")
-```
-
-See [Python API Guide](python-api.md) for full documentation.
-
-### Direct SQL Access
-
-For complex queries, use the underlying DuckDB connection:
-
 ```python
 from blq import LogStore
 
 store = LogStore.open()
-conn = store.connection
 
-# Run arbitrary SQL
-result = conn.sql("""
-    SELECT ref_file, COUNT(*) as count
-    FROM lq_events
-    WHERE severity = 'error'
-    GROUP BY ref_file
-    ORDER BY count DESC
-""").df()
+# Query errors
+errors = store.errors().filter(ref_file="%main%").df()
+
+# Get run history
+runs = store.runs().limit(10).df()
+
+# Aggregations
+by_file = store.errors().group_by("ref_file").count()
 ```
 
-### Direct Parquet Access
+See [Python API Guide](python-api.md) for full documentation.
 
-Any tool that reads parquet can access the data:
+### Direct SQL
 
-```python
-import pandas as pd
-df = pd.read_parquet('.lq/logs/')
+```bash
+# Query the database directly
+duckdb .lq/blq.duckdb "SELECT * FROM blq_errors(10)"
+
+# Via blq
+blq sql "SELECT ref_file, COUNT(*) FROM blq_load_events() WHERE severity='error' GROUP BY 1"
 ```
 
-```r
-library(arrow)
-df <- read_parquet('.lq/logs/')
+### Data Export
+
+```bash
+# Export to CSV
+blq sql "COPY (SELECT * FROM blq_load_events()) TO 'events.csv' (HEADER)"
+
+# Export to JSON
+blq sql "COPY (SELECT * FROM blq_load_events()) TO 'events.json'"
+```
+
+---
+
+## Report Generation
+
+Generate markdown reports for documentation or PR comments:
+
+```bash
+blq report                        # Summary of recent runs
+blq report --baseline main        # Include diff vs baseline
+blq report --format markdown      # Explicit markdown output
 ```
