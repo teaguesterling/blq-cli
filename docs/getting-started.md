@@ -1,191 +1,180 @@
 # Getting Started
 
-## Installation
+## The Problem
 
-### From PyPI
+Your build fails. You scroll through 500 lines of output looking for the error. You find it, fix it, rebuild. It fails again—different error this time, buried somewhere else. Sound familiar?
+
+blq turns build output into a queryable database. Instead of reading logs, you ask questions: "What errors?", "What changed since the last working build?", "Show me line 47 of that file."
+
+## Install
 
 ```bash
 pip install blq-cli
 ```
 
-### From Source
+## Setup (2 minutes)
 
 ```bash
-git clone https://github.com/yourusername/lq.git
-cd lq
-pip install -e .
+cd your-project
+blq init --detect
 ```
 
-## Initialize Your Project
+This creates `.lq/` (the database), adds it to `.gitignore`, and auto-detects your build commands from `Makefile`, `pyproject.toml`, `package.json`, etc.
 
-Run `blq init` in your project directory:
+Register any commands it missed:
 
 ```bash
-cd my-project
-blq init
+blq commands register test "pytest -v"
+blq commands register build "make -j8"
 ```
 
-This creates a `.lq/` directory and installs the `duck_hunt` extension for log parsing.
+## Workflow 1: Fixing a Failing Build
 
-```
-Initialized .lq at /path/to/my-project/.lq
-  blq.duckdb    - DuckDB database with tables and macros
-  blobs/        - Content-addressed output storage
-  config.toml   - Project configuration
-  commands.toml - Registered commands
-  duck_hunt     - Installed successfully
-```
-
-**Options:**
+Run your build through blq:
 
 ```bash
-blq init --detect --yes      # Auto-detect and register commands
-blq init --no-gitignore      # Skip .gitignore modification
-blq init --no-mcp            # Skip .mcp.json creation
+blq run build
 ```
 
-## Your First Query
-
-### Query a Log File Directly
-
-If you have an existing log file:
-
-```bash
-blq q build.log
+```
+build:3 | exit=1 | 47 events | 12 errors, 35 warnings
 ```
 
-Select specific columns:
+See what broke:
 
 ```bash
-blq q -s ref_file,ref_line,severity,message build.log
-```
-
-Filter for errors:
-
-```bash
-blq f severity=error build.log
-```
-
-### Run and Capture
-
-Run a command and capture its output:
-
-```bash
-blq run make -j8
-```
-
-This:
-1. Runs `make -j8`
-2. Parses the output for errors/warnings
-3. Stores events in `.lq/logs/`
-4. Prints a summary
-
-### View Results
-
-```bash
-# Recent errors
 blq errors
-
-# All warnings
-blq warnings
-
-# Overall status
-blq status
 ```
 
-## Output Formats
+```
+ref       severity  ref_file          ref_line  message
+build:3:1 error     src/parser.c      142       expected ';' before '}'
+build:3:2 error     src/parser.c      156       'node' undeclared
+build:3:3 error     src/lexer.c       89        implicit declaration of 'scan_token'
+```
 
-### Default Table
+Drill into a specific error with source context:
 
 ```bash
-blq q -s ref_file,severity,message build.log
+blq inspect build:3:1
 ```
 
 ```
-  ref_file severity                  message
- src/main.c    error undefined variable 'foo'
-src/utils.c    error        missing semicolon
+Event: build:3:1
+File: src/parser.c:142
+Message: expected ';' before '}'
+
+Source context:
+   140│     if (token->type == TOKEN_EOF) {
+   141│         return NULL
+   142│     }              ← error: expected ';' before '}'
+   143│     return parse_expression(parser);
+   144│ }
 ```
 
-### JSON
+Fix, rebuild, repeat until `blq errors` shows nothing.
+
+## Workflow 2: "What Changed?"
+
+You fixed some things, but now there are new errors. What's different?
 
 ```bash
-blq q --json build.log
+blq diff build:2 build:3
 ```
+
+```
+Fixed (in build:2, not in build:3):
+  - src/main.c:45: undefined reference to 'init_logger'
+
+New (in build:3, not in build:2):
+  + src/parser.c:142: expected ';' before '}'
+  + src/parser.c:156: 'node' undeclared
+
+Unchanged: 2 errors
+```
+
+Or compare against any previous run:
+
+```bash
+blq history build
+```
+
+```
+ref      status  errors  warnings  duration  commit
+build:5  fail    3       12        4.2s      a1b2c3d (HEAD)
+build:4  fail    1       12        3.8s      f4e5d6c
+build:3  pass    0       10        4.1s      b7c8d9e  ← last working
+build:2  fail    5       15        5.2s      1a2b3c4
+```
+
+```bash
+blq diff build:3 build:5   # What broke since the last working build?
+```
+
+## Workflow 3: AI Agent Integration
+
+blq provides an MCP server so AI agents can query your build errors without parsing raw logs.
+
+Install the MCP configuration:
+
+```bash
+blq mcp install   # Creates .mcp.json
+```
+
+Now AI agents (Claude Code, etc.) can use tools like:
+
+- `run(command="test")` — run tests, get structured results
+- `events(severity="error")` — get all errors
+- `inspect(ref="test:5:1")` — get error with source context
+- `diff(run1="4", run2="5")` — compare runs
+
+Instead of an agent reading 2000 lines of pytest output, it gets:
 
 ```json
-[
-  {"ref_file": "src/main.c", "severity": "error", "message": "undefined variable 'foo'"},
-  {"ref_file": "src/utils.c", "severity": "error", "message": "missing semicolon"}
-]
+{
+  "events": [
+    {"ref": "test:5:1", "file": "tests/test_auth.py", "line": 45, "message": "AssertionError: expected 200, got 401"},
+    {"ref": "test:5:2", "file": "tests/test_api.py", "line": 112, "message": "ConnectionError: timeout"}
+  ]
+}
 ```
 
-### CSV
+The agent can then `inspect` specific errors to see source context, or `diff` against a previous run to understand what changed.
+
+## Key Concepts
+
+### Event References
+
+Every error/warning gets a reference like `build:3:1`:
+- `build` — the command name
+- `3` — the run number (sequential)
+- `1` — the event number within that run
+
+Use these to drill down: `blq inspect build:3:1`, `blq info build:3`
+
+### Run History
+
+Every `blq run` is stored with:
+- Exit code, duration, event counts
+- Git commit, branch, dirty status
+- Full output (for later inspection)
+
+Query history with `blq history`, filter by command: `blq history test`
+
+### Format Detection
+
+blq auto-detects 60+ log formats (GCC, Clang, pytest, mypy, ESLint, TypeScript, Rust, Go, etc.). When you register a command, it guesses the format:
 
 ```bash
-blq q --csv build.log
+blq commands register lint "ruff check ."
+# Registered command 'lint': ruff check . [format: ruff]
 ```
 
-### Markdown
-
-```bash
-blq q --markdown build.log
-```
-
-## Shell Completions
-
-Enable tab completion for your shell:
-
-```bash
-# Bash (add to ~/.bashrc)
-eval "$(blq completions bash)"
-
-# Zsh (add to ~/.zshrc)
-eval "$(blq completions zsh)"
-
-# Fish
-blq completions fish > ~/.config/fish/completions/blq.fish
-```
-
-## Parameterized Commands
-
-Commands can have placeholders that are filled at runtime:
-
-```bash
-# Register a parameterized command
-blq register test "pytest {path:=tests/} {flags:=-v}"
-
-# Use with defaults
-blq run test                    # pytest tests/ -v
-
-# Override parameters
-blq run test path=tests/unit/   # pytest tests/unit/ -v
-blq run test tests/unit/ -x     # pytest tests/unit/ -v -x (positional + extra)
-
-# See what command will run
-blq run test --dry-run          # Shows: pytest tests/ -v
-```
-
-See the [README](../README.md#parameterized-commands) for full placeholder syntax.
-
-## Live Inspection
-
-Monitor long-running commands while they're still running:
-
-```bash
-# See running commands
-blq history --status=running
-
-# Follow output in real-time
-blq info build:5 --follow
-
-# Get last N lines from a running command
-blq info build:5 --tail=50
-```
+Override if needed: `blq commands register build --format gcc "make"`
 
 ## Next Steps
 
-- [Commands Reference](commands/) - Learn all available commands
-- [Query Guide](query-guide.md) - Master querying techniques
-- [Integration Guide](integration.md) - Use with AI agents
-- [MCP Guide](mcp.md) - AI agent integration via MCP
+- [Query Guide](query-guide.md) — SQL queries, filters, advanced inspection
+- [MCP Guide](mcp.md) — Full MCP server documentation
+- [CI Integration](ci-cd.md) — `blq ci check` for regression detection
+- [Commands Reference](commands/) — All CLI commands
