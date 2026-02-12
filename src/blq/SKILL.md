@@ -359,18 +359,20 @@ blq.register_command(
 
 ### Idempotent Registration
 
-`register_command` is idempotent - calling it multiple times is safe:
+`register_command` is idempotent for same name + same command:
 
 ```python
 # First call: registers the command
 blq.register_command(name="build", cmd="make -j8")
+# → Registers, auto-detects format (e.g., "gcc")
 
 # Second call: detects identical command, returns existing (no error)
 blq.register_command(name="build", cmd="make -j8")
+# → Returns existing command
 
-# Different name, same command: returns existing command
+# Different name, same command: returns error (use force=True to override)
 blq.register_command(name="compile", cmd="make -j8")
-# → Uses existing 'build' command instead
+# → Error: "Command already registered as 'build'"
 ```
 
 ### Register and Run
