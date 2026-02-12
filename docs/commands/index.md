@@ -1,131 +1,107 @@
 # Commands Reference
 
-## Global Options
+## Running & Capturing
 
-These options apply to all commands:
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `run <cmd>` | `r` | Run registered command, capture output |
+| `exec <cmd>` | `x` | Run ad-hoc command |
+| `import <file>` | | Import existing log file |
+| `capture` | | Capture from stdin |
 
-| Option | Description |
-|--------|-------------|
-| `-V, --version` | Show version number |
-| `-F, --log-format FORMAT` | Log format hint for parsing (default: `auto`) |
-| `-h, --help` | Show help message |
+## Viewing Results
 
-## Command Categories
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `errors` | | Recent errors |
+| `warnings` | | Recent warnings |
+| `events` | `e` | Events with filtering |
+| `inspect <ref>` | `i` | Event details with source context |
+| `info <ref>` | `I` | Run details |
+| `status` | | Status summary |
+| `history` | `h` | Run history |
+| `diff <r1> <r2>` | | Compare runs |
 
-### Setup
+## Querying
 
-| Command | Description | Documentation |
-|---------|-------------|---------------|
-| `init` | Initialize .lq directory | [init](init.md) |
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `query [file]` | `q` | Query with SQL WHERE |
+| `filter [file]` | `f` | Filter with simple syntax |
+| `sql <query>` | | Full SQL access |
+| `shell` | | Interactive DuckDB shell |
 
-### Running & Capturing
+## Command Registry
 
-| Command | Alias | Description | Documentation |
-|---------|-------|-------------|---------------|
-| `run` | `r` | Run a registered command | [run](run.md) |
-| `exec` | `e` | Execute ad-hoc shell command | [exec](exec.md) |
-| `import` | | Import an existing log file | [capture](capture.md) |
-| `capture` | | Capture from stdin | [capture](capture.md) |
+| Command | Description |
+|---------|-------------|
+| `commands list` | List registered commands |
+| `commands register <name> <cmd>` | Register command |
+| `commands unregister <name>` | Remove command |
 
-### Viewing Results
+## CI Integration
 
-| Command | Description | Documentation |
-|---------|-------------|---------------|
-| `errors` | Show recent errors | [errors](errors.md) |
-| `warnings` | Show recent warnings | [errors](errors.md) |
-| `info` | Show details for a specific run | [status](status.md) |
-| `inspect` | Show event details with log/source context | [errors](errors.md) |
-| `event` | Show details for a specific event | [errors](errors.md) |
-| `context` | Show log context around an event | [errors](errors.md) |
+| Command | Description |
+|---------|-------------|
+| `ci check` | Compare against baseline |
+| `ci comment` | Post PR comment |
+| `report` | Generate markdown report |
+| `watch` | Watch files, auto-run |
 
-### Status & History
+## Maintenance
 
-| Command | Description | Documentation |
-|---------|-------------|---------------|
-| `status` | Show status of all sources | [status](status.md) |
-| `history` | Show run history | [status](status.md) |
-| `summary` | Aggregate summary | [status](status.md) |
+| Command | Description |
+|---------|-------------|
+| `init` | Initialize .lq directory |
+| `clean` | Database cleanup |
+| `migrate` | Storage migration |
 
-### Querying
+## MCP Server
 
-| Command | Alias | Description | Documentation |
-|---------|-------|-------------|---------------|
-| `query` | `q` | Query log files or stored events with SQL | [query](query.md) |
-| `filter` | `f` | Filter with simple key=value syntax | [filter](filter.md) |
-| `sql` | | Run arbitrary SQL queries | [sql](sql.md) |
-| `shell` | | Interactive DuckDB shell | [sql](sql.md) |
+| Command | Description |
+|---------|-------------|
+| `mcp install` | Create .mcp.json |
+| `mcp serve` | Start MCP server |
 
-### Command Registry
+## Hooks
 
-| Command | Description | Documentation |
-|---------|-------------|---------------|
-| `register` | Register a reusable command | [registry](registry.md) |
-| `unregister` | Remove a registered command | [registry](registry.md) |
-| `commands` | List registered commands | [registry](registry.md) |
+| Command | Description |
+|---------|-------------|
+| `hooks install` | Install git/Claude hooks |
+| `hooks remove` | Remove hooks |
+| `hooks status` | Show hook status |
 
-### CI Integration
+## Utilities
 
-| Command | Description | Documentation |
-|---------|-------------|---------------|
-| `ci check` | Compare errors against baseline | [ci](ci.md) |
-| `ci comment` | Post error summary as PR comment | [ci](ci.md) |
-| `report` | Generate markdown report | [report](report.md) |
-| `watch` | Watch files and auto-run commands | [watch](watch.md) |
+| Command | Description |
+|---------|-------------|
+| `completions <shell>` | Generate shell completions |
+| `formats` | List available log formats |
+| `config` | View/edit user config |
 
-### Maintenance
-
-| Command | Description | Documentation |
-|---------|-------------|---------------|
-| `clean` | Database cleanup (data, prune, schema, full) | [maintenance](maintenance.md) |
-
-### MCP Server
-
-| Command | Description | Documentation |
-|---------|-------------|---------------|
-| `mcp install` | Create .mcp.json for agent discovery | [MCP Server](../mcp.md) |
-| `mcp serve` | Start MCP server for AI agents | [MCP Server](../mcp.md) |
-
-### Git Hooks
-
-| Command | Description | Documentation |
-|---------|-------------|---------------|
-| `hooks install` | Install git pre-commit hook | - |
-| `hooks remove` | Remove git pre-commit hook | - |
-| `hooks status` | Show hook status | - |
-| `hooks add` | Add command to pre-commit hook | - |
-| `hooks list` | List commands in pre-commit hook | - |
-| `hooks run` | Run pre-commit hook manually | - |
-
-### Shell & Utilities
-
-| Command | Description | Documentation |
-|---------|-------------|---------------|
-| `completions` | Generate shell completion scripts | [completions](completions.md) |
-| `formats` | List available log formats | [completions](completions.md) |
+---
 
 ## Quick Reference
 
 ```bash
-# Query a file
-blq q build.log
-blq q -s ref_file,message build.log
-blq q -f "severity='error'" build.log
-
-# Filter (simple syntax)
-blq f severity=error build.log
-blq f -c severity=error build.log    # count only
-
-# Execute ad-hoc commands
-blq exec make
-blq e --json pytest -v
-
-# Register and run commands
-blq register build "make -j8"
+# Run registered commands
 blq run build
-blq r --json build
+blq run test
 
-# View events
+# View errors
 blq errors
-blq event 1:3
-blq context 1:3
+blq inspect build:3:1
+
+# Compare runs
+blq history
+blq diff 4 5
+
+# Query
+blq filter severity=error
+blq query -s ref_file,message -f "severity='error'"
+blq sql "SELECT * FROM blq_errors(10)"
+
+# Register commands
+blq commands register build "make -j8"
+blq commands register test "pytest -v"
 ```
