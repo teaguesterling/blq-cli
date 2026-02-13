@@ -561,7 +561,6 @@ def cmd_hooks_status(args: argparse.Namespace) -> None:
             print(f"  pending      {len(pending_files)} pending attempt(s)")
 
 
-
 # =============================================================================
 # Claude Code Hooks
 # =============================================================================
