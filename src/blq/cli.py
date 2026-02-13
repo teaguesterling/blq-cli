@@ -69,6 +69,7 @@ from blq.commands import (
     cmd_inspect,
     cmd_last,
     cmd_migrate,
+    cmd_output,
     cmd_prune,
     cmd_query,
     cmd_register,
@@ -441,16 +442,41 @@ def main() -> None:
     p_last.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_last.set_defaults(func=cmd_last)
 
+    # output - view raw output from a run
+    p_output = subparsers.add_parser(
+        "output",
+        aliases=["o"],
+        help="Show raw output from a run",
+    )
+    p_output.add_argument(
+        "ref",
+        nargs="?",
+        default=None,
+        help="Run ref (e.g., 'build:5', '+1', 'test:+1') or source name (default: +1)",
+    )
+    p_output.add_argument("--tail", "-t", type=int, metavar="N", help="Show last N lines")
+    p_output.add_argument("--head", "-H", type=int, metavar="N", help="Show first N lines")
+    p_output.add_argument(
+        "--follow", "-f", action="store_true", help="Follow output (for running commands)"
+    )
+    p_output.set_defaults(func=cmd_output)
+
     # events (main command for viewing events with severity filter)
     p_events = subparsers.add_parser(
         "events", aliases=["e"], help="Show events (errors, warnings, info)"
+    )
+    p_events.add_argument(
+        "source_arg",
+        nargs="?",
+        default=None,
+        help="Source name or run ref (e.g., 'build', 'test:+1')",
     )
     p_events.add_argument(
         "--severity",
         "-S",
         help="Filter by severity (error, warning, info, or comma-separated list)",
     )
-    p_events.add_argument("--source", "-s", help="Filter by source")
+    p_events.add_argument("--source", "-s", dest="source_flag", help="Filter by source")
     p_events.add_argument("--limit", "-n", type=int, default=20, help="Max results")
     p_events.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_events.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")
@@ -463,7 +489,13 @@ def main() -> None:
 
     # errors (alias for events --severity error)
     p_errors = subparsers.add_parser("errors", help="Show recent errors")
-    p_errors.add_argument("--source", "-s", help="Filter by source")
+    p_errors.add_argument(
+        "source_arg",
+        nargs="?",
+        default=None,
+        help="Source name or run ref (e.g., 'build', 'test:+1')",
+    )
+    p_errors.add_argument("--source", "-s", dest="source_flag", help="Filter by source")
     p_errors.add_argument("--limit", "-n", type=int, default=10, help="Max results")
     p_errors.add_argument("--compact", "-c", action="store_true", help="Compact format")
     p_errors.add_argument("--json", "-j", action="store_true", help="Output as JSON")
@@ -477,7 +509,13 @@ def main() -> None:
 
     # warnings (alias for events --severity warning)
     p_warnings = subparsers.add_parser("warnings", help="Show recent warnings")
-    p_warnings.add_argument("--source", "-s", help="Filter by source")
+    p_warnings.add_argument(
+        "source_arg",
+        nargs="?",
+        default=None,
+        help="Source name or run ref (e.g., 'build', 'test:+1')",
+    )
+    p_warnings.add_argument("--source", "-s", dest="source_flag", help="Filter by source")
     p_warnings.add_argument("--limit", "-n", type=int, default=10, help="Max results")
     p_warnings.add_argument("--json", "-j", action="store_true", help="Output as JSON")
     p_warnings.add_argument("--markdown", "-m", action="store_true", help="Output as Markdown")

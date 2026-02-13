@@ -29,6 +29,71 @@ from blq.output import (
     get_default_limit,
     get_output_format,
 )
+from blq.storage import BlqStorage
+
+
+def resolve_ref(ref: EventRef, store: BlqStorage | BirdStore) -> EventRef:
+    """Resolve a relative EventRef to an absolute one.
+
+    Converts relative references like +1 (most recent) or test:+1 (most recent test)
+    to absolute run_id references by querying the database.
+
+    Args:
+        ref: EventRef that may be relative
+        store: Storage backend to query
+
+    Returns:
+        New EventRef with resolved run_id (original returned if not relative)
+
+    Raises:
+        ValueError: If relative ref cannot be resolved (no matching runs)
+    """
+    if not ref.is_relative:
+        return ref
+
+    # Get the connection
+    if isinstance(store, BirdStore):
+        conn = store.connection
+    else:
+        conn = store.connection
+
+    # Build query based on whether we have a tag filter
+    offset = ref.relative - 1  # +1 means offset 0 (most recent)
+
+    if ref.tag:
+        # Filter by tag/source_name
+        result = conn.execute(
+            """
+            SELECT run_id FROM blq_load_runs()
+            WHERE source_name = ? OR tag = ?
+            ORDER BY started_at DESC
+            LIMIT 1 OFFSET ?
+            """,
+            [ref.tag, ref.tag, offset],
+        ).fetchone()
+    else:
+        # Any source
+        result = conn.execute(
+            """
+            SELECT run_id FROM blq_load_runs()
+            ORDER BY started_at DESC
+            LIMIT 1 OFFSET ?
+            """,
+            [offset],
+        ).fetchone()
+
+    if not result:
+        if ref.tag:
+            raise ValueError(f"No runs found for '{ref.tag}' at offset +{ref.relative}")
+        raise ValueError(f"No runs found at offset +{ref.relative}")
+
+    # Return new EventRef with resolved run_id
+    return EventRef(
+        run_id=result[0],
+        event_id=ref.event_id,
+        tag=ref.tag,
+        relative=None,  # No longer relative
+    )
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -311,6 +376,103 @@ def _show_stored_output(
         print(content, end="")
 
 
+def cmd_output(args: argparse.Namespace) -> None:
+    """Show raw output from a run.
+
+    Accepts a run ref (e.g., 'build:5', '+1', 'test:+1') or source name.
+    Supports --tail, --head for viewing partial output and --follow for live streaming.
+
+    Usage:
+        blq output build:5           # Full output
+        blq output --tail 20 build:5 # Last 20 lines
+        blq output --head 10 build:5 # First 10 lines
+        blq output --follow build:5  # Stream live output (running only)
+        blq o -t 20 +1               # Last 20 lines of most recent run
+    """
+    ref_arg = getattr(args, "ref", None)
+    tail_lines = getattr(args, "tail", None)
+    head_lines = getattr(args, "head", None)
+    follow = getattr(args, "follow", False)
+
+    if not ref_arg:
+        # Default to most recent run
+        ref_arg = "+1"
+
+    try:
+        store = get_store_for_args(args)
+        config = BlqConfig.find()
+
+        # Parse the reference
+        try:
+            ref = EventRef.parse(ref_arg)
+        except ValueError:
+            # Not a valid ref format - try as source name (most recent for that source)
+            ref = EventRef(tag=ref_arg, relative=1)
+
+        # Resolve relative refs
+        if ref.is_relative:
+            try:
+                ref = resolve_ref(ref, store)
+            except ValueError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                sys.exit(1)
+
+        # Find the run
+        result = store.sql(f"""
+            SELECT * FROM blq_load_runs()
+            WHERE run_id = {ref.run_id}
+        """).df()
+
+        run_status = "completed"
+        attempt_id = None
+
+        if result.empty:
+            # Not in completed runs - check pending attempts
+            attempt_result = store.sql(f"""
+                SELECT * FROM blq_load_attempts()
+                WHERE run_id = {ref.run_id}
+            """).df()
+
+            if attempt_result.empty:
+                print(f"Run {ref_arg} not found", file=sys.stderr)
+                sys.exit(1)
+
+            run_data = attempt_result.to_dict(orient="records")[0]
+            run_status = run_data.get("status", "pending")
+            attempt_id = str(run_data.get("attempt_id"))
+        else:
+            run_data = result.to_dict(orient="records")[0]
+            invocation_id = run_data.get("invocation_id")
+            attempt_id = str(invocation_id) if invocation_id else None
+
+        if not config:
+            print("Error: Not in a blq project", file=sys.stderr)
+            sys.exit(1)
+
+        if not attempt_id:
+            print("Error: No attempt ID found for this run", file=sys.stderr)
+            sys.exit(1)
+
+        bird_store = BirdStore.open(config.lq_dir)
+
+        try:
+            if run_status == "pending":
+                # Running command - read from live output
+                _show_live_output(bird_store, attempt_id, run_data, tail_lines, head_lines, follow)
+            else:
+                # Completed command - read from blob storage
+                if follow:
+                    print("Error: --follow only works for running commands", file=sys.stderr)
+                    sys.exit(1)
+                _show_stored_output(bird_store, attempt_id, tail_lines, head_lines)
+        finally:
+            bird_store.close()
+
+    except duckdb.Error as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_last(args: argparse.Namespace) -> None:
     """Show information about the most recent run.
 
@@ -464,6 +626,8 @@ def cmd_events(args: argparse.Namespace) -> None:
 
     This is the main event viewing command. `blq errors` and `blq warnings`
     are aliases that set --severity appropriately.
+
+    Supports positional source argument: `blq errors build` or `blq events test:+1`
     """
     try:
         store = get_store_for_args(args)
@@ -483,9 +647,28 @@ def cmd_events(args: argparse.Namespace) -> None:
             else:
                 conditions.append(f"severity = '{severity}'")
 
-        # Source filter
-        if getattr(args, "source", None):
-            conditions.append(f"source_name = '{args.source}'")
+        # Source filter - positional arg takes precedence over --source flag
+        source = getattr(args, "source_arg", None) or getattr(args, "source_flag", None)
+        if source is None:
+            # Fall back to legacy --source attr for backward compat
+            source = getattr(args, "source", None)
+
+        if source:
+            # Check if it's a run ref (with :) or just a source name
+            if ":" in source or source.startswith("+"):
+                # Parse as run ref and resolve if needed
+                try:
+                    ref = EventRef.parse(source)
+                    if ref.is_relative:
+                        ref = resolve_ref(ref, store)
+                    # Filter by specific run
+                    conditions.append(f"run_serial = {ref.run_id}")
+                except ValueError:
+                    # Not a valid ref format, treat as source name
+                    conditions.append(f"source_name = '{source}'")
+            else:
+                # Plain source name
+                conditions.append(f"source_name = '{source}'")
 
         # Suppression filter (unless --include-suppressed is set)
         include_suppressed = getattr(args, "include_suppressed", False)

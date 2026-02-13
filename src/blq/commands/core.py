@@ -64,11 +64,16 @@ class EventRef:
     - "5:3" - run_id:event_id (numeric only)
     - "test:5" - tag:run_id (run reference)
     - "test:5:3" - tag:run_id:event_id (full reference)
+    - "+1" - relative: most recent run (any source)
+    - "+2" - relative: second most recent run
+    - "test:+1" - relative: most recent run for tag "test"
+    - "test:+1:3" - relative: event 3 in most recent "test" run
     """
 
-    run_id: int
+    run_id: int | None = None  # None for relative refs until resolved
     event_id: int | None = None  # None means "all events in run"
     tag: str | None = None
+    relative: int | None = None  # +1 = most recent, +2 = second most recent, etc.
 
     @property
     def is_run_ref(self) -> bool:
@@ -76,13 +81,32 @@ class EventRef:
         return self.event_id is None
 
     @property
+    def is_relative(self) -> bool:
+        """True if this is a relative reference (needs resolution)."""
+        return self.relative is not None
+
+    @property
     def run_ref(self) -> str:
         """Get the run reference string (without event_id)."""
+        if self.is_relative:
+            offset_str = f"+{self.relative}"
+            if self.tag:
+                return f"{self.tag}:{offset_str}"
+            return offset_str
         if self.tag:
             return f"{self.tag}:{self.run_id}"
         return str(self.run_id)
 
     def __str__(self) -> str:
+        if self.is_relative:
+            offset_str = f"+{self.relative}"
+            if self.tag:
+                if self.event_id is not None:
+                    return f"{self.tag}:{offset_str}:{self.event_id}"
+                return f"{self.tag}:{offset_str}"
+            if self.event_id is not None:
+                return f"{offset_str}:{self.event_id}"
+            return offset_str
         if self.tag:
             if self.event_id is not None:
                 return f"{self.tag}:{self.run_id}:{self.event_id}"
@@ -100,28 +124,50 @@ class EventRef:
         - "5:3" - run_id:event_id
         - "test:5" - tag:run_id
         - "test:5:3" - tag:run_id:event_id
+        - "+1" - relative: most recent run
+        - "+2" - relative: second most recent run
+        - "test:+1" - relative: most recent run for tag "test"
+        - "test:+1:3" - relative: event 3 in most recent "test" run
         """
         parts = ref.split(":")
 
+        # Helper to check if a part is a relative offset
+        def is_relative_offset(s: str) -> bool:
+            return s.startswith("+") and s[1:].isdigit()
+
+        def parse_relative(s: str) -> int:
+            return int(s[1:])
+
         if len(parts) == 1:
-            # Just a number - run_id only
+            # "+1" or "5"
+            if is_relative_offset(parts[0]):
+                return cls(relative=parse_relative(parts[0]))
             return cls(run_id=int(parts[0]))
 
         elif len(parts) == 2:
-            # Could be "5:3" or "test:5"
+            # Could be "+1:3", "5:3", "test:5", or "test:+1"
+            if is_relative_offset(parts[0]):
+                # "+1:3" - relative with event_id
+                return cls(relative=parse_relative(parts[0]), event_id=int(parts[1]))
             try:
                 run_id = int(parts[0])
                 event_id = int(parts[1])
                 return cls(run_id=run_id, event_id=event_id)
             except ValueError:
-                # First part is a tag
+                # First part is a tag: "test:5" or "test:+1"
                 tag = parts[0]
+                if is_relative_offset(parts[1]):
+                    return cls(tag=tag, relative=parse_relative(parts[1]))
                 run_id = int(parts[1])
                 return cls(run_id=run_id, tag=tag)
 
         elif len(parts) == 3:
-            # "tag:run_id:event_id"
+            # "tag:run_id:event_id" or "tag:+1:event_id"
             tag = parts[0]
+            if is_relative_offset(parts[1]):
+                return cls(
+                    tag=tag, relative=parse_relative(parts[1]), event_id=int(parts[2])
+                )
             run_id = int(parts[1])
             event_id = int(parts[2])
             return cls(run_id=run_id, event_id=event_id, tag=tag)
@@ -129,7 +175,8 @@ class EventRef:
         else:
             raise ValueError(
                 f"Invalid reference: {ref}. "
-                "Expected format: run_id, run_id:event_id, tag:run_id, or tag:run_id:event_id"
+                "Expected format: run_id, run_id:event_id, tag:run_id, tag:run_id:event_id, "
+                "+N (relative), tag:+N, or tag:+N:event_id"
             )
 
 
