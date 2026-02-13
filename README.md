@@ -1,6 +1,6 @@
 # blq - Build Log Query
 
-A CLI tool that turns build output into a queryable database. blq parses 60+ log formats into structured events, stores run history with git context, and provides an MCP server for AI agent integration.
+BLQ (pronounced "bleak") is a CLI tool that turns build output into a queryable database. blq parses 100+ log formats via [duck\_hunt](https://duckdb.org/community_extensions/extensions/duck_hunt) into structured events, stores run history with git context, and provides an MCP server for AI agent integration.
 
 ## Why blq?
 
@@ -83,7 +83,7 @@ Use refs to drill down: `blq inspect build:3:1`, `blq info build:3`
 
 | Feature | Description |
 |---------|-------------|
-| **60+ formats** | GCC, Clang, pytest, mypy, ESLint, TypeScript, Rust, Go, etc. |
+| **100+ formats** | GCC, Clang, pytest, mypy, ESLint, etc. (see [duck\_hunt](https://duckdb.org/community_extensions/extensions/duck_hunt) |
 | **Run history** | Every run with git commit, branch, environment |
 | **Format detection** | Auto-detects format at registration time |
 | **CI integration** | `blq ci check`, `blq ci comment` for PR feedback |
