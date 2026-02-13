@@ -58,12 +58,9 @@ from blq.commands import (
     cmd_filter,
     cmd_formats,
     cmd_history,
-    cmd_hooks_add,
     cmd_hooks_generate,
     cmd_hooks_install,
-    cmd_hooks_list,
     cmd_hooks_remove,
-    cmd_hooks_run,
     cmd_hooks_status,
     cmd_hooks_uninstall,
     cmd_import,
@@ -1018,26 +1015,6 @@ def main() -> None:
         "status", help="Show hook scripts and installation status"
     )
     p_hooks_status.set_defaults(func=cmd_hooks_status)
-
-    # hooks run
-    p_hooks_run = hooks_subparsers.add_parser("run", help="Run pre-commit hook commands")
-    p_hooks_run.add_argument(
-        "commands", nargs="*", help="Commands to run (default: configured pre-commit commands)"
-    )
-    p_hooks_run.set_defaults(func=cmd_hooks_run)
-
-    # hooks add (legacy, for config-based hooks)
-    p_hooks_add = hooks_subparsers.add_parser(
-        "add", help="Add a command to pre-commit config (legacy)"
-    )
-    p_hooks_add.add_argument("command", help="Command name to add")
-    p_hooks_add.set_defaults(func=cmd_hooks_add)
-
-    # hooks list (legacy, for config-based hooks)
-    p_hooks_list = hooks_subparsers.add_parser(
-        "list", help="List commands in pre-commit config (legacy)"
-    )
-    p_hooks_list.set_defaults(func=cmd_hooks_list)
 
     # =========================================================================
     # Watch command

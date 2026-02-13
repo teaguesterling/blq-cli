@@ -531,7 +531,7 @@ class BlqConfig:
         return self.storage_mode == "bird"
 
     @property
-    def commands(self) -> dict:
+    def commands(self) -> dict[str, RegisteredCommand]:
         """Lazy-load commands from commands.toml.
 
         Returns:

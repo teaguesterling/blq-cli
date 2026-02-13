@@ -250,6 +250,11 @@ class WatchController:
             reg_cmd = self._config.commands[cmd_name]
             print(f"[{timestamp}] Running {cmd_name}...")
 
+            # Skip template commands (require parameters)
+            if reg_cmd.cmd is None:
+                print(f"[{timestamp}] Skipping {cmd_name} (template command)")
+                continue
+
             try:
                 result = _execute_command(
                     command=reg_cmd.cmd,

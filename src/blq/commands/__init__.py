@@ -9,12 +9,9 @@ from blq.commands.clean_cmd import cmd_clean
 from blq.commands.events import cmd_context, cmd_event, cmd_inspect
 from blq.commands.execution import cmd_capture, cmd_exec, cmd_import, cmd_run
 from blq.commands.hooks_cmd import (
-    cmd_hooks_add,
     cmd_hooks_generate,
     cmd_hooks_install,
-    cmd_hooks_list,
     cmd_hooks_remove,
-    cmd_hooks_run,
     cmd_hooks_status,
     cmd_hooks_uninstall,
 )
@@ -64,9 +61,6 @@ __all__ = [
     "cmd_hooks_uninstall",
     "cmd_hooks_remove",
     "cmd_hooks_status",
-    "cmd_hooks_run",
-    "cmd_hooks_add",
-    "cmd_hooks_list",
     # Watch
     "cmd_watch",
     # Query

@@ -395,6 +395,9 @@ def _find_matching_registered_command(full_cmd: str) -> tuple[str, list[str]] | 
         normalized_full = _normalize_cmd(full_cmd)
 
         for name, cmd in config.commands.items():
+            # Skip template commands (they don't have a fixed cmd)
+            if cmd.cmd is None:
+                continue
             normalized_registered = _normalize_cmd(cmd.cmd)
 
             # Check if full command starts with registered command
@@ -1731,7 +1734,8 @@ def _register_command_impl(
         # Check for existing command with same name
         if name in commands and not force:
             existing = commands[name]
-            existing_normalized = _normalize_cmd(existing.cmd)
+            # Skip comparison for template commands
+            existing_normalized = _normalize_cmd(existing.cmd) if existing.cmd else ""
 
             if existing_normalized == normalized_cmd:
                 # Same command, just use it
