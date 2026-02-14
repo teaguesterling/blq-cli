@@ -32,6 +32,7 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 from typing import Any
 
 import pandas as pd  # type: ignore[import-untyped]
@@ -257,7 +258,8 @@ def _run_impl(
         timeout: Command timeout in seconds
     """
     # Build command for blq run (registered commands only)
-    cmd_parts = ["blq", "run", "--json", "--quiet"]
+    # Use sys.executable to ensure we use the same Python/venv as the MCP server
+    cmd_parts = [sys.executable, "-m", "blq", "run", "--json", "--quiet"]
     if timeout:
         cmd_parts.extend(["--timeout", str(timeout)])
     cmd_parts.append(command)
@@ -442,7 +444,8 @@ def _exec_impl(
 
     # No match - run as ad-hoc exec
     # Split command into parts since CLI uses REMAINDER parsing
-    cmd_parts = ["blq", "exec", "--json", "--quiet"]
+    # Use sys.executable to ensure we use the same Python/venv as the MCP server
+    cmd_parts = [sys.executable, "-m", "blq", "exec", "--json", "--quiet"]
     if timeout:
         cmd_parts.extend(["--timeout", str(timeout)])
     cmd_parts.extend(shlex.split(command))
@@ -2819,9 +2822,9 @@ def _clean_impl(
             # Full reinitialize
             shutil.rmtree(lq_dir)
 
-            # Run init
+            # Run init (use sys.executable for venv compatibility)
             init_proc = subprocess.run(
-                ["blq", "init"],
+                [sys.executable, "-m", "blq", "init"],
                 capture_output=True,
                 text=True,
                 cwd=lq_dir.parent,
