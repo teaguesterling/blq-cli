@@ -11,6 +11,7 @@ import logging
 import os
 import platform
 import queue
+import signal
 import socket
 import subprocess
 import sys
@@ -18,6 +19,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
+from types import FrameType
 
 from blq.bird import (
     AttemptRecord,
@@ -251,8 +253,26 @@ def _execute_with_live_output(
     # Open live output file for writing
     live_file = open(live_output_path, "w")  # noqa: SIM115
 
-    # Track subprocess PID
-    subprocess_pid: int | None = None
+    # Track subprocess for signal handling
+    process: subprocess.Popen[str] | None = None
+
+    def _cleanup_subprocess(signum: int, frame: FrameType | None) -> None:
+        """Signal handler that terminates subprocess before exiting."""
+        nonlocal process
+        if process is not None and process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+        # Re-raise the signal
+        if signum == signal.SIGINT:
+            raise KeyboardInterrupt
+        else:
+            sys.exit(128 + signum)
 
     # Helper to update PID in background (concurrent DB access)
     def _update_pid_async(pid: int) -> None:
@@ -265,28 +285,31 @@ def _execute_with_live_output(
             # Non-critical - PID is also in live metadata
             pass
 
+    # Register signal handlers to ensure subprocess cleanup
+    original_sigint = signal.signal(signal.SIGINT, _cleanup_subprocess)
+    original_sigterm = signal.signal(signal.SIGTERM, _cleanup_subprocess)
+
     try:
         # Run command, streaming to live file
+        # Use start_new_session to create process group for clean termination
         process = subprocess.Popen(
             command,
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            start_new_session=True,
         )
 
-        # Capture subprocess PID
-        subprocess_pid = process.pid
-
         # Update live metadata with subprocess PID (filesystem, no DB lock)
-        live_meta["pid"] = subprocess_pid
+        live_meta["pid"] = process.pid
         meta_path = live_dir / "meta.json"
         import json as json_module
 
         meta_path.write_text(json_module.dumps(live_meta, default=str, indent=2))
 
         # Update PID in DB concurrently (brief lock, doesn't block subprocess)
-        pid_thread = threading.Thread(target=_update_pid_async, args=(subprocess_pid,), daemon=True)
+        pid_thread = threading.Thread(target=_update_pid_async, args=(process.pid,), daemon=True)
         pid_thread.start()
 
         output_lines: list[str] = []
@@ -355,7 +378,11 @@ def _execute_with_live_output(
                         break
 
             if timed_out:
-                process.kill()
+                # Kill entire process group (handles shell=True properly)
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    process.kill()  # Fallback
                 if not quiet:
                     sys.stdout.write(f"\n[TIMEOUT after {timeout}s]\n")
                     sys.stdout.flush()
@@ -377,6 +404,19 @@ def _execute_with_live_output(
 
     finally:
         live_file.close()
+        # Restore original signal handlers
+        signal.signal(signal.SIGINT, original_sigint)
+        signal.signal(signal.SIGTERM, original_sigterm)
+        # Ensure subprocess is terminated if still running
+        if process is not None and process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
 
     completed_at = datetime.now()
     duration_ms = int((completed_at - started_at).total_seconds() * 1000)
@@ -414,7 +454,7 @@ def _execute_with_live_output(
             executable=executable_path,
             format_hint=format_hint if format_hint != "auto" else None,
             hostname=hostname,
-            pid=subprocess_pid,
+            pid=process.pid if process else None,
             tag=source_name,
             source_name=source_name,
             source_type=source_type,
@@ -581,96 +621,140 @@ def _execute_command(
     if timeout:
         logger.debug(f"Timeout: {timeout}s")
 
-    # Run command, capturing output with timeout support
-    process = subprocess.Popen(
-        command,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
+    # Track subprocess for signal handling
+    process: subprocess.Popen[str] | None = None
 
-    output_lines: list[str] = []
-    timed_out = False
-    assert process.stdout is not None  # stdout=PIPE ensures this
-
-    if timeout is None:
-        # No timeout - simple synchronous read
-        for line in process.stdout:
-            if not quiet:
-                sys.stdout.write(line)
-                sys.stdout.flush()
-            output_lines.append(line)
-        exit_code = process.wait()
-    else:
-        # Timeout enabled - use threading to read output while monitoring time
-        output_queue: queue.Queue[str | None] = queue.Queue()
-
-        def read_output() -> None:
-            """Read output lines and put them in queue."""
+    def _cleanup_subprocess(signum: int, frame: FrameType | None) -> None:
+        """Signal handler that terminates subprocess before exiting."""
+        nonlocal process
+        if process is not None and process.poll() is None:
             try:
-                assert process.stdout is not None
-                for line in process.stdout:
-                    output_queue.put(line)
-            finally:
-                output_queue.put(None)  # Signal done
-
-        reader_thread = threading.Thread(target=read_output, daemon=True)
-        reader_thread.start()
-
-        deadline = time.monotonic() + timeout
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                timed_out = True
-                break
-
-            try:
-                queue_line = output_queue.get(timeout=min(remaining, 0.5))
-                if queue_line is None:  # Reader finished
-                    break
-                if not quiet:
-                    sys.stdout.write(queue_line)
-                    sys.stdout.flush()
-                output_lines.append(queue_line)
-            except queue.Empty:
-                # Check if process has finished
-                if process.poll() is not None:
-                    # Drain remaining output
-                    while True:
-                        try:
-                            drain_line = output_queue.get_nowait()
-                            if drain_line is None:
-                                break
-                            if not quiet:
-                                sys.stdout.write(drain_line)
-                                sys.stdout.flush()
-                            output_lines.append(drain_line)
-                        except queue.Empty:
-                            break
-                    break
-
-        if timed_out:
-            # Kill the process and drain any remaining output
-            process.kill()
-            if not quiet:
-                sys.stdout.write(f"\n[TIMEOUT after {timeout}s]\n")
-                sys.stdout.flush()
-            # Give reader thread a moment to finish
-            reader_thread.join(timeout=1.0)
-            # Drain any remaining output that was captured
-            while True:
+                os.killpg(process.pid, signal.SIGTERM)
                 try:
-                    timeout_line = output_queue.get_nowait()
-                    if timeout_line is None:
-                        break
-                    output_lines.append(timeout_line)
-                except queue.Empty:
-                    break
-            exit_code = -1  # Indicate timeout
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+        if signum == signal.SIGINT:
+            raise KeyboardInterrupt
         else:
+            sys.exit(128 + signum)
+
+    # Register signal handlers
+    original_sigint = signal.signal(signal.SIGINT, _cleanup_subprocess)
+    original_sigterm = signal.signal(signal.SIGTERM, _cleanup_subprocess)
+
+    try:
+        # Run command, capturing output with timeout support
+        # Use start_new_session to create process group for clean termination
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            start_new_session=True,
+        )
+
+        output_lines: list[str] = []
+        timed_out = False
+        assert process.stdout is not None  # stdout=PIPE ensures this
+
+        if timeout is None:
+            # No timeout - simple synchronous read
+            for line in process.stdout:
+                if not quiet:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                output_lines.append(line)
             exit_code = process.wait()
-            reader_thread.join(timeout=1.0)
+        else:
+            # Timeout enabled - use threading to read output while monitoring time
+            output_queue: queue.Queue[str | None] = queue.Queue()
+
+            def read_output() -> None:
+                """Read output lines and put them in queue."""
+                try:
+                    assert process.stdout is not None
+                    for line in process.stdout:
+                        output_queue.put(line)
+                finally:
+                    output_queue.put(None)  # Signal done
+
+            reader_thread = threading.Thread(target=read_output, daemon=True)
+            reader_thread.start()
+
+            deadline = time.monotonic() + timeout
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+
+                try:
+                    queue_line = output_queue.get(timeout=min(remaining, 0.5))
+                    if queue_line is None:  # Reader finished
+                        break
+                    if not quiet:
+                        sys.stdout.write(queue_line)
+                        sys.stdout.flush()
+                    output_lines.append(queue_line)
+                except queue.Empty:
+                    # Check if process has finished
+                    if process.poll() is not None:
+                        # Drain remaining output
+                        while True:
+                            try:
+                                drain_line = output_queue.get_nowait()
+                                if drain_line is None:
+                                    break
+                                if not quiet:
+                                    sys.stdout.write(drain_line)
+                                    sys.stdout.flush()
+                                output_lines.append(drain_line)
+                            except queue.Empty:
+                                break
+                        break
+
+            if timed_out:
+                # Kill entire process group (handles shell=True properly)
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    process.kill()  # Fallback
+                if not quiet:
+                    sys.stdout.write(f"\n[TIMEOUT after {timeout}s]\n")
+                    sys.stdout.flush()
+                # Give reader thread a moment to finish
+                reader_thread.join(timeout=1.0)
+                # Drain any remaining output that was captured
+                while True:
+                    try:
+                        timeout_line = output_queue.get_nowait()
+                        if timeout_line is None:
+                            break
+                        output_lines.append(timeout_line)
+                    except queue.Empty:
+                        break
+                exit_code = -1  # Indicate timeout
+            else:
+                exit_code = process.wait()
+                reader_thread.join(timeout=1.0)
+    finally:
+        # Restore original signal handlers
+        signal.signal(signal.SIGINT, original_sigint)
+        signal.signal(signal.SIGTERM, original_sigterm)
+        # Ensure subprocess is terminated if still running
+        if process is not None and process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
 
     completed_at = datetime.now()
     output = "".join(output_lines)
@@ -887,21 +971,62 @@ def _run_no_capture(command: str, quiet: bool = False) -> int:
     """
     started_at = datetime.now()
 
-    process = subprocess.Popen(
-        command,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
+    # Track subprocess for signal handling
+    process: subprocess.Popen[str] | None = None
 
-    assert process.stdout is not None  # stdout=PIPE ensures this
-    for line in process.stdout:
-        if not quiet:
-            sys.stdout.write(line)
-            sys.stdout.flush()
+    def _cleanup_subprocess(signum: int, frame: FrameType | None) -> None:
+        """Signal handler that terminates subprocess before exiting."""
+        nonlocal process
+        if process is not None and process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+        if signum == signal.SIGINT:
+            raise KeyboardInterrupt
+        else:
+            sys.exit(128 + signum)
 
-    exit_code = process.wait()
+    # Register signal handlers
+    original_sigint = signal.signal(signal.SIGINT, _cleanup_subprocess)
+    original_sigterm = signal.signal(signal.SIGTERM, _cleanup_subprocess)
+
+    try:
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            start_new_session=True,
+        )
+
+        assert process.stdout is not None  # stdout=PIPE ensures this
+        for line in process.stdout:
+            if not quiet:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+
+        exit_code = process.wait()
+    finally:
+        # Restore original signal handlers
+        signal.signal(signal.SIGINT, original_sigint)
+        signal.signal(signal.SIGTERM, original_sigterm)
+        # Ensure subprocess is terminated if still running
+        if process is not None and process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+
     duration_sec = (datetime.now() - started_at).total_seconds()
     logger.debug(f"Completed in {duration_sec:.1f}s (exit code {exit_code})")
     return exit_code
