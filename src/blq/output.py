@@ -134,7 +134,7 @@ class Column:
 
 # Standard column definitions for different data types
 HISTORY_COLUMNS = [
-    Column("run_ref", "  Ref", min_width=6, max_width=18, priority=0, truncate=False),
+    Column("run_ref", "· Ref", min_width=6, max_width=18, priority=0, truncate=False),
     Column("counts", "E/W", min_width=3, max_width=7, align="right", priority=0),
     Column("when", "When", min_width=6, max_width=10, priority=1),
     Column("git_ref", "Git", min_width=10, max_width=20, priority=2),
