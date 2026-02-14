@@ -58,6 +58,7 @@ def resolve_ref(ref: EventRef, store: BlqStorage | BirdStore) -> EventRef:
         conn = store.connection
 
     # Build query based on whether we have a tag filter
+    assert ref.relative is not None  # Guaranteed by is_relative check above
     offset = ref.relative - 1  # +1 means offset 0 (most recent)
 
     if ref.tag:

@@ -89,6 +89,12 @@ def cmd_event(args: argparse.Namespace) -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+    if ref.is_relative:
+        print(f"Error: Relative refs not supported here. Use absolute ref.", file=sys.stderr)
+        sys.exit(1)
+
+    assert ref.run_id is not None  # Guaranteed: not relative
+
     try:
         store = BlqStorage.open(config.lq_dir)
 
@@ -161,6 +167,12 @@ def cmd_context(args: argparse.Namespace) -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+    if ref.is_relative:
+        print(f"Error: Relative refs not supported here. Use absolute ref.", file=sys.stderr)
+        sys.exit(1)
+
+    assert ref.run_id is not None  # Guaranteed: not relative
+
     # Require event reference, not run reference
     if ref.event_id is None:
         print("Error: context requires an event reference (e.g., test:24:1)", file=sys.stderr)
@@ -227,6 +239,12 @@ def cmd_inspect(args: argparse.Namespace) -> None:
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
+
+    if ref.is_relative:
+        print(f"Error: Relative refs not supported here. Use absolute ref.", file=sys.stderr)
+        sys.exit(1)
+
+    assert ref.run_id is not None  # Guaranteed: not relative
 
     # Require event reference, not run reference
     if ref.is_run_ref or ref.event_id is None:
@@ -362,6 +380,9 @@ def _get_log_context(
     context_lines: int,
 ) -> str | None:
     """Get log context for an event."""
+    if ref.run_id is None:
+        return None  # Can't get context for unresolved relative refs
+
     log_line_start = event.get("log_line_start")
     log_line_end = event.get("log_line_end") or log_line_start
 

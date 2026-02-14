@@ -134,7 +134,7 @@ class Column:
 
 # Standard column definitions for different data types
 HISTORY_COLUMNS = [
-    Column("run_ref", "Ref", min_width=6, max_width=18, priority=0, truncate=False),
+    Column("run_ref", "  Ref", min_width=6, max_width=18, priority=0, truncate=False),
     Column("counts", "E/W", min_width=3, max_width=7, align="right", priority=0),
     Column("when", "When", min_width=6, max_width=10, priority=1),
     Column("git_ref", "Git", min_width=10, max_width=20, priority=2),
@@ -458,13 +458,15 @@ def format_history(
         else:
             base_ref = str(run_id)
 
-        # Add status prefix: ▶ running, ✗ failed, (space) success
+        # Add status prefix: ▶ running, ⊘ orphaned, ✗ failed, (space) success
         status = row.get("status")
         errors = row.get("error_count") or 0
         exit_code = row.get("exit_code")
 
         if status == "pending":
             new_row["run_ref"] = f"▶ {base_ref}"
+        elif status == "orphaned":
+            new_row["run_ref"] = f"⊘ {base_ref}"
         elif errors > 0 or (exit_code is not None and exit_code != 0):
             new_row["run_ref"] = f"✗ {base_ref}"
         else:
@@ -479,6 +481,12 @@ def format_history(
             # Show … until events are detected, then show actual counts
             if errors == 0 and warnings == 0:
                 new_row["counts"] = "…"
+            else:
+                new_row["counts"] = f"{errors}/{warnings}"
+        elif status == "orphaned":
+            # Orphaned runs never completed - show ? or partial counts
+            if errors == 0 and warnings == 0:
+                new_row["counts"] = "?"
             else:
                 new_row["counts"] = f"{errors}/{warnings}"
         elif errors == 0 and warnings == 0:

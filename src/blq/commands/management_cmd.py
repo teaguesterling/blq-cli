@@ -66,6 +66,14 @@ def cmd_commands_config(args: argparse.Namespace) -> None:
                         )
                         continue
 
+                    if ref.run_id is None:
+                        print(
+                            f"Warning: '{ref_str}' is a relative ref. "
+                            f"Use absolute ref like build:5:1",
+                            file=sys.stderr,
+                        )
+                        continue
+
                     # Get the event
                     event = store.event(ref.run_id, ref.event_id)
                     if event is None:
