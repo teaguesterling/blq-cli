@@ -21,11 +21,12 @@ def cmd_clean(args: argparse.Namespace) -> None:
     mode = getattr(args, "clean_command", None)
 
     if mode is None:
-        print("Usage: blq clean <data|prune|schema|full>", file=sys.stderr)
+        print("Usage: blq clean <data|prune|orphans|schema|full>", file=sys.stderr)
         print("", file=sys.stderr)
         print("Modes:", file=sys.stderr)
         print("  data    Clear run data, keep config and commands", file=sys.stderr)
         print("  prune   Remove data older than N days", file=sys.stderr)
+        print("  orphans Mark stale pending runs as orphaned", file=sys.stderr)
         print("  schema  Recreate database schema", file=sys.stderr)
         print("  full    Delete and recreate .lq directory", file=sys.stderr)
         sys.exit(1)
@@ -40,6 +41,10 @@ def cmd_clean(args: argparse.Namespace) -> None:
         days = args.days
         dry_run = getattr(args, "dry_run", False)
         _clean_prune(lq_dir, days, confirm, dry_run)
+    elif mode == "orphans":
+        dry_run = getattr(args, "dry_run", False)
+        min_age = getattr(args, "min_age", 60)
+        _clean_orphans(lq_dir, min_age, dry_run)
     elif mode == "schema":
         _clean_schema(lq_dir, confirm)
     elif mode == "full":
@@ -172,6 +177,47 @@ def _clean_prune(lq_dir: Path, days: int, confirm: bool, dry_run: bool) -> None:
         mb_freed = bytes_freed / (1024 * 1024)
         msg += f" Freed {blobs_deleted} blobs ({mb_freed:.1f} MB)."
     print(msg)
+
+
+def _clean_orphans(lq_dir: Path, min_age: int, dry_run: bool) -> None:
+    """Mark stale pending runs as orphaned.
+
+    A pending run is considered stale if:
+    1. It has no outcome record (status=pending)
+    2. Its process (PID) is no longer running
+    3. It started more than min_age seconds ago
+    """
+    from blq.bird import BirdStore
+
+    store = BirdStore.open(lq_dir)
+
+    # Find stale pending attempts
+    stale = store.get_stale_pending_attempts(min_age_seconds=float(min_age))
+
+    if not stale:
+        print("No stale pending runs found.")
+        store.close()
+        return
+
+    print(f"Found {len(stale)} stale pending run(s):")
+    for attempt in stale:
+        age_mins = (attempt["age_seconds"] or 0) / 60
+        attempt_id = str(attempt["id"])
+        print(
+            f"  {attempt_id[:8]}... ({attempt['source_name']}) "
+            f"- started {age_mins:.0f}m ago, PID {attempt['pid']}"
+        )
+
+    if dry_run:
+        print("\nDry run - no changes made.")
+        store.close()
+        return
+
+    # Mark them as orphaned
+    orphaned = store.mark_stale_as_orphaned(min_age_seconds=float(min_age))
+    store.close()
+
+    print(f"\nMarked {len(orphaned)} run(s) as orphaned.")
 
 
 def _clean_schema(lq_dir: Path, confirm: bool) -> None:

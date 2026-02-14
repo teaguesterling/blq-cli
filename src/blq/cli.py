@@ -822,6 +822,20 @@ def main() -> None:
         "--dry-run", "-n", action="store_true", help="Show what would be removed without removing"
     )
 
+    # clean orphans - mark stale pending runs as orphaned
+    p_clean_orphans = clean_subparsers.add_parser(
+        "orphans", help="Mark stale pending runs as orphaned"
+    )
+    p_clean_orphans.add_argument(
+        "--min-age",
+        type=int,
+        default=60,
+        help="Minimum age in seconds before considering stale (default: 60)",
+    )
+    p_clean_orphans.add_argument(
+        "--dry-run", "-n", action="store_true", help="Show stale runs without marking them"
+    )
+
     # clean schema - recreate database schema
     p_clean_schema = clean_subparsers.add_parser("schema", help="Recreate database schema")
     p_clean_schema.add_argument(

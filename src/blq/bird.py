@@ -915,6 +915,118 @@ class BirdStore:
 
         return results
 
+    def is_pid_running(self, pid: int | None) -> bool:
+        """Check if a process is still running.
+
+        Args:
+            pid: Process ID to check (returns False if None)
+
+        Returns:
+            True if process exists and is running
+        """
+        if pid is None:
+            return False
+        try:
+            os.kill(pid, 0)  # Signal 0 checks existence without killing
+            return True
+        except ProcessLookupError:
+            return False  # Process doesn't exist
+        except PermissionError:
+            return True  # Process exists but we can't signal it
+
+    def get_stale_pending_attempts(self, min_age_seconds: float = 60.0) -> list[dict]:
+        """Get pending attempts that are stale (process no longer running).
+
+        An attempt is considered stale if:
+        1. It has no outcome record (pending)
+        2. Its PID is no longer running
+        3. It started more than min_age_seconds ago (to avoid race conditions)
+
+        Args:
+            min_age_seconds: Minimum age in seconds before considering stale
+
+        Returns:
+            List of stale attempt dicts with id, timestamp, pid, source_name
+        """
+        # Query pending attempts with PIDs
+        result = self._conn.execute(
+            """
+            SELECT
+                a.id,
+                a.timestamp,
+                a.pid,
+                a.source_name,
+                a.cmd,
+                EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - a.timestamp)) AS age_seconds
+            FROM attempts a
+            WHERE NOT EXISTS (SELECT 1 FROM outcomes o WHERE o.attempt_id = a.id)
+            ORDER BY a.timestamp DESC
+            """
+        ).fetchall()
+
+        columns = ["id", "timestamp", "pid", "source_name", "cmd", "age_seconds"]
+        stale = []
+
+        for row in result:
+            attempt = dict(zip(columns, row))
+            age = attempt["age_seconds"] or 0
+
+            # Only check attempts older than min_age_seconds
+            if age < min_age_seconds:
+                continue
+
+            # Check if PID is still running
+            pid = attempt["pid"]
+            if not self.is_pid_running(pid):
+                stale.append(attempt)
+
+        return stale
+
+    def mark_stale_as_orphaned(self, min_age_seconds: float = 60.0) -> list[str]:
+        """Mark stale pending attempts as orphaned.
+
+        Creates outcome records with exit_code=NULL for stale attempts
+        and cleans up their live directories.
+
+        Args:
+            min_age_seconds: Minimum age in seconds before considering stale
+
+        Returns:
+            List of attempt IDs that were marked as orphaned
+        """
+        stale = self.get_stale_pending_attempts(min_age_seconds)
+        orphaned_ids = []
+
+        for attempt in stale:
+            attempt_id = str(attempt["id"])  # Convert UUID to string
+            started_at = attempt["timestamp"]
+
+            # Create orphan outcome record
+            outcome = OutcomeRecord(
+                attempt_id=attempt_id,
+                exit_code=None,  # NULL = orphaned/unknown
+                completed_at=datetime.now(),
+                duration_ms=int((attempt["age_seconds"] or 0) * 1000),
+            )
+            self.write_outcome(outcome)
+
+            # Finalize any live output before cleanup
+            try:
+                self.finalize_live_output(attempt_id, "combined")
+            except Exception:
+                pass  # Best effort
+
+            # Clean up live directory
+            self.cleanup_live_dir(attempt_id)
+
+            orphaned_ids.append(attempt_id)
+            logger.info(
+                f"Marked stale attempt {attempt_id[:8]}... "
+                f"({attempt['source_name']}) as orphaned"
+            )
+
+        return orphaned_ids
+
     def finalize_live_output(
         self,
         attempt_id: str,
