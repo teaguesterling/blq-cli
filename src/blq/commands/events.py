@@ -90,7 +90,7 @@ def cmd_event(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     if ref.is_relative:
-        print(f"Error: Relative refs not supported here. Use absolute ref.", file=sys.stderr)
+        print("Error: Relative refs not supported here. Use absolute ref.", file=sys.stderr)
         sys.exit(1)
 
     assert ref.run_id is not None  # Guaranteed: not relative
@@ -168,7 +168,7 @@ def cmd_context(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     if ref.is_relative:
-        print(f"Error: Relative refs not supported here. Use absolute ref.", file=sys.stderr)
+        print("Error: Relative refs not supported here. Use absolute ref.", file=sys.stderr)
         sys.exit(1)
 
     assert ref.run_id is not None  # Guaranteed: not relative
@@ -241,7 +241,7 @@ def cmd_inspect(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     if ref.is_relative:
-        print(f"Error: Relative refs not supported here. Use absolute ref.", file=sys.stderr)
+        print("Error: Relative refs not supported here. Use absolute ref.", file=sys.stderr)
         sys.exit(1)
 
     assert ref.run_id is not None  # Guaranteed: not relative

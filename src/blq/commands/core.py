@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import duckdb
-import pandas as pd  # type: ignore[import-untyped]
 
 from blq.config_format import (
     COMMANDS_FILE,
@@ -32,7 +31,7 @@ from blq.config_format import (
 from blq.git import GitInfo, capture_git_info  # noqa: F401
 
 if TYPE_CHECKING:
-    pass
+    import pandas as pd  # type: ignore[import-untyped]
 
 # ============================================================================
 # Configuration
@@ -1818,6 +1817,8 @@ def write_run_parquet(
         enriched_events.append(enriched)
 
     # Write using DuckDB relation API with explicit type casting
+    import pandas as pd  # type: ignore[import-untyped]  # Lazy import
+
     conn = duckdb.connect(":memory:")
     df = pd.DataFrame(enriched_events, columns=PARQUET_SCHEMA_COLUMNS)
 

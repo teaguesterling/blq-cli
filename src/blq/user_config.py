@@ -117,15 +117,14 @@ class UserConfig:
     def mcp_available(cls) -> bool:
         """Check if fastmcp is installed.
 
-        Returns:
-            True if fastmcp can be imported
-        """
-        try:
-            import fastmcp  # noqa: F401
+        Uses importlib.util.find_spec for fast lookup without importing.
 
-            return True
-        except ImportError:
-            return False
+        Returns:
+            True if fastmcp is installed
+        """
+        import importlib.util
+
+        return importlib.util.find_spec("fastmcp") is not None
 
     @classmethod
     def load(cls) -> UserConfig:
