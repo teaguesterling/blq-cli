@@ -331,6 +331,13 @@ def main() -> None:
         metavar="SECONDS",
         help="Timeout in seconds (default: from command config, or no timeout)",
     )
+    p_run.add_argument(
+        "--compact",
+        choices=["never", "always", "adaptive"],
+        default="adaptive",
+        help="Output mode: never (always show events), always (show raw output), "
+        "adaptive (show raw if shorter than events). Default: adaptive",
+    )
     p_run.set_defaults(func=cmd_run)
     # Capture control: runtime flags override command config
     capture_group = p_run.add_mutually_exclusive_group()
@@ -387,6 +394,13 @@ def main() -> None:
         "-N",
         action="store_true",
         help="Skip log capture, just run command",
+    )
+    p_exec.add_argument(
+        "--compact",
+        choices=["never", "always", "adaptive"],
+        default="adaptive",
+        help="Output mode: never (always show events), always (show raw output), "
+        "adaptive (show raw if shorter than events). Default: adaptive",
     )
     p_exec.set_defaults(func=cmd_exec)
 

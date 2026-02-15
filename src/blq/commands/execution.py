@@ -53,6 +53,7 @@ def _print_run_summary(
     source_name: str,
     show_events: bool = True,
     max_events: int = 10,
+    compact: str = "adaptive",
 ) -> None:
     """Print a formatted run summary to stderr.
 
@@ -61,6 +62,8 @@ def _print_run_summary(
         source_name: Name of the source (e.g., "test-all")
         show_events: Whether to show individual events
         max_events: Maximum number of events to show
+        compact: Output mode - "never" (always show events), "always" (always show
+                 raw output), or "adaptive" (show raw if shorter than events)
     """
     # Status indicators
     status_icons = {
@@ -90,7 +93,44 @@ def _print_run_summary(
         file=sys.stderr,
     )
 
-    # Print events if requested and there are any
+    # Determine if we should use compact mode (show raw output instead of events)
+    use_compact = False
+    if compact == "always":
+        use_compact = True
+    elif compact == "adaptive" and show_events and (result.errors or result.warnings):
+        # Calculate how many lines the events output would take
+        events = result.errors[:max_events]
+        if result.warnings and len(events) < max_events:
+            events.extend(result.warnings[: max_events - len(events)])
+        events_line_count = len(events)
+        remaining = error_count + warning_count - len(events)
+        if remaining > 0:
+            events_line_count += 1  # "... and N more" line
+
+        # Get raw output line count
+        raw_lines_val = result.output_stats.get("lines", 0) if result.output_stats else 0
+        raw_line_count = raw_lines_val if isinstance(raw_lines_val, int) else 0
+
+        # Use compact if events would take more lines than raw output
+        if raw_line_count > 0 and events_line_count > raw_line_count:
+            use_compact = True
+
+    # Compact mode: show raw output tail + summary
+    if use_compact and result.output_stats:
+        tail_val = result.output_stats.get("tail", [])
+        tail: list[str] = tail_val if isinstance(tail_val, list) else []
+        if tail:
+            print("  -- output --", file=sys.stderr)
+            for line in tail:
+                print(f"  {line}", file=sys.stderr)
+            lines_val = result.output_stats.get("lines", 0)
+            total_lines = lines_val if isinstance(lines_val, int) else 0
+            if total_lines > len(tail):
+                print(f"  ... ({total_lines} total lines)", file=sys.stderr)
+        print(file=sys.stderr)  # Blank line after summary
+        return
+
+    # Normal mode: print individual events
     if show_events and (result.errors or result.warnings):
         events = result.errors[:max_events]
         if result.warnings and len(events) < max_events:
@@ -1176,6 +1216,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     )
 
     # Output based on format
+    compact = getattr(args, "compact", "adaptive")
     if args.json:
         print(result.to_json(include_warnings=args.include_warnings))
     elif args.markdown:
@@ -1183,7 +1224,9 @@ def cmd_run(args: argparse.Namespace) -> None:
     else:
         # Show summary only in verbose mode
         if verbose:
-            _print_run_summary(result, source_name, show_events=True, max_events=10)
+            _print_run_summary(
+                result, source_name, show_events=True, max_events=10, compact=compact
+            )
 
     # Check if auto-prune should run
     _maybe_auto_prune(config, user_config)
@@ -1296,6 +1339,7 @@ def cmd_exec(args: argparse.Namespace) -> None:
     )
 
     # Output based on format
+    compact = getattr(args, "compact", "adaptive")
     if args.json:
         print(result.to_json(include_warnings=args.include_warnings))
     elif args.markdown:
@@ -1303,7 +1347,9 @@ def cmd_exec(args: argparse.Namespace) -> None:
     else:
         # Show summary only in verbose mode
         if verbose:
-            _print_run_summary(result, source_name, show_events=True, max_events=10)
+            _print_run_summary(
+                result, source_name, show_events=True, max_events=10, compact=compact
+            )
 
     # Check if auto-prune should run
     _maybe_auto_prune(config, user_config)
