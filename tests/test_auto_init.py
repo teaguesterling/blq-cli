@@ -194,6 +194,43 @@ class TestInitWithAutoMcp:
 
         assert (chdir_temp / ".mcp.json").exists()
 
+    def test_mcp_config_has_correct_command(self, chdir_temp):
+        """Init creates .mcp.json with correct 'blq mcp serve' command."""
+        import json
+
+        from blq.commands.init_cmd import cmd_init
+        from blq.user_config import UserConfig
+
+        with patch.object(
+            UserConfig, "load", return_value=UserConfig(auto_mcp=True, auto_gitignore=False)
+        ):
+            args = argparse.Namespace(
+                mcp=True,
+                no_mcp=False,
+                detect=False,
+                detect_mode="none",
+                yes=False,
+                force=False,
+                parquet=False,
+                namespace=None,
+                project=None,
+                gitignore=None,
+            )
+
+            cmd_init(args)
+
+        mcp_path = chdir_temp / ".mcp.json"
+        assert mcp_path.exists()
+
+        config = json.loads(mcp_path.read_text())
+        assert "mcpServers" in config
+        assert "blq" in config["mcpServers"]
+
+        blq_config = config["mcpServers"]["blq"]
+        assert blq_config["command"] == "blq"
+        # Must be ["mcp", "serve"], not just ["serve"]
+        assert blq_config["args"] == ["mcp", "serve"]
+
 
 class TestInitGitignoreConfig:
     """Tests for gitignore handling with user config."""

@@ -999,7 +999,6 @@ class BirdStore:
 
         for attempt in stale:
             attempt_id = str(attempt["id"])  # Convert UUID to string
-            started_at = attempt["timestamp"]
 
             # Create orphan outcome record
             outcome = OutcomeRecord(

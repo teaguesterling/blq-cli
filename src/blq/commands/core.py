@@ -31,7 +31,7 @@ from blq.config_format import (
 from blq.git import GitInfo, capture_git_info  # noqa: F401
 
 if TYPE_CHECKING:
-    import pandas as pd  # type: ignore[import-untyped]
+    pass
 
 # ============================================================================
 # Configuration
@@ -1792,56 +1792,64 @@ def write_run_parquet(
     filename = f"{run_id:03d}_{safe_name}_{time_str}.parquet"
     filepath = partition_dir / filename
 
-    # Columns that should be stored as MAP(VARCHAR, VARCHAR)
-    map_columns = {"environment", "ci"}
+    def sql_escape(val: Any, sql_type: str) -> str:
+        """Escape a value for SQL VALUES clause with proper type casting."""
+        is_map = sql_type.startswith("MAP")
 
-    def dict_to_map_entries(d: dict | None) -> list | None:
-        """Convert dict to list of {key, value} structs for DuckDB MAP creation."""
-        if d is None:
-            return None
-        return [{"key": str(k), "value": str(v)} for k, v in d.items()]
+        if val is None:
+            # NULL with explicit type for MAPs to ensure consistent schema
+            return f"NULL::{sql_type}" if is_map else "NULL"
+        if isinstance(val, bool):
+            return "TRUE" if val else "FALSE"
+        if isinstance(val, (int, float)):
+            return str(val)
+        if isinstance(val, str):
+            # Escape single quotes by doubling them
+            return "'" + val.replace("'", "''") + "'"
+        if isinstance(val, dict):
+            # Convert dict to MAP(keys, values) syntax
+            if not val:
+                return f"MAP([], [])::{sql_type}"
+            keys = ", ".join(sql_escape(str(k), "VARCHAR") for k in val.keys())
+            vals = ", ".join(sql_escape(str(v), "VARCHAR") for v in val.values())
+            return f"MAP([{keys}], [{vals}])"
+        if isinstance(val, list):
+            # Lists should have been converted to dicts for MAP columns
+            return f"MAP([], [])::{sql_type}" if is_map else "NULL"
+        return sql_escape(str(val), "VARCHAR")
 
-    # Build enriched events with all schema columns
-    enriched_events = []
+    # Build schema lookup for type info
+    schema_types = {col: sql_type for col, sql_type in PARQUET_SCHEMA}
+
+    # Build VALUES rows
+    value_rows = []
     for event in events or [{}]:
-        # Merge run metadata and event data (run_meta first, then event overrides)
+        # Merge run metadata and event data
         merged = {**run_meta, **event}
-        # Build row with all columns in canonical order (None for missing)
-        enriched = {}
+        # Build row with all columns in schema order
+        vals = []
         for col in PARQUET_SCHEMA_COLUMNS:
             val = merged.get(col)
-            # Convert dict columns to list format for MAP
-            if col in map_columns and isinstance(val, dict):
-                val = dict_to_map_entries(val)
-            enriched[col] = val
-        enriched_events.append(enriched)
+            sql_type = schema_types[col]
+            vals.append(sql_escape(val, sql_type))
+        value_rows.append("(" + ", ".join(vals) + ")")
 
-    # Write using DuckDB relation API with explicit type casting
-    import pandas as pd  # type: ignore[import-untyped]  # Lazy import
+    # Build full SQL query with VALUES and projections
+    values_clause = ", ".join(value_rows)
+    col_names = ", ".join(PARQUET_SCHEMA_COLUMNS)
 
-    conn = duckdb.connect(":memory:")
-    df = pd.DataFrame(enriched_events, columns=PARQUET_SCHEMA_COLUMNS)
-
-    # Create relation from dataframe
-    rel = conn.from_df(df)
-
-    # Build projection expressions with explicit type casts
-    # This ensures consistent schema even when values are NULL
+    # Build projections with explicit casts for type consistency
     projections = []
     for col, sql_type in PARQUET_SCHEMA:
-        if col in map_columns:
-            # MAP columns need map_from_entries conversion
-            projections.append(f"map_from_entries({col})::MAP(VARCHAR, VARCHAR) AS {col}")
-        else:
-            # Cast all other columns to their explicit types
-            projections.append(f"{col}::{sql_type} AS {col}")
+        projections.append(f"{col}::{sql_type} AS {col}")
+    proj_clause = ", ".join(projections)
 
-    # Apply projection and write to parquet with zstd compression
-    # zstd level 3 provides ~15% better compression than snappy with minimal overhead
-    typed_rel = rel.project(", ".join(projections))
-    conn.register("_write_temp", typed_rel)
+    conn = duckdb.connect(":memory:")
     conn.execute(f"""
-        COPY _write_temp TO '{filepath}'
+        COPY (
+            SELECT {proj_clause}
+            FROM (VALUES {values_clause}) AS t({col_names})
+        ) TO '{filepath}'
         (FORMAT PARQUET, COMPRESSION 'zstd', COMPRESSION_LEVEL 3)
     """)
     conn.close()

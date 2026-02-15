@@ -51,7 +51,7 @@ MCP_CONFIG_TEMPLATE = """{
   "mcpServers": {
     "blq": {
       "command": "blq",
-      "args": ["serve"]
+      "args": ["mcp", "serve"]
     }
   }
 }
