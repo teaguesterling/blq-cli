@@ -1711,9 +1711,28 @@ def _normalize_cmd(cmd: str) -> str:
     return " ".join(cmd.split())
 
 
+def _command_to_dict(cmd: Any) -> dict[str, Any]:
+    """Convert RegisteredCommand to dict for JSON response."""
+    result: dict[str, Any] = {
+        "name": cmd.name,
+        "description": cmd.description,
+        "timeout": cmd.timeout,
+        "capture": cmd.capture,
+        "format": cmd.format,
+    }
+    if cmd.tpl:
+        result["tpl"] = cmd.tpl
+        result["defaults"] = cmd.defaults
+    else:
+        result["cmd"] = cmd.cmd
+    return result
+
+
 def _register_command_impl(
     name: str,
-    cmd: str,
+    cmd: str | None = None,
+    tpl: str | None = None,
+    defaults: dict[str, str] | None = None,
     description: str = "",
     timeout: int | None = None,
     capture: bool = True,
@@ -1726,34 +1745,47 @@ def _register_command_impl(
         from blq.cli import BlqConfig, RegisteredCommand
         from blq.commands.core import detect_format_from_command
 
+        # Validate: must have cmd or tpl, not both
+        if cmd and tpl:
+            return {
+                "success": False,
+                "error": "Provide either 'cmd' (simple command) or 'tpl' (template), not both.",
+            }
+        if not cmd and not tpl:
+            return {
+                "success": False,
+                "error": "Must provide either 'cmd' (simple command) or 'tpl' (template command).",
+            }
+
         config = BlqConfig.find()
 
         if config is None:
             return {"success": False, "error": "No lq repository found. Run 'blq init' first."}
 
         commands = config.commands
-        normalized_cmd = _normalize_cmd(cmd)
+        is_template = tpl is not None
+        command_str = tpl if is_template else cmd
+        normalized_cmd = _normalize_cmd(command_str) if command_str else ""
 
         # Check for existing command with same name
         if name in commands and not force:
             existing = commands[name]
-            # Skip comparison for template commands
-            existing_normalized = _normalize_cmd(existing.cmd) if existing.cmd else ""
+            # Compare based on command type
+            if existing.tpl:
+                existing_normalized = _normalize_cmd(existing.tpl)
+                existing_is_template = True
+            else:
+                existing_normalized = _normalize_cmd(existing.cmd) if existing.cmd else ""
+                existing_is_template = False
 
-            if existing_normalized == normalized_cmd:
+            # Same command type and content?
+            if existing_is_template == is_template and existing_normalized == normalized_cmd:
                 # Same command, just use it
                 result: dict[str, Any] = {
                     "success": True,
                     "message": f"Using existing command '{name}' (identical)",
                     "existing": True,
-                    "command": {
-                        "name": name,
-                        "cmd": existing.cmd,
-                        "description": existing.description,
-                        "timeout": existing.timeout,
-                        "capture": existing.capture,
-                        "format": existing.format,
-                    },
+                    "command": _command_to_dict(existing),
                 }
                 if run_now:
                     run_result = _run_impl(name, timeout=timeout)
@@ -1761,56 +1793,55 @@ def _register_command_impl(
                 return result
             else:
                 # Different command with same name
+                existing_desc = existing.tpl or existing.cmd
                 return {
                     "success": False,
                     "error": (
                         f"Command '{name}' already exists with different command. "
-                        f"Existing: '{existing.cmd}'. Use force=true to overwrite."
+                        f"Existing: '{existing_desc}'. Use force=true to overwrite."
                     ),
                 }
 
-        # Check for existing command with same cmd but different name
-        for existing_name, existing in commands.items():
-            if existing.cmd and _normalize_cmd(existing.cmd) == normalized_cmd and not force:
-                return {
-                    "success": False,
-                    "error": (
-                        f"Command already registered as '{existing_name}'. "
-                        f"Use run(command='{existing_name}') or force=true to re-register."
-                    ),
-                    "existing_name": existing_name,
-                }
+        # Check for existing command with same cmd/tpl but different name (only for simple commands)
+        if cmd:
+            for existing_name, existing in commands.items():
+                if existing.cmd and _normalize_cmd(existing.cmd) == normalized_cmd and not force:
+                    return {
+                        "success": False,
+                        "error": (
+                            f"Command already registered as '{existing_name}'. "
+                            f"Use run(command='{existing_name}') or force=true to re-register."
+                        ),
+                        "existing_name": existing_name,
+                    }
 
         # Auto-detect format if not specified
         format_detected = False
-        if format is None:
-            format = detect_format_from_command(cmd)
+        if format is None and command_str:
+            format = detect_format_from_command(command_str)
             format_detected = True
 
-        commands[name] = RegisteredCommand(
+        new_command = RegisteredCommand(
             name=name,
             cmd=cmd,
+            tpl=tpl,
+            defaults=defaults or {},
             description=description,
             timeout=timeout,
             capture=capture,
-            format=format,
+            format=format or "auto",
         )
+        commands[name] = new_command
         config.save_commands()
 
         format_note = f" [format: {format} (detected)]" if format_detected else ""
+        cmd_display = tpl if is_template else cmd
         result = {
             "success": True,
-            "message": f"Registered command '{name}': {cmd}{format_note}",
+            "message": f"Registered command '{name}': {cmd_display}{format_note}",
             "existing": False,
             "format_detected": format_detected,
-            "command": {
-                "name": name,
-                "cmd": cmd,
-                "description": description,
-                "timeout": timeout,
-                "capture": capture,
-                "format": format,
-            },
+            "command": _command_to_dict(new_command),
         }
         if run_now:
             run_result = _run_impl(name, timeout=timeout)
@@ -2567,7 +2598,9 @@ def diff(run1: int, run2: int) -> dict[str, Any]:
 @mcp.tool()
 def register_command(
     name: str,
-    cmd: str,
+    cmd: str | None = None,
+    tpl: str | None = None,
+    defaults: dict[str, str] | None = None,
     description: str = "",
     timeout: int | None = None,
     capture: bool = True,
@@ -2585,7 +2618,9 @@ def register_command(
 
     Args:
         name: Command name (e.g., 'build', 'test')
-        cmd: Command to run
+        cmd: Command to run (for simple commands)
+        tpl: Template command with {param} placeholders (alternative to cmd)
+        defaults: Default values for template parameters (e.g., {"path": "tests/"})
         description: Command description
         timeout: Timeout in seconds (default: no timeout)
         capture: Whether to capture and parse logs (default: true)
@@ -2598,7 +2633,9 @@ def register_command(
         also includes 'run' key with the run result.
     """
     _check_tool_enabled("register_command")
-    return _register_command_impl(name, cmd, description, timeout, capture, force, format, run_now)
+    return _register_command_impl(
+        name, cmd, tpl, defaults, description, timeout, capture, force, format, run_now
+    )
 
 
 @mcp.tool()
@@ -2985,15 +3022,18 @@ def resource_guide() -> str:
 - events(severity="error") - Get errors
 - inspect(ref) - Error details with context (ref like "build:1:3")
 - diff(run1, run2) - Compare runs
-- run(command) - Run registered command
+- run(command) - Run registered command (use args={} for template params)
 - info() - Most recent run details (or info(ref) for specific run)
-- reset(mode, confirm) - Clear data
+- clean(mode, confirm) - Database cleanup
 
 ## Workflow
 1. commands() or status() to see current state
 2. events(severity="error") to get recent errors
 3. inspect(ref) to understand issues with full context
 4. After fixes: diff(run1, run2) to verify
+
+## Template Commands
+Commands with `tpl` use placeholders: run(command="test", args={"path": "tests/unit/"})
 
 Docs: https://blq-cli.readthedocs.io/en/latest/
 """

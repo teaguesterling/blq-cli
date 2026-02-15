@@ -397,6 +397,77 @@ This is the recommended pattern for agents - it ensures clean refs while being e
 - Visible to both agent and user
 - Idempotent - safe to call multiple times
 
+### Template Commands
+
+Some commands use templates with `{param}` placeholders instead of fixed commands. These appear in `commands()` output with `tpl` instead of `cmd`:
+
+```python
+blq.commands()
+# Returns:
+{
+  "commands": [
+    {"name": "build", "cmd": "make -j8"},
+    {"name": "test", "tpl": "pytest {path} {flags}", "defaults": {"path": "tests/", "flags": "-v"}}
+  ]
+}
+```
+
+**Running template commands:**
+
+Use the `args` parameter to provide values for template placeholders:
+
+```python
+# Run with defaults (pytest tests/ -v)
+blq.run(command="test")
+
+# Override a parameter
+blq.run(command="test", args={"path": "tests/unit/"})
+# → pytest tests/unit/ -v
+
+# Override multiple parameters
+blq.run(command="test", args={"path": "tests/integration/", "flags": "-vvs --tb=short"})
+# → pytest tests/integration/ -vvs --tb=short
+```
+
+**Required parameters:**
+
+If a template has parameters without defaults, they must be provided:
+
+```python
+# Given: {"name": "test-file", "tpl": "pytest {file} -v"}
+blq.run(command="test-file")
+# → Error: Missing required param 'file'
+
+blq.run(command="test-file", args={"file": "test_main.py"})
+# → pytest test_main.py -v
+```
+
+**Registering template commands:**
+
+Use `tpl` instead of `cmd`, and provide `defaults` for optional parameters:
+
+```python
+blq.register_command(
+    name="test",
+    tpl="pytest {path} {flags}",
+    defaults={"path": "tests/", "flags": "-v"},
+    description="Run tests"
+)
+```
+
+Or via CLI:
+```bash
+blq commands register test --tpl "pytest {path} {flags}" --defaults path=tests/ --defaults flags=-v
+```
+
+Or by editing `.lq/commands.toml`:
+```toml
+[commands.test]
+tpl = "pytest {path} {flags}"
+defaults = { path = "tests/", flags = "-v" }
+description = "Run tests"
+```
+
 ## Best Practices
 
 ### Do:
