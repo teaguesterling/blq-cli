@@ -342,7 +342,7 @@ class TestOutputTool:
             if history["runs"]:
                 run_id = history["runs"][0]["run_serial"]
 
-                raw = await client.call_tool("output", {"run_id": run_id})
+                raw = await client.call_tool("output", {"ref": str(run_id)})
                 result = get_data(raw)
 
                 assert "run_id" in result
@@ -360,7 +360,7 @@ class TestOutputTool:
             if history["runs"]:
                 run_id = history["runs"][0]["run_serial"]
 
-                raw = await client.call_tool("output", {"run_id": run_id, "tail": 5})
+                raw = await client.call_tool("output", {"ref": str(run_id), "tail": 5})
                 result = get_data(raw)
 
                 assert "run_id" in result
@@ -372,7 +372,7 @@ class TestOutputTool:
     async def test_output_not_found(self, mcp_server_empty):
         """Output for non-existent run."""
         async with Client(mcp_server_empty) as client:
-            raw = await client.call_tool("output", {"run_id": 9999})
+            raw = await client.call_tool("output", {"ref": "9999"})
             result = get_data(raw)
 
             assert "error" in result

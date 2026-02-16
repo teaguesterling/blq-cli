@@ -931,6 +931,32 @@ class BirdStore:
 
         return content
 
+    def extract_live_events(
+        self,
+        attempt_id: str,
+        format_hint: str = "auto",
+    ) -> list[dict[str, Any]]:
+        """Extract events from live output of a running process.
+
+        Reads the live output file and parses it using duck_hunt to extract
+        events on-the-fly. Events are returned but NOT stored in the database
+        (they're transient until the command completes).
+
+        Args:
+            attempt_id: The attempt UUID
+            format_hint: Format hint for duck_hunt parser (default: "auto")
+
+        Returns:
+            List of parsed events (same format as write_events input)
+        """
+        from blq.commands.core import parse_log_content
+
+        content = self.read_live_output(attempt_id)
+        if not content:
+            return []
+
+        return parse_log_content(content, format_hint)
+
     def cleanup_live_dir(self, attempt_id: str) -> bool:
         """Remove live output directory after completion.
 

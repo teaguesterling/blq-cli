@@ -38,7 +38,8 @@ from typing import Any
 import pandas as pd  # type: ignore[import-untyped]
 from fastmcp import FastMCP
 
-from blq.commands.core import get_all_suppressed_fingerprints
+from blq.commands.core import EventRef, get_all_suppressed_fingerprints
+from blq.commands.management import resolve_ref
 from blq.commands.query_cmd import parse_filter_expression
 from blq.output import format_context
 from blq.storage import BlqStorage
@@ -214,27 +215,67 @@ def _get_suppress_condition(include_suppressed: bool = False) -> str | None:
         return None
 
 
-def _parse_ref(ref: str) -> tuple[str | None, int, int]:
+def _parse_ref(ref: str, storage: Any = None) -> tuple[str | None, int, int]:
     """Parse event reference into (tag, run_serial, event_id).
+
+    Supports relative references like +1:2 (event 2 in most recent run) or
+    test:+1:3 (event 3 in most recent test run).
 
     Formats:
     - "tag:serial:event" -> (tag, serial, event)
     - "serial:event" -> (None, serial, event)
+    - "+N:event" -> relative: event in Nth most recent run
+    - "tag:+N:event" -> relative: event in Nth most recent run of tag
+
+    Args:
+        ref: Reference string to parse
+        storage: Optional storage backend for resolving relative refs
 
     Returns:
         Tuple of (tag or None, run_serial, event_id)
     """
-    parts = ref.split(":")
-    if len(parts) == 2:
-        # Format: "serial:event"
-        return None, int(parts[0]), int(parts[1])
-    elif len(parts) == 3:
-        # Format: "tag:serial:event"
-        return parts[0], int(parts[1]), int(parts[2])
-    else:
-        raise ValueError(
-            f"Invalid ref format: {ref}. Expected 'serial:event' or 'tag:serial:event'"
-        )
+    parsed = EventRef.parse(ref)
+
+    # Resolve relative references if storage provided
+    if parsed.is_relative:
+        if storage is None:
+            storage = _get_storage()
+        parsed = resolve_ref(parsed, storage)
+
+    if parsed.event_id is None:
+        raise ValueError(f"Invalid ref format: {ref}. Expected event reference with event_id")
+
+    return parsed.tag, parsed.run_id, parsed.event_id
+
+
+def _parse_run_ref(ref: str, storage: Any = None) -> tuple[str | None, int]:
+    """Parse run reference into (tag, run_serial).
+
+    Supports relative references like +1 (most recent run) or
+    test:+1 (most recent test run).
+
+    Formats:
+    - "tag:serial" -> (tag, serial)
+    - "serial" -> (None, serial)
+    - "+N" -> relative: Nth most recent run
+    - "tag:+N" -> relative: Nth most recent run of tag
+
+    Args:
+        ref: Reference string to parse
+        storage: Optional storage backend for resolving relative refs
+
+    Returns:
+        Tuple of (tag or None, run_serial)
+    """
+    parsed = EventRef.parse(ref)
+
+    # Resolve relative references if storage provided
+    if parsed.is_relative:
+        if storage is None:
+            storage = _get_storage()
+        parsed = resolve_ref(parsed, storage)
+
+    return parsed.tag, parsed.run_id
 
 
 # ============================================================================
@@ -744,6 +785,152 @@ def _warnings_impl(
         return {"warnings": [], "total_count": 0}
 
 
+def _try_extract_live_events(
+    storage: Any,
+    run_id: int | None,
+    source: str | None,
+    severity: str | None,
+    file_pattern: str | None,
+    limit: int,
+    all_runs: bool,
+) -> dict[str, Any] | None:
+    """Try to extract events from a running process's live output.
+
+    If the specified run/source refers to a pending (running) process,
+    extract events from its live output file. Otherwise returns None
+    to indicate normal database query should be used.
+
+    Args:
+        storage: Storage backend
+        run_id: Specific run ID to check
+        source: Source name to check
+        severity: Severity filter
+        file_pattern: File pattern filter
+        limit: Max events to return
+        all_runs: If True, don't try live extraction
+
+    Returns:
+        Dict with events if live extraction was performed, None otherwise
+    """
+    from blq.bird import BirdStore
+
+    # Don't do live extraction when querying all runs
+    if all_runs:
+        return None
+
+    # Only BirdStore supports live events
+    if not isinstance(storage, BirdStore):
+        return None
+
+    # Determine which attempt to check
+    attempt_info = None
+
+    if run_id is not None:
+        # Check if this specific run is pending
+        result = storage.sql(f"""
+            SELECT attempt_id, status, format_hint, tag, run_id
+            FROM blq_load_attempts()
+            WHERE run_id = {run_id}
+        """).fetchone()
+        if result and result[1] == "pending":
+            attempt_info = {
+                "attempt_id": result[0],
+                "format_hint": result[2] or "auto",
+                "tag": result[3],
+                "run_id": result[4],
+            }
+    elif source:
+        # Check if most recent run for this source is pending
+        result = storage.sql(f"""
+            SELECT attempt_id, status, format_hint, tag, run_id
+            FROM blq_load_attempts()
+            WHERE source_name = '{source}' OR tag = '{source}'
+            ORDER BY started_at DESC
+            LIMIT 1
+        """).fetchone()
+        if result and result[1] == "pending":
+            attempt_info = {
+                "attempt_id": result[0],
+                "format_hint": result[2] or "auto",
+                "tag": result[3],
+                "run_id": result[4],
+            }
+    else:
+        # Check if most recent run overall is pending
+        result = storage.sql("""
+            SELECT attempt_id, status, format_hint, tag, run_id
+            FROM blq_load_attempts()
+            ORDER BY started_at DESC
+            LIMIT 1
+        """).fetchone()
+        if result and result[1] == "pending":
+            attempt_info = {
+                "attempt_id": result[0],
+                "format_hint": result[2] or "auto",
+                "tag": result[3],
+                "run_id": result[4],
+            }
+
+    if not attempt_info:
+        return None
+
+    # Extract live events
+    events = storage.extract_live_events(attempt_info["attempt_id"], attempt_info["format_hint"])
+
+    # Apply filters
+    filtered_events = []
+    for i, event in enumerate(events):
+        # Severity filter
+        if severity:
+            event_severity = event.get("severity", "")
+            if "," in severity:
+                severities = [s.strip() for s in severity.split(",")]
+                if event_severity not in severities:
+                    continue
+            elif event_severity != severity:
+                continue
+
+        # File pattern filter
+        if file_pattern:
+            ref_file = event.get("ref_file", "")
+            if not ref_file or file_pattern.replace("%", "") not in ref_file:
+                continue
+
+        # Build event dict with run context
+        run_ref = (
+            f"{attempt_info['tag']}:{attempt_info['run_id']}"
+            if attempt_info["tag"]
+            else str(attempt_info["run_id"])
+        )
+        event_ref = f"{run_ref}:{i + 1}"
+
+        filtered_events.append(
+            {
+                "ref": event_ref,
+                "run_ref": run_ref,
+                "severity": event.get("severity"),
+                "ref_file": event.get("ref_file"),
+                "ref_line": event.get("ref_line"),
+                "ref_column": event.get("ref_column"),
+                "message": event.get("message"),
+                "tool_name": event.get("tool_name"),
+                "category": event.get("category"),
+                "fingerprint": event.get("fingerprint"),
+                "log_line": event.get("log_line_start"),
+                "test_name": event.get("test_name"),
+                "is_live": True,  # Indicate these are from live extraction
+            }
+        )
+
+    total_count = len(filtered_events)
+    return {
+        "events": filtered_events[:limit],
+        "total_count": total_count,
+        "is_live": True,
+        "attempt_id": attempt_info["attempt_id"],
+    }
+
+
 def _events_impl(
     limit: int = 20,
     run_id: int | None = None,
@@ -759,7 +946,14 @@ def _events_impl(
         if not storage.has_data():
             return {"events": [], "total_count": 0}
 
-        # Build WHERE conditions
+        # Check if we should extract live events from a running process
+        live_events = _try_extract_live_events(
+            storage, run_id, source, severity, file_pattern, limit, all_runs
+        )
+        if live_events is not None:
+            return live_events
+
+        # Build WHERE conditions for completed runs
         conditions: list[str] = []
 
         # Default to last run unless all_runs=True or specific run/source provided
@@ -1501,9 +1695,9 @@ def _info_impl(ref: str) -> dict[str, Any]:
                 WHERE invocation_id = '{ref}'
             """).df()
         else:
-            # Try to parse as run ref
+            # Try to parse as run ref (supports relative refs like +1, test:+1)
             try:
-                tag, run_serial, _ = _parse_ref(ref + ":0")  # Add dummy event_id
+                tag, run_serial = _parse_run_ref(ref, storage)
                 if tag is not None:
                     df = storage.sql(f"""
                         SELECT * FROM blq_load_runs()
@@ -2325,7 +2519,7 @@ def inspect(
 
 @mcp.tool()
 def output(
-    run_id: int,
+    ref: str,
     stream: str | None = None,
     tail: int | None = None,
     head: int | None = None,
@@ -2342,7 +2536,8 @@ def output(
     Use lines to select specific line ranges (requires read_lines extension).
 
     Args:
-        run_id: Run serial number (e.g., 1, 2, 3)
+        ref: Run reference - can be run_id (e.g., '5'), tag:run_id (e.g., 'test:3'),
+             or relative ref (e.g., '+1' for most recent, 'test:+1' for most recent test)
         stream: Stream name ('stdout', 'stderr', 'combined') or None for default
         tail: Return only last N lines
         head: Return only first N lines
@@ -2356,6 +2551,12 @@ def output(
         With grep: includes match_count.
         With debug_formats: includes format_diagnosis list.
     """
+    # Parse and resolve ref (supports relative refs like +1, test:+1)
+    try:
+        _, run_id = _parse_run_ref(ref)
+    except ValueError as e:
+        return {"error": str(e), "ref": ref}
+
     return _output_impl(run_id, stream, tail, head, grep, context, lines, debug_formats)
 
 
