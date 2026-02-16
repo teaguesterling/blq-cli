@@ -870,6 +870,22 @@ class TestMigration:
             os.chdir(original_cwd)
 
 
+def _has_read_lines_extension() -> bool:
+    """Check if read_lines extension is available."""
+    import duckdb
+    try:
+        conn = duckdb.connect()
+        conn.execute("LOAD read_lines")
+        conn.close()
+        return True
+    except duckdb.Error:
+        return False
+
+
+@pytest.mark.skipif(
+    not _has_read_lines_extension(),
+    reason="read_lines extension not available"
+)
 class TestBlqReadLinesMacro:
     """Tests for blq_read_lines SQL macro."""
 
