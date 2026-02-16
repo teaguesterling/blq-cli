@@ -473,6 +473,11 @@ def main() -> None:
     p_output.add_argument(
         "--follow", "-f", action="store_true", help="Follow output (for running commands)"
     )
+    p_output.add_argument(
+        "--debug-formats",
+        action="store_true",
+        help="Show format detection diagnosis (which formats were tried, scores)",
+    )
     p_output.set_defaults(func=cmd_output)
 
     # events (main command for viewing events with severity filter)

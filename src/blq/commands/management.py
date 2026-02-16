@@ -377,6 +377,57 @@ def _show_stored_output(
         print(content, end="")
 
 
+def _show_format_diagnosis(content: str) -> None:
+    """Show format detection diagnosis using duck_hunt.
+
+    Displays which formats were tried, their priority, and which was selected.
+    """
+    try:
+        import duckdb as db
+
+        conn = db.connect()
+        conn.execute("LOAD duck_hunt")
+
+        # Get diagnosis for all formats that can parse this content
+        result = conn.execute(
+            """
+            SELECT format, priority, events_produced, is_selected
+            FROM duck_hunt_diagnose_parse(?)
+            WHERE can_parse = true
+            ORDER BY is_selected DESC, events_produced DESC, priority DESC
+            """,
+            [content],
+        ).fetchall()
+
+        if not result:
+            print("No formats could parse this content")
+            return
+
+        # Find terminal width for formatting
+        term_width = shutil.get_terminal_size().columns
+
+        # Header
+        print("\nFormat Detection Diagnosis")
+        print("=" * min(60, term_width))
+        print(f"{'Format':<25} {'Priority':>8} {'Events':>8} {'Selected':<8}")
+        print("-" * min(60, term_width))
+
+        for row in result:
+            fmt, priority, events, selected = row
+            marker = " *" if selected else ""
+            print(f"{fmt:<25} {priority:>8} {events:>8} {marker}")
+
+        # Summary
+        selected_fmt = next((r[0] for r in result if r[3]), None)
+        if selected_fmt:
+            print(f"\nSelected format: {selected_fmt}")
+        print()
+
+    except Exception as e:
+        print(f"\nFormat diagnosis unavailable: {e}", file=sys.stderr)
+        print("(duck_hunt extension may not be installed)")
+
+
 def cmd_output(args: argparse.Namespace) -> None:
     """Show raw output from a run.
 
@@ -384,16 +435,18 @@ def cmd_output(args: argparse.Namespace) -> None:
     Supports --tail, --head for viewing partial output and --follow for live streaming.
 
     Usage:
-        blq output build:5           # Full output
-        blq output --tail 20 build:5 # Last 20 lines
-        blq output --head 10 build:5 # First 10 lines
-        blq output --follow build:5  # Stream live output (running only)
-        blq o -t 20 +1               # Last 20 lines of most recent run
+        blq output build:5             # Full output
+        blq output --tail 20 build:5   # Last 20 lines
+        blq output --head 10 build:5   # First 10 lines
+        blq output --follow build:5    # Stream live output (running only)
+        blq o -t 20 +1                 # Last 20 lines of most recent run
+        blq o --debug-formats build:5  # Show format detection diagnosis
     """
     ref_arg = getattr(args, "ref", None)
     tail_lines = getattr(args, "tail", None)
     head_lines = getattr(args, "head", None)
     follow = getattr(args, "follow", False)
+    debug_formats = getattr(args, "debug_formats", False)
 
     if not ref_arg:
         # Default to most recent run
@@ -457,7 +510,28 @@ def cmd_output(args: argparse.Namespace) -> None:
         bird_store = BirdStore.open(config.lq_dir)
 
         try:
-            if run_status == "pending":
+            if debug_formats:
+                # Show format detection diagnosis
+                if run_status == "pending":
+                    # For running commands, read from live output
+                    live_path = config.lq_dir / "live" / attempt_id / "combined.log"
+                    if live_path.exists():
+                        content = live_path.read_text(errors="replace")
+                    else:
+                        print("(no output yet for format diagnosis)")
+                        return
+                else:
+                    # For completed commands, read from blob storage
+                    content_bytes = bird_store.read_output(attempt_id, "combined")
+                    if not content_bytes:
+                        content_bytes = bird_store.read_output(attempt_id, "stdout")
+                    if not content_bytes:
+                        print("(no output stored for format diagnosis)")
+                        return
+                    content = content_bytes.decode("utf-8", errors="replace")
+
+                _show_format_diagnosis(content)
+            elif run_status == "pending":
                 # Running command - read from live output
                 _show_live_output(bird_store, attempt_id, run_data, tail_lines, head_lines, follow)
             else:
