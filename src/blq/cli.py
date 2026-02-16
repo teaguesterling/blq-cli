@@ -475,6 +475,22 @@ def main() -> None:
         help="Line spec (e.g., '100-200', '42 +/-5'). Requires read_lines.",
     )
     p_output.add_argument(
+        "--grep", "-g", type=str, metavar="PATTERN",
+        help="Search for regex pattern in output",
+    )
+    p_output.add_argument(
+        "--context", "-C", type=int, metavar="N", default=0,
+        help="Show N lines of context around grep matches (default: 0)",
+    )
+    p_output.add_argument(
+        "--ignore-case", "-i", action="store_true",
+        help="Case insensitive grep (default: true, use --no-ignore-case for exact)",
+    )
+    p_output.add_argument(
+        "--no-ignore-case", action="store_true",
+        help="Case sensitive grep",
+    )
+    p_output.add_argument(
         "--follow", "-f", action="store_true", help="Follow output (for running commands)"
     )
     p_output.add_argument(

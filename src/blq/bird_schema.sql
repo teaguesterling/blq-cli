@@ -801,3 +801,45 @@ SELECT
     ) AS mark
 FROM parse_lines(content, lines := lines_spec) l
 ORDER BY l.line_number;
+
+-- Search lines with regexp pattern and context.
+-- Returns matching lines plus surrounding context lines.
+--
+-- Parameters:
+--   content: Text content to search
+--   pattern: Regular expression pattern (uses regexp_matches)
+--   ctx: Number of context lines before/after each match (default: 0)
+--   case_insensitive: Use case-insensitive matching (default: true)
+--
+-- Returns: line_number, line, is_match (true for matching lines)
+--
+-- Example:
+--   SELECT * FROM blq_search_lines('line1\nerror here\nline3', 'error', ctx := 1);
+--   -- Returns lines 1-3, with line 2 marked as is_match=true
+--
+CREATE OR REPLACE MACRO blq_search_lines(content, pattern, ctx := 0, case_insensitive := true) AS TABLE
+WITH all_lines AS (
+    SELECT
+        line_number,
+        rtrim(content, chr(10) || chr(13)) AS line
+    FROM parse_lines(content)
+),
+matches AS (
+    SELECT line_number
+    FROM all_lines
+    WHERE CASE
+        WHEN case_insensitive THEN regexp_matches(line, '(?i)' || pattern)
+        ELSE regexp_matches(line, pattern)
+    END
+)
+SELECT
+    l.line_number,
+    l.line,
+    (m.line_number IS NOT NULL) AS is_match
+FROM all_lines l
+LEFT JOIN matches m ON l.line_number = m.line_number
+WHERE EXISTS (
+    SELECT 1 FROM matches mm
+    WHERE l.line_number BETWEEN mm.line_number - ctx AND mm.line_number + ctx
+)
+ORDER BY l.line_number;

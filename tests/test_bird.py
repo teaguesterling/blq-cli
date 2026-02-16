@@ -1016,3 +1016,86 @@ line3',
         assert result[0][2] == "ERR"
         assert result[1][2] == ""
         assert result[2][2] == "WRN"
+
+
+class TestSearchContent:
+    """Tests for _search_content function (grep functionality)."""
+
+    def test_basic_search(self, capsys):
+        """Search finds matching lines."""
+        from blq.commands.management import _search_content
+
+        content = "line1\nline2 ERROR here\nline3\nline4 WARNING\nline5"
+        _search_content(content, "ERROR", context=0)
+
+        captured = capsys.readouterr()
+        assert ">>> " in captured.out
+        assert "ERROR" in captured.out
+        assert "line1" not in captured.out  # No context
+
+    def test_search_with_context(self, capsys):
+        """Search includes context lines."""
+        from blq.commands.management import _search_content
+
+        content = "line1\nline2\nline3 ERROR\nline4\nline5"
+        _search_content(content, "ERROR", context=1)
+
+        captured = capsys.readouterr()
+        assert "line2" in captured.out  # Before context
+        assert "ERROR" in captured.out  # Match
+        assert "line4" in captured.out  # After context
+        assert "line1" not in captured.out  # Outside context
+
+    def test_search_case_insensitive(self, capsys):
+        """Search is case insensitive by default."""
+        from blq.commands.management import _search_content
+
+        content = "line1\nERROR here\nline3"
+        _search_content(content, "error", context=0, case_insensitive=True)
+
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.out
+
+    def test_search_case_sensitive(self, capsys):
+        """Search can be case sensitive."""
+        from blq.commands.management import _search_content
+
+        content = "line1\nERROR here\nline3"
+        _search_content(content, "error", context=0, case_insensitive=False)
+
+        captured = capsys.readouterr()
+        assert "no matches" in captured.out
+
+    def test_search_regex(self, capsys):
+        """Search supports regex patterns."""
+        from blq.commands.management import _search_content
+
+        content = "line1\nERROR: something\nWARNING: other\nline4"
+        _search_content(content, "ERROR|WARNING", context=0)
+
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.out
+        assert "WARNING" in captured.out
+
+    def test_search_no_matches(self, capsys):
+        """Search handles no matches gracefully."""
+        from blq.commands.management import _search_content
+
+        content = "line1\nline2\nline3"
+        _search_content(content, "NOTFOUND", context=0)
+
+        captured = capsys.readouterr()
+        assert "no matches" in captured.out
+
+    def test_search_marks_match_lines(self, capsys):
+        """Matching lines are marked with >>>."""
+        from blq.commands.management import _search_content
+
+        content = "line1\nline2 MATCH\nline3"
+        _search_content(content, "MATCH", context=1)
+
+        captured = capsys.readouterr()
+        lines = captured.out.strip().split("\n")
+        # Find the MATCH line
+        match_line = [l for l in lines if "MATCH" in l][0]
+        assert match_line.startswith(">>>")

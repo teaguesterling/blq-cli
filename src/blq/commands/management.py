@@ -372,12 +372,102 @@ def _show_lines_with_read_lines(content: str, lines_spec: str) -> None:
         sys.exit(1)
 
 
+def _search_content(
+    content: str,
+    pattern: str,
+    context: int = 0,
+    case_insensitive: bool = True,
+) -> None:
+    """Search content with regexp pattern and show matching lines with context.
+
+    Uses DuckDB's read_lines extension and regexp_matches for searching.
+    """
+    try:
+        import duckdb as db
+
+        conn = db.connect()
+        conn.execute("LOAD read_lines")
+
+        # Build case handling for regexp
+        if case_insensitive:
+            match_expr = "regexp_matches(lower(line), lower(?))"
+        else:
+            match_expr = "regexp_matches(line, ?)"
+
+        # Query: find matches and include context lines
+        query = f"""
+        WITH all_lines AS (
+            SELECT
+                line_number,
+                rtrim(content, chr(10) || chr(13)) AS line
+            FROM parse_lines(?)
+        ),
+        matches AS (
+            SELECT line_number
+            FROM all_lines
+            WHERE {match_expr}
+        )
+        SELECT
+            l.line_number,
+            l.line,
+            (m.line_number IS NOT NULL) AS is_match
+        FROM all_lines l
+        LEFT JOIN matches m ON l.line_number = m.line_number
+        WHERE EXISTS (
+            SELECT 1 FROM matches mm
+            WHERE l.line_number BETWEEN mm.line_number - ? AND mm.line_number + ?
+        )
+        ORDER BY l.line_number
+        """
+
+        result = conn.execute(query, [content, pattern, context, context]).fetchall()
+
+        if not result:
+            print("(no matches found)")
+            return
+
+        for line_num, line, is_match in result:
+            mark = ">>>" if is_match else "   "
+            print(f"{mark} {line_num:>5} | {line}")
+
+    except Exception:
+        # Fall back to simple Python grep
+        import re
+
+        flags = re.IGNORECASE if case_insensitive else 0
+        try:
+            regex = re.compile(pattern, flags)
+        except re.error as re_err:
+            print(f"Error: Invalid regex pattern: {re_err}", file=sys.stderr)
+            sys.exit(1)
+
+        lines = content.splitlines()
+        matches = [i for i, line in enumerate(lines) if regex.search(line)]
+
+        if not matches:
+            print("(no matches found)")
+            return
+
+        # Expand matches with context
+        to_show = set()
+        for m in matches:
+            for i in range(max(0, m - context), min(len(lines), m + context + 1)):
+                to_show.add(i)
+
+        for i in sorted(to_show):
+            mark = ">>>" if i in matches else "   "
+            print(f"{mark} {i + 1:>5} | {lines[i]}")
+
+
 def _show_stored_output(
     store: BirdStore,
     attempt_id: str,
     tail_lines: int | None,
     head_lines: int | None,
     lines_spec: str | None = None,
+    grep_pattern: str | None = None,
+    grep_context: int = 0,
+    grep_case_insensitive: bool = True,
 ) -> None:
     """Show output from blob storage (for completed commands)."""
     # Get output from blob storage
@@ -392,7 +482,9 @@ def _show_stored_output(
 
     content = content_bytes.decode("utf-8", errors="replace")
 
-    if lines_spec:
+    if grep_pattern:
+        _search_content(content, grep_pattern, grep_context, grep_case_insensitive)
+    elif lines_spec:
         _show_lines_with_read_lines(content, lines_spec)
     elif tail_lines:
         lines = content.split("\n")
@@ -471,6 +563,8 @@ def cmd_output(args: argparse.Namespace) -> None:
         blq output --head 10 build:5   # First 10 lines
         blq output -l '100-200' build:5  # Lines 100-200
         blq output -l '42 +/-5' build:5  # Line 42 with 5 lines context
+        blq output -g 'error|warn' build:5  # Search for pattern
+        blq output -g 'error' -C 3 build:5  # Search with 3 lines context
         blq output --follow build:5    # Stream live output (running only)
         blq o -t 20 +1                 # Last 20 lines of most recent run
         blq o --debug-formats build:5  # Show format detection diagnosis
@@ -479,6 +573,10 @@ def cmd_output(args: argparse.Namespace) -> None:
     tail_lines = getattr(args, "tail", None)
     head_lines = getattr(args, "head", None)
     lines_spec = getattr(args, "lines", None)
+    grep_pattern = getattr(args, "grep", None)
+    grep_context = getattr(args, "context", 0)
+    # Case insensitive by default, unless --no-ignore-case is set
+    grep_case_insensitive = not getattr(args, "no_ignore_case", False)
     follow = getattr(args, "follow", False)
     debug_formats = getattr(args, "debug_formats", False)
 
@@ -573,7 +671,10 @@ def cmd_output(args: argparse.Namespace) -> None:
                 if follow:
                     print("Error: --follow only works for running commands", file=sys.stderr)
                     sys.exit(1)
-                _show_stored_output(bird_store, attempt_id, tail_lines, head_lines, lines_spec)
+                _show_stored_output(
+                    bird_store, attempt_id, tail_lines, head_lines, lines_spec,
+                    grep_pattern, grep_context, grep_case_insensitive
+                )
         finally:
             bird_store.close()
 
