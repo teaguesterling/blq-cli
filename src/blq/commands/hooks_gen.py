@@ -166,15 +166,13 @@ def write_hook_script(
     # Check if we need to write
     if script_path.exists() and not force:
         existing_content = script_path.read_text()
-        if existing_content == new_content:
-            return script_path, False
-
-        # Check if script was manually modified (different checksum)
         existing_checksum = extract_checksum_from_script(existing_content)
         expected_checksum = compute_command_checksum(cmd)
-        if existing_checksum and existing_checksum != expected_checksum:
-            # Script exists but command changed - warn but overwrite
-            pass
+
+        # If checksums match, command hasn't changed - no need to rewrite
+        # (we compare checksums not content since content includes timestamps)
+        if existing_checksum == expected_checksum:
+            return script_path, False
 
     # Write the script
     script_path.write_text(new_content)
