@@ -372,6 +372,69 @@ def cmd_inspect(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _format_context_with_read_lines(
+    content: str,
+    log_line_start: int,
+    log_line_end: int,
+    context_lines: int,
+    header: str,
+) -> str | None:
+    """Format log context using blq_read_lines macro.
+
+    Uses DuckDB's read_lines extension for efficient line selection
+    and the blq_read_lines macro for marking event lines.
+    """
+    try:
+        import duckdb as db
+
+        conn = db.connect()
+        conn.execute("LOAD read_lines")
+
+        # Define the macro (in-memory connection doesn't have schema)
+        conn.execute("""
+            CREATE OR REPLACE MACRO blq_read_lines(content, lines_spec, marks := []) AS TABLE
+            SELECT
+                l.line_number,
+                rtrim(l.content, chr(10) || chr(13)) AS line,
+                coalesce(
+                    (SELECT m.m.mark
+                     FROM (SELECT unnest(marks) AS m) m
+                     WHERE l.line_number >= m.m.start AND l.line_number <= m.m."end"
+                     LIMIT 1),
+                    ''
+                ) AS mark
+            FROM parse_lines(content, lines := lines_spec) l
+            ORDER BY l.line_number
+        """)
+
+        # Build line spec with context
+        lines_spec = f"{log_line_start}-{log_line_end} +/-{context_lines}"
+
+        # Query with marks for event lines
+        result = conn.execute(
+            """
+            SELECT line_number, line, mark
+            FROM blq_read_lines(?, ?, [{start: ?, "end": ?, mark: '>>>'}])
+            """,
+            [content, lines_spec, log_line_start, log_line_end],
+        ).fetchall()
+
+        if not result:
+            return None
+
+        output_lines = [header, "-" * 60]
+        for line_num, line, mark in result:
+            prefix = f"{mark:<4}" if mark else "    "
+            output_lines.append(f"{prefix}{line_num:4d} | {line}")
+        output_lines.append("-" * 60)
+
+        return "\n".join(output_lines)
+
+    except Exception:
+        # Fall back to Python implementation if read_lines not available
+        return None
+
+
 def _get_log_context(
     config: BlqConfig,
     store: BlqStorage,
@@ -389,6 +452,8 @@ def _get_log_context(
     if log_line_start is None or log_line_end is None:
         return None
 
+    header = f"Line {log_line_start}"
+
     # Try BIRD storage first
     output_bytes = store.get_output(ref.run_id)
     if output_bytes:
@@ -396,25 +461,44 @@ def _get_log_context(
             content = output_bytes.decode("utf-8", errors="replace")
         except Exception:
             content = output_bytes.decode("latin-1")
+
+        # Try read_lines macro first (more efficient for large files)
+        result = _format_context_with_read_lines(
+            content, log_line_start, log_line_end, context_lines, header
+        )
+        if result:
+            return result
+
+        # Fall back to Python implementation
         lines = content.splitlines()
         return format_context(
             lines,
             log_line_start,
             log_line_end,
             context=context_lines,
-            header=f"Line {log_line_start}",
+            header=header,
         )
 
     # Fall back to raw log file
     raw_file = config.raw_dir / f"{ref.run_id:03d}.log"
     if raw_file.exists():
-        lines = raw_file.read_text().splitlines()
+        content = raw_file.read_text()
+
+        # Try read_lines macro first
+        result = _format_context_with_read_lines(
+            content, log_line_start, log_line_end, context_lines, header
+        )
+        if result:
+            return result
+
+        # Fall back to Python implementation
+        lines = content.splitlines()
         return format_context(
             lines,
             log_line_start,
             log_line_end,
             context=context_lines,
-            header=f"Line {log_line_start}",
+            header=header,
         )
 
     return None
