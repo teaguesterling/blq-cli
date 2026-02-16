@@ -131,12 +131,7 @@ blq.info(ref="build:3", context=5)
 #   "events": [
 #     {"ref": "3:1", "location": "src/main.py:42", "context": "...>>> 42 | error line..."},
 #     {"ref": "3:2", "location": "tests/test_main.py:15", "context": "..."}
-#   ],
-#   "summary": {
-#     "by_fingerprint": [...],
-#     "by_file": [...],
-#     "affected_commits": [...]
-#   }
+#   ]
 # }
 
 # Or get full event details for deeper investigation
@@ -243,9 +238,44 @@ This is the recommended starting point - you can see errors with their surroundi
 |------|---------|
 | `events(severity, limit, run_id, ...)` | Get events (use `severity="error"` for errors, `severity="warning"` for warnings) |
 | `inspect(ref, lines, ...)` | Full details with log/source context and optional enrichment (git, fingerprint) |
-| `output(run_id, stream, tail, head)` | Raw stdout/stderr for a run |
+| `output(run_id, stream, tail, head, grep, context, lines, debug_formats)` | Raw stdout/stderr with search and filtering |
 | `diff(run1, run2)` | Compare errors between runs |
 | `query(sql, filter, limit)` | Query with SQL or filter expressions (e.g., `filter="severity=error"`) |
+
+#### The `output` Tool
+
+The `output` tool retrieves raw build output with optional search and filtering:
+
+```python
+# Basic usage
+blq.output(run_id=3)                    # Full output
+blq.output(run_id=3, tail=50)           # Last 50 lines
+blq.output(run_id=3, head=20)           # First 20 lines
+blq.output(run_id=3, stream="stderr")   # Only stderr
+
+# Search with grep
+blq.output(run_id=3, grep="error|warning")           # Find matches
+blq.output(run_id=3, grep="FAIL", context=3)         # With 3 lines context
+blq.output(run_id=3, grep="undefined", context=5)    # Find undefined refs
+
+# Line selection (requires read_lines extension)
+blq.output(run_id=3, lines="100-200")   # Lines 100-200
+blq.output(run_id=3, lines="42 +/-5")   # Lines 37-47 (around line 42)
+
+# Format debugging (shows which parsers were tried)
+blq.output(run_id=3, debug_formats=True)
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `run_id` | Run serial number or ref (e.g., `3` or `"build:3"`) |
+| `stream` | Filter by stream: `"stdout"`, `"stderr"`, or `"combined"` (default) |
+| `tail` | Show only last N lines |
+| `head` | Show only first N lines |
+| `grep` | Regex pattern to search for in output |
+| `context` | Lines of context around grep matches (default: 0) |
+| `lines` | Line spec like `"100-200"` or `"42 +/-5"` (requires read_lines) |
+| `debug_formats` | Show format detection diagnosis (which parsers matched)
 
 #### Filter Syntax for `query`
 
@@ -401,6 +431,77 @@ This is the recommended pattern for agents - it ensures clean refs while being e
 - Reusable across sessions
 - Visible to both agent and user
 - Idempotent - safe to call multiple times
+
+### Template Commands
+
+Some commands use templates with `{param}` placeholders instead of fixed commands. These appear in `commands()` output with `tpl` instead of `cmd`:
+
+```python
+blq.commands()
+# Returns:
+{
+  "commands": [
+    {"name": "build", "cmd": "make -j8"},
+    {"name": "test", "tpl": "pytest {path} {flags}", "defaults": {"path": "tests/", "flags": "-v"}}
+  ]
+}
+```
+
+**Running template commands:**
+
+Use the `args` parameter to provide values for template placeholders:
+
+```python
+# Run with defaults (pytest tests/ -v)
+blq.run(command="test")
+
+# Override a parameter
+blq.run(command="test", args={"path": "tests/unit/"})
+# → pytest tests/unit/ -v
+
+# Override multiple parameters
+blq.run(command="test", args={"path": "tests/integration/", "flags": "-vvs --tb=short"})
+# → pytest tests/integration/ -vvs --tb=short
+```
+
+**Required parameters:**
+
+If a template has parameters without defaults, they must be provided:
+
+```python
+# Given: {"name": "test-file", "tpl": "pytest {file} -v"}
+blq.run(command="test-file")
+# → Error: Missing required param 'file'
+
+blq.run(command="test-file", args={"file": "test_main.py"})
+# → pytest test_main.py -v
+```
+
+**Registering template commands:**
+
+Use `tpl` instead of `cmd`, and provide `defaults` for optional parameters:
+
+```python
+blq.register_command(
+    name="test",
+    tpl="pytest {path} {flags}",
+    defaults={"path": "tests/", "flags": "-v"},
+    description="Run tests"
+)
+```
+
+Or via CLI:
+```bash
+blq commands register test --tpl "pytest {path} {flags}" --defaults path=tests/ --defaults flags=-v
+```
+
+Or by editing `.lq/commands.toml`:
+```toml
+[commands.test]
+tpl = "pytest {path} {flags}"
+defaults = { path = "tests/", flags = "-v" }
+description = "Run tests"
+```
 
 ## Best Practices
 

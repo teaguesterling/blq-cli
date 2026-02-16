@@ -66,8 +66,17 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **Source name** in run results for correct run_ref construction
 - **Database lock contention handling** with retry logic and exponential backoff
 - **Minimized DB lock time** during command execution (Window 1/Window 2 pattern)
+- **`blq output` enhancements**:
+  - `--grep/-g PATTERN` for searching log content with regex
+  - `--context/-C N` for context lines around grep matches
+  - `--lines/-l SPEC` for line selection (e.g., '100-200', '42 +/-5')
+  - `--debug-formats` to show format detection diagnosis
+- **`blq_read_lines` SQL macro** for line selection with markers (requires read_lines extension)
+- **`blq_search_lines` SQL macro** for regex search with context
+- **`--compact` output mode** for run/exec commands (adaptive event vs raw output)
+- **Template command support** in MCP `register_command` (`tpl` and `defaults` params)
 - Full mypy type checking compliance
-- 650+ unit tests
+- 730+ unit tests
 - Comprehensive documentation (README, docs/)
 
 ### TODO
@@ -135,6 +144,8 @@ All SQL macros use the `blq_` prefix:
 | `blq_warnings(n)` | Recent warnings (default: 10) |
 | `blq_history(n)` | Run history (default: 20) |
 | `blq_diff(run1, run2)` | Compare two runs |
+| `blq_read_lines(content, lines_spec, marks)` | Line selection with markers (requires read_lines) |
+| `blq_search_lines(content, pattern, ctx)` | Regex search with context (requires read_lines) |
 
 Direct DuckDB access:
 ```bash
