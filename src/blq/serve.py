@@ -611,6 +611,7 @@ def _errors_impl(
     source: str | None = None,
     file_pattern: str | None = None,
     include_suppressed: bool = False,
+    all_runs: bool = False,
 ) -> dict[str, Any]:
     """Implementation of errors command."""
     try:
@@ -620,10 +621,19 @@ def _errors_impl(
 
         # Build WHERE conditions
         conditions = ["severity = 'error'"]
+
+        # Default to last run unless all_runs=True or specific run/source provided
         if run_id is not None:
             conditions.append(f"run_serial = {run_id}")
-        if source:
+        elif source:
             conditions.append(f"source_name = '{source}'")
+        elif not all_runs:
+            # Default: only show errors from the most recent run
+            last_run = storage.sql(
+                "SELECT MAX(run_serial) FROM blq_load_events()"
+            ).fetchone()
+            if last_run and last_run[0]:
+                conditions.append(f"run_serial = {last_run[0]}")
         if file_pattern:
             conditions.append(f"ref_file LIKE '{file_pattern}'")
 
@@ -673,6 +683,7 @@ def _warnings_impl(
     run_id: int | None = None,
     source: str | None = None,
     include_suppressed: bool = False,
+    all_runs: bool = False,
 ) -> dict[str, Any]:
     """Implementation of warnings command."""
     try:
@@ -682,10 +693,19 @@ def _warnings_impl(
 
         # Build WHERE conditions
         conditions = ["severity = 'warning'"]
+
+        # Default to last run unless all_runs=True or specific run/source provided
         if run_id is not None:
             conditions.append(f"run_serial = {run_id}")
-        if source:
+        elif source:
             conditions.append(f"source_name = '{source}'")
+        elif not all_runs:
+            # Default: only show warnings from the most recent run
+            last_run = storage.sql(
+                "SELECT MAX(run_serial) FROM blq_load_events()"
+            ).fetchone()
+            if last_run and last_run[0]:
+                conditions.append(f"run_serial = {last_run[0]}")
 
         # Apply suppression filter
         suppress_condition = _get_suppress_condition(include_suppressed)
@@ -735,6 +755,7 @@ def _events_impl(
     severity: str | None = None,
     file_pattern: str | None = None,
     include_suppressed: bool = False,
+    all_runs: bool = False,
 ) -> dict[str, Any]:
     """Implementation of events command."""
     try:
@@ -744,10 +765,19 @@ def _events_impl(
 
         # Build WHERE conditions
         conditions: list[str] = []
+
+        # Default to last run unless all_runs=True or specific run/source provided
         if run_id is not None:
             conditions.append(f"run_serial = {run_id}")
-        if source:
+        elif source:
             conditions.append(f"source_name = '{source}'")
+        elif not all_runs:
+            # Default: only show events from the most recent run
+            last_run = storage.sql(
+                "SELECT MAX(run_serial) FROM blq_load_events()"
+            ).fetchone()
+            if last_run and last_run[0]:
+                conditions.append(f"run_serial = {last_run[0]}")
         if file_pattern:
             conditions.append(f"ref_file LIKE '{file_pattern}'")
 
@@ -2123,6 +2153,7 @@ def events(
     source: str | None = None,
     severity: str | None = None,
     file_pattern: str | None = None,
+    all_runs: bool = False,
     # Batch mode
     run_ids: list[int] | None = None,
     limit_per_run: int = 10,
@@ -2132,6 +2163,9 @@ def events(
     For errors only: use severity="error"
     For warnings only: use severity="warning"
 
+    By default, shows events from the most recent run only.
+    Use all_runs=True to show events from all runs.
+
     Args:
         limit: Max events to return (default: 20)
         run_id: Filter to specific run (by serial number, e.g., 1, 2, 3)
@@ -2139,6 +2173,7 @@ def events(
         severity: Filter by severity. Can be a single value (error, warning, info)
                   or comma-separated list (e.g., "error,warning")
         file_pattern: Filter by file path pattern (SQL LIKE)
+        all_runs: Show events from all runs (default: False, shows only most recent)
         run_ids: List of run IDs for batch mode (returns events grouped by run)
         limit_per_run: Max events per run in batch mode (default: 10)
 
@@ -2159,7 +2194,8 @@ def events(
                 source=source,
                 severity=severity,
                 file_pattern=file_pattern,
-                include_suppressed=False,  # Default: suppress known fingerprints
+                include_suppressed=False,
+                all_runs=True,  # In batch mode, we already have specific run_ids
             )
             event_count = len(result.get("events", []))
             total_events += event_count
@@ -2178,7 +2214,10 @@ def events(
         }
 
     # Single run/all runs mode
-    return _events_impl(limit, run_id, source, severity, file_pattern, include_suppressed=False)
+    return _events_impl(
+        limit, run_id, source, severity, file_pattern,
+        include_suppressed=False, all_runs=all_runs
+    )
 
 
 @mcp.tool()

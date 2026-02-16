@@ -2,7 +2,11 @@
   "mcpServers": {
     "blq": {
       "command": "blq",
-      "args": ["serve"]
+      "args": ["mcp", "serve"]
+    },
+    "venv_blq": {
+      "command": ".venv/bin/blq",
+      "args": ["mcp", "serve"]
     }
   }
 }

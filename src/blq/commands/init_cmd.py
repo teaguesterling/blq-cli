@@ -547,6 +547,18 @@ def _install_extensions() -> None:
         except duckdb.Error:
             print("  scalarfs   - Installation failed (data: URLs unavailable)", file=sys.stderr)
 
+    # Install read_lines for line selection and grep features
+    try:
+        conn.execute("LOAD read_lines")
+        print("  read_lines - Already installed")
+    except duckdb.Error:
+        try:
+            conn.execute("INSTALL read_lines FROM community")
+            conn.execute("LOAD read_lines")
+            print("  read_lines - Installed successfully")
+        except duckdb.Error:
+            print("  read_lines - Installation failed (--lines/grep features unavailable)", file=sys.stderr)
+
 
 def _detect_commands(mode: str = DETECT_AUTO) -> list[tuple[str, str, str]]:
     """Detect available build/test commands based on project files.
