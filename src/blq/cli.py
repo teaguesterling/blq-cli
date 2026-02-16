@@ -471,6 +471,10 @@ def main() -> None:
     p_output.add_argument("--tail", "-t", type=int, metavar="N", help="Show last N lines")
     p_output.add_argument("--head", "-H", type=int, metavar="N", help="Show first N lines")
     p_output.add_argument(
+        "--lines", "-l", type=str, metavar="SPEC",
+        help="Line spec (e.g., '100-200', '42 +/-5'). Requires read_lines.",
+    )
+    p_output.add_argument(
         "--follow", "-f", action="store_true", help="Follow output (for running commands)"
     )
     p_output.add_argument(

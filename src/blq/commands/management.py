@@ -344,11 +344,40 @@ def _show_live_output(
             print("(no output yet)")
 
 
+def _show_lines_with_read_lines(content: str, lines_spec: str) -> None:
+    """Show selected lines using read_lines extension.
+
+    Uses DuckDB's read_lines extension with parse_lines for in-memory content.
+    """
+    try:
+        import duckdb as db
+
+        conn = db.connect()
+        conn.execute("LOAD read_lines")
+
+        # Use parse_lines for in-memory content with line spec
+        result = conn.execute(
+            "SELECT line_number, content FROM parse_lines(?, lines := ?)",
+            [content, lines_spec],
+        ).fetchall()
+
+        for line_num, line_content in result:
+            # Strip trailing newline from line_content since we add our own
+            line = line_content.rstrip("\n\r")
+            print(f"{line_num:>6}\t{line}")
+
+    except Exception as e:
+        print(f"Error: read_lines extension required for --lines: {e}", file=sys.stderr)
+        print("Install with: duckdb -c 'INSTALL read_lines'", file=sys.stderr)
+        sys.exit(1)
+
+
 def _show_stored_output(
     store: BirdStore,
     attempt_id: str,
     tail_lines: int | None,
     head_lines: int | None,
+    lines_spec: str | None = None,
 ) -> None:
     """Show output from blob storage (for completed commands)."""
     # Get output from blob storage
@@ -363,7 +392,9 @@ def _show_stored_output(
 
     content = content_bytes.decode("utf-8", errors="replace")
 
-    if tail_lines:
+    if lines_spec:
+        _show_lines_with_read_lines(content, lines_spec)
+    elif tail_lines:
         lines = content.split("\n")
         # Handle trailing newline
         if lines and lines[-1] == "":
@@ -438,6 +469,8 @@ def cmd_output(args: argparse.Namespace) -> None:
         blq output build:5             # Full output
         blq output --tail 20 build:5   # Last 20 lines
         blq output --head 10 build:5   # First 10 lines
+        blq output -l '100-200' build:5  # Lines 100-200
+        blq output -l '42 +/-5' build:5  # Line 42 with 5 lines context
         blq output --follow build:5    # Stream live output (running only)
         blq o -t 20 +1                 # Last 20 lines of most recent run
         blq o --debug-formats build:5  # Show format detection diagnosis
@@ -445,6 +478,7 @@ def cmd_output(args: argparse.Namespace) -> None:
     ref_arg = getattr(args, "ref", None)
     tail_lines = getattr(args, "tail", None)
     head_lines = getattr(args, "head", None)
+    lines_spec = getattr(args, "lines", None)
     follow = getattr(args, "follow", False)
     debug_formats = getattr(args, "debug_formats", False)
 
@@ -539,7 +573,7 @@ def cmd_output(args: argparse.Namespace) -> None:
                 if follow:
                     print("Error: --follow only works for running commands", file=sys.stderr)
                     sys.exit(1)
-                _show_stored_output(bird_store, attempt_id, tail_lines, head_lines)
+                _show_stored_output(bird_store, attempt_id, tail_lines, head_lines, lines_spec)
         finally:
             bird_store.close()
 
