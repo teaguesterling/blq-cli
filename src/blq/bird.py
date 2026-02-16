@@ -533,9 +533,7 @@ class BirdStore:
                 logger.warning(f"Migration warning: {e}")
 
             # Update schema version
-            conn.execute(
-                "UPDATE blq_metadata SET value = '2.2.0' WHERE key = 'schema_version'"
-            )
+            conn.execute("UPDATE blq_metadata SET value = '2.2.0' WHERE key = 'schema_version'")
 
         # If migrations were applied, reload views/macros to pick up new columns
         if migrations_applied:
@@ -1086,8 +1084,7 @@ class BirdStore:
 
             orphaned_ids.append(attempt_id)
             logger.info(
-                f"Marked stale attempt {attempt_id[:8]}... "
-                f"({attempt['source_name']}) as orphaned"
+                f"Marked stale attempt {attempt_id[:8]}... ({attempt['source_name']}) as orphaned"
             )
 
         return orphaned_ids

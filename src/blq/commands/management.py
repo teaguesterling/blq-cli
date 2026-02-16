@@ -672,8 +672,14 @@ def cmd_output(args: argparse.Namespace) -> None:
                     print("Error: --follow only works for running commands", file=sys.stderr)
                     sys.exit(1)
                 _show_stored_output(
-                    bird_store, attempt_id, tail_lines, head_lines, lines_spec,
-                    grep_pattern, grep_context, grep_case_insensitive
+                    bird_store,
+                    attempt_id,
+                    tail_lines,
+                    head_lines,
+                    lines_spec,
+                    grep_pattern,
+                    grep_context,
+                    grep_case_insensitive,
                 )
         finally:
             bird_store.close()

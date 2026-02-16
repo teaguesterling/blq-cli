@@ -471,23 +471,36 @@ def main() -> None:
     p_output.add_argument("--tail", "-t", type=int, metavar="N", help="Show last N lines")
     p_output.add_argument("--head", "-H", type=int, metavar="N", help="Show first N lines")
     p_output.add_argument(
-        "--lines", "-l", type=str, metavar="SPEC",
+        "--lines",
+        "-l",
+        type=str,
+        metavar="SPEC",
         help="Line spec (e.g., '100-200', '42 +/-5'). Requires read_lines.",
     )
     p_output.add_argument(
-        "--grep", "-g", type=str, metavar="PATTERN",
+        "--grep",
+        "-g",
+        type=str,
+        metavar="PATTERN",
         help="Search for regex pattern in output",
     )
     p_output.add_argument(
-        "--context", "-C", type=int, metavar="N", default=0,
+        "--context",
+        "-C",
+        type=int,
+        metavar="N",
+        default=0,
         help="Show N lines of context around grep matches (default: 0)",
     )
     p_output.add_argument(
-        "--ignore-case", "-i", action="store_true",
+        "--ignore-case",
+        "-i",
+        action="store_true",
         help="Case insensitive grep (default: true, use --no-ignore-case for exact)",
     )
     p_output.add_argument(
-        "--no-ignore-case", action="store_true",
+        "--no-ignore-case",
+        action="store_true",
         help="Case sensitive grep",
     )
     p_output.add_argument(

@@ -629,9 +629,7 @@ def _errors_impl(
             conditions.append(f"source_name = '{source}'")
         elif not all_runs:
             # Default: only show errors from the most recent run
-            last_run = storage.sql(
-                "SELECT MAX(run_serial) FROM blq_load_events()"
-            ).fetchone()
+            last_run = storage.sql("SELECT MAX(run_serial) FROM blq_load_events()").fetchone()
             if last_run and last_run[0]:
                 conditions.append(f"run_serial = {last_run[0]}")
         if file_pattern:
@@ -701,9 +699,7 @@ def _warnings_impl(
             conditions.append(f"source_name = '{source}'")
         elif not all_runs:
             # Default: only show warnings from the most recent run
-            last_run = storage.sql(
-                "SELECT MAX(run_serial) FROM blq_load_events()"
-            ).fetchone()
+            last_run = storage.sql("SELECT MAX(run_serial) FROM blq_load_events()").fetchone()
             if last_run and last_run[0]:
                 conditions.append(f"run_serial = {last_run[0]}")
 
@@ -773,9 +769,7 @@ def _events_impl(
             conditions.append(f"source_name = '{source}'")
         elif not all_runs:
             # Default: only show events from the most recent run
-            last_run = storage.sql(
-                "SELECT MAX(run_serial) FROM blq_load_events()"
-            ).fetchone()
+            last_run = storage.sql("SELECT MAX(run_serial) FROM blq_load_events()").fetchone()
             if last_run and last_run[0]:
                 conditions.append(f"run_serial = {last_run[0]}")
         if file_pattern:
@@ -1260,9 +1254,7 @@ def _output_impl(
                     "SELECT line_number, content FROM parse_lines(?, lines := ?)",
                     [content, lines],
                 ).fetchall()
-                result["content"] = "\n".join(
-                    f"{ln:>6}\t{c.rstrip()}" for ln, c in line_result
-                )
+                result["content"] = "\n".join(f"{ln:>6}\t{c.rstrip()}" for ln, c in line_result)
                 result["returned_lines"] = len(line_result)
             except Exception as e:
                 result["error"] = f"Line selection failed (read_lines required): {e}"
@@ -2248,8 +2240,7 @@ def events(
 
     # Single run/all runs mode
     return _events_impl(
-        limit, run_id, source, severity, file_pattern,
-        include_suppressed=False, all_runs=all_runs
+        limit, run_id, source, severity, file_pattern, include_suppressed=False, all_runs=all_runs
     )
 
 

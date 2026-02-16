@@ -164,9 +164,7 @@ class EventRef:
             # "tag:run_id:event_id" or "tag:+1:event_id"
             tag = parts[0]
             if is_relative_offset(parts[1]):
-                return cls(
-                    tag=tag, relative=parse_relative(parts[1]), event_id=int(parts[2])
-                )
+                return cls(tag=tag, relative=parse_relative(parts[1]), event_id=int(parts[2]))
             run_id = int(parts[1])
             event_id = int(parts[2])
             return cls(run_id=run_id, event_id=event_id, tag=tag)
