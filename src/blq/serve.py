@@ -783,21 +783,24 @@ def _events_impl(
 
         event_list = []
         for _, row in df.iterrows():
-            event_list.append(
-                {
-                    "ref": _to_json_safe(row.get("ref")),
-                    "run_ref": _to_json_safe(row.get("run_ref")),
-                    "severity": _to_json_safe(row.get("severity")),
-                    "ref_file": _to_json_safe(row.get("ref_file")),
-                    "ref_line": _safe_int(row.get("ref_line")),
-                    "ref_column": _safe_int(row.get("ref_column")),
-                    "message": _to_json_safe(row.get("message")),
-                    "tool_name": _to_json_safe(row.get("tool_name")),
-                    "category": _to_json_safe(row.get("category")),
-                    "fingerprint": _to_json_safe(row.get("fingerprint")),
-                    "log_line": _safe_int(row.get("log_line_start")),
-                }
-            )
+            event = {
+                "ref": _to_json_safe(row.get("ref")),
+                "run_ref": _to_json_safe(row.get("run_ref")),
+                "severity": _to_json_safe(row.get("severity")),
+                "ref_file": _to_json_safe(row.get("ref_file")),
+                "ref_line": _safe_int(row.get("ref_line")),
+                "ref_column": _safe_int(row.get("ref_column")),
+                "message": _to_json_safe(row.get("message")),
+                "tool_name": _to_json_safe(row.get("tool_name")),
+                "category": _to_json_safe(row.get("category")),
+                "fingerprint": _to_json_safe(row.get("fingerprint")),
+                "log_line": _safe_int(row.get("log_line_start")),
+            }
+            # Include test_name if present (for test frameworks)
+            test_name = _to_json_safe(row.get("test_name"))
+            if test_name:
+                event["test_name"] = test_name
+            event_list.append(event)
 
         return {"events": event_list, "total_count": total_count}
     except FileNotFoundError:
@@ -834,7 +837,7 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
             except (json.JSONDecodeError, TypeError):
                 environment = None
 
-        return {
+        response: dict[str, Any] = {
             "ref": _to_json_safe(event_data.get("ref")),
             "run_ref": _to_json_safe(event_data.get("run_ref")),
             "run_serial": run_serial,
@@ -865,6 +868,11 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
             # CI context
             "ci": event_data.get("ci"),
         }
+        # Include test_name if present (for test frameworks)
+        test_name = event_data.get("test_name")
+        if test_name:
+            response["test_name"] = test_name
+        return response
     except (ValueError, FileNotFoundError):
         return None
 
@@ -1136,6 +1144,10 @@ def _output_impl(
     stream: str | None = None,
     tail: int | None = None,
     head: int | None = None,
+    grep: str | None = None,
+    context: int = 0,
+    lines: str | None = None,
+    debug_formats: bool = False,
 ) -> dict[str, Any]:
     """Implementation of output command - get raw output for a run.
 
@@ -1144,10 +1156,16 @@ def _output_impl(
         stream: Stream name ('stdout', 'stderr', 'combined') or None for any
         tail: Return only last N lines
         head: Return only first N lines
+        grep: Regex pattern to search for in output
+        context: Lines of context around grep matches (default: 0)
+        lines: Line spec (e.g., '100-200', '42 +/-5') - requires read_lines extension
+        debug_formats: Show format detection diagnosis
 
     Returns:
         Output content and metadata
     """
+    import re
+
     try:
         storage = _get_storage()
 
@@ -1169,32 +1187,101 @@ def _output_impl(
                 "streams": [s["stream"] for s in info],
             }
 
-        # Decode and optionally truncate
+        # Decode
         try:
             content = output_bytes.decode("utf-8", errors="replace")
         except Exception:
             content = output_bytes.decode("latin-1")
 
-        lines = content.splitlines(keepends=True)
-        total_lines = len(lines)
-
-        # Apply head/tail
-        if tail is not None and tail > 0:
-            lines = lines[-tail:]
-        elif head is not None and head > 0:
-            lines = lines[:head]
-
-        content = "".join(lines)
-
-        return {
+        total_lines = len(content.splitlines())
+        result: dict[str, Any] = {
             "run_id": run_id,
             "stream": stream or info[0]["stream"] if info else "combined",
             "byte_length": len(output_bytes),
             "total_lines": total_lines,
-            "returned_lines": len(lines),
-            "content": content,
             "streams": [s["stream"] for s in info],
         }
+
+        # Handle debug_formats mode
+        if debug_formats:
+            try:
+                import duckdb
+
+                conn = duckdb.connect()
+                conn.execute("LOAD duck_hunt")
+                diagnosis = conn.execute(
+                    "SELECT * FROM duck_hunt_diagnose_parse(?)",
+                    [content],
+                ).fetchall()
+                columns = ["format", "events", "score", "confidence"]
+                result["format_diagnosis"] = [dict(zip(columns, row)) for row in diagnosis]
+            except Exception as e:
+                result["format_diagnosis_error"] = str(e)
+            return result
+
+        # Handle line selection (requires read_lines extension)
+        if lines:
+            try:
+                import duckdb
+
+                conn = duckdb.connect()
+                conn.execute("LOAD read_lines")
+                line_result = conn.execute(
+                    "SELECT line_number, content FROM parse_lines(?, lines := ?)",
+                    [content, lines],
+                ).fetchall()
+                result["content"] = "\n".join(
+                    f"{ln:>6}\t{c.rstrip()}" for ln, c in line_result
+                )
+                result["returned_lines"] = len(line_result)
+            except Exception as e:
+                result["error"] = f"Line selection failed (read_lines required): {e}"
+            return result
+
+        # Handle grep/search mode
+        if grep:
+            try:
+                regex = re.compile(grep, re.IGNORECASE)
+            except re.error as re_err:
+                return {**result, "error": f"Invalid regex: {re_err}"}
+
+            all_lines = content.splitlines()
+            matches = [i for i, line in enumerate(all_lines) if regex.search(line)]
+
+            if not matches:
+                result["content"] = "(no matches found)"
+                result["returned_lines"] = 0
+                result["match_count"] = 0
+                return result
+
+            # Expand matches with context
+            to_show = set()
+            for m in matches:
+                for i in range(max(0, m - context), min(len(all_lines), m + context + 1)):
+                    to_show.add(i)
+
+            output_lines = []
+            for i in sorted(to_show):
+                mark = ">>>" if i in matches else "   "
+                output_lines.append(f"{mark} {i + 1:>5} | {all_lines[i]}")
+
+            result["content"] = "\n".join(output_lines)
+            result["returned_lines"] = len(output_lines)
+            result["match_count"] = len(matches)
+            return result
+
+        # Standard head/tail mode
+        all_lines = content.splitlines(keepends=True)
+
+        if tail is not None and tail > 0:
+            all_lines = all_lines[-tail:]
+        elif head is not None and head > 0:
+            all_lines = all_lines[:head]
+
+        result["content"] = "".join(all_lines)
+        result["returned_lines"] = len(all_lines)
+        return result
+
     except FileNotFoundError:
         return {"run_id": run_id, "error": "No lq repository found", "streams": []}
     except Exception as e:
@@ -2179,22 +2266,34 @@ def output(
     stream: str | None = None,
     tail: int | None = None,
     head: int | None = None,
+    grep: str | None = None,
+    context: int = 0,
+    lines: str | None = None,
+    debug_formats: bool = False,
 ) -> dict[str, Any]:
-    """Get raw output for a run.
+    """Get raw output for a run with optional search and filtering.
 
     Retrieves the captured stdout/stderr from a command execution.
     Use tail or head to limit output size for large logs.
+    Use grep to search for patterns with optional context lines.
+    Use lines to select specific line ranges (requires read_lines extension).
 
     Args:
         run_id: Run serial number (e.g., 1, 2, 3)
         stream: Stream name ('stdout', 'stderr', 'combined') or None for default
         tail: Return only last N lines
         head: Return only first N lines
+        grep: Regex pattern to search for in output
+        context: Lines of context around grep matches (default: 0)
+        lines: Line spec (e.g., '100-200', '42 +/-5') - requires read_lines extension
+        debug_formats: Show format detection diagnosis (which parsers matched)
 
     Returns:
         Output content and metadata including byte_length, total_lines, etc.
+        With grep: includes match_count.
+        With debug_formats: includes format_diagnosis list.
     """
-    return _output_impl(run_id, stream, tail, head)
+    return _output_impl(run_id, stream, tail, head, grep, context, lines, debug_formats)
 
 
 @mcp.tool()

@@ -408,13 +408,16 @@ class BirdStore:
             force: If True, reload schema even if it exists (for reinit)
         """
         # Check if schema is already initialized (skip on force)
+        current_version = None
         if not force:
             try:
                 result = conn.execute(
                     "SELECT value FROM blq_metadata WHERE key = 'schema_version'"
                 ).fetchone()
                 if result:
-                    # Schema exists
+                    current_version = result[0]
+                    # Apply any pending migrations
+                    cls._apply_migrations(conn, current_version)
                     return
             except duckdb.Error:
                 pass  # Table doesn't exist, need to create
@@ -496,6 +499,69 @@ class BirdStore:
             statements.append(stmt)
 
         return statements
+
+    @classmethod
+    def _apply_migrations(cls, conn: duckdb.DuckDBPyConnection, current_version: str) -> None:
+        """Apply schema migrations from current version to latest.
+
+        Args:
+            conn: DuckDB connection
+            current_version: Current schema version string (e.g., "2.1.0")
+        """
+        # Parse version components
+        try:
+            parts = [int(p) for p in current_version.split(".")]
+            major, minor = parts[0], parts[1] if len(parts) > 1 else 0
+        except (ValueError, IndexError):
+            return  # Can't parse version, skip migrations
+
+        migrations_applied = False
+
+        # Migration: 2.1.0 -> 2.2.0 (add test_name column)
+        if (major, minor) < (2, 2):
+            try:
+                # Check if column already exists
+                result = conn.execute(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'events' AND column_name = 'test_name'"
+                ).fetchone()
+                if not result:
+                    conn.execute("ALTER TABLE events ADD COLUMN test_name VARCHAR")
+                    logger.info("Migration: Added test_name column to events table")
+                    migrations_applied = True
+            except duckdb.Error as e:
+                logger.warning(f"Migration warning: {e}")
+
+            # Update schema version
+            conn.execute(
+                "UPDATE blq_metadata SET value = '2.2.0' WHERE key = 'schema_version'"
+            )
+
+        # If migrations were applied, reload views/macros to pick up new columns
+        if migrations_applied:
+            cls._reload_views_and_macros(conn)
+
+    @classmethod
+    def _reload_views_and_macros(cls, conn: duckdb.DuckDBPyConnection) -> None:
+        """Reload views and macros from schema file.
+
+        This is needed after migrations that add columns, since views
+        don't automatically pick up new table columns.
+        """
+        schema_path = Path(__file__).parent / "bird_schema.sql"
+        if not schema_path.exists():
+            return
+
+        schema_sql = schema_path.read_text()
+        statements = cls._split_sql_statements(schema_sql)
+
+        # Reload views and macros (they use CREATE OR REPLACE)
+        for stmt in statements:
+            if "CREATE OR REPLACE VIEW" in stmt or "CREATE OR REPLACE MACRO" in stmt:
+                try:
+                    conn.execute(stmt)
+                except duckdb.Error:
+                    pass  # Ignore errors, some macros may have dependencies
 
     def close(self) -> None:
         """Close the database connection."""
@@ -1349,11 +1415,11 @@ class BirdStore:
                 INSERT INTO events (
                     id, invocation_id, event_index, client_id, hostname,
                     event_type, severity, ref_file, ref_line, ref_column,
-                    message, code, rule, tool_name, category, fingerprint,
-                    log_line_start, log_line_end, context, metadata,
-                    format_used, date
+                    message, code, rule, tool_name, category, test_name,
+                    fingerprint, log_line_start, log_line_end, context,
+                    metadata, format_used, date
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     event_id,
@@ -1371,6 +1437,7 @@ class BirdStore:
                     event.get("rule"),
                     event.get("tool_name"),
                     event.get("category"),
+                    event.get("test_name"),
                     event.get("fingerprint"),
                     event.get("log_line_start"),
                     event.get("log_line_end"),

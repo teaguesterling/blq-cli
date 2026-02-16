@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS blq_metadata (
 );
 
 -- Insert schema version (ignore if exists)
-INSERT OR IGNORE INTO blq_metadata VALUES ('schema_version', '2.1.0');
+INSERT OR IGNORE INTO blq_metadata VALUES ('schema_version', '2.2.0');
 INSERT OR IGNORE INTO blq_metadata VALUES ('storage_mode', 'duckdb');
 
 -- Base path for blob storage (set at runtime)
@@ -224,6 +224,7 @@ CREATE TABLE IF NOT EXISTS events (
     -- blq-specific fields
     tool_name         VARCHAR,                          -- Tool that generated event
     category          VARCHAR,                          -- Error category
+    test_name         VARCHAR,                          -- Test name (for test frameworks)
     fingerprint       VARCHAR,                          -- Unique identifier for dedup
     log_line_start    INTEGER,                          -- Start line in raw log
     log_line_end      INTEGER,                          -- End line in raw log
@@ -335,6 +336,7 @@ SELECT
     e.ref_column,
     e.tool_name,
     e.category,
+    e.test_name,
     e.code,
     e.rule,
     e.fingerprint,
