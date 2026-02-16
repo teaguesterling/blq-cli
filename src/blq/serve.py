@@ -1318,6 +1318,31 @@ def _output_impl(
         return {"run_id": run_id, "error": str(e), "streams": []}
 
 
+def _check_and_cleanup_orphans(storage: Any, min_age_seconds: float = 30.0) -> list[str]:
+    """Check for orphaned processes and mark them.
+
+    An orphan is a 'pending' attempt where the PID is no longer running.
+    This happens when a process crashes or is killed without proper cleanup.
+
+    Args:
+        storage: BirdStore instance
+        min_age_seconds: Only check attempts older than this to avoid race conditions
+
+    Returns:
+        List of attempt IDs that were marked as orphaned
+    """
+    try:
+        # Check if storage has the orphan check methods (BirdStore)
+        if not hasattr(storage, "mark_stale_as_orphaned"):
+            return []
+
+        orphaned: list[str] = storage.mark_stale_as_orphaned(min_age_seconds=min_age_seconds)
+        return orphaned
+    except Exception:
+        # Don't let orphan checking break normal operations
+        return []
+
+
 def _status_impl() -> dict[str, Any]:
     """Implementation of status command."""
     try:
@@ -1325,12 +1350,17 @@ def _status_impl() -> dict[str, Any]:
         if not storage.has_data():
             return {"sources": []}
 
+        # Check for orphaned processes (PIDs that are no longer running)
+        # This runs automatically on status to keep the state clean
+        orphaned = _check_and_cleanup_orphans(storage)
+
         # Get status for each source (includes pending/running via blq_load_source_status)
         runs_df = storage.sql("""
             SELECT * FROM blq_load_source_status()
             ORDER BY started_at DESC
         """).df()
         sources = []
+        orphaned_count = len(orphaned)
 
         for _, row in runs_df.iterrows():
             error_count = _safe_int(row.get("error_count")) or 0
@@ -1366,7 +1396,10 @@ def _status_impl() -> dict[str, Any]:
                 }
             )
 
-        return {"sources": sources}
+        result: dict[str, Any] = {"sources": sources}
+        if orphaned_count > 0:
+            result["orphaned_cleaned"] = orphaned_count
+        return result
     except FileNotFoundError:
         return {"sources": []}
 
