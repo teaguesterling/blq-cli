@@ -557,7 +557,7 @@ def _install_extensions() -> None:
             conn.execute("LOAD read_lines")
             print("  read_lines - Installed successfully")
         except duckdb.Error:
-            print("  read_lines - Installation failed (--lines/grep features unavailable)", file=sys.stderr)
+            print("  read_lines - Installation failed (optional)", file=sys.stderr)
 
 
 def _detect_commands(mode: str = DETECT_AUTO) -> list[tuple[str, str, str]]:

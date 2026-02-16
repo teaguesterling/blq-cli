@@ -1113,5 +1113,5 @@ class TestSearchContent:
         captured = capsys.readouterr()
         lines = captured.out.strip().split("\n")
         # Find the MATCH line
-        match_line = [l for l in lines if "MATCH" in l][0]
+        match_line = [ln for ln in lines if "MATCH" in ln][0]
         assert match_line.startswith(">>>")
