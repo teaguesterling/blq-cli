@@ -760,3 +760,44 @@ SELECT to_json(list(err)) AS json FROM (
     ORDER BY i.timestamp DESC, e.event_index
     LIMIT n
 );
+
+-- ============================================================================
+-- LINE READING WITH MARKS (requires read_lines extension)
+-- ============================================================================
+
+-- Read lines from content with optional markers for specific line ranges.
+-- Uses parse_lines from read_lines extension for efficient line selection.
+--
+-- Parameters:
+--   content: Text content to read from
+--   lines_spec: Line selection spec (e.g., '42 +/-5', '100-200', '+10-')
+--   marks: List of mark structs [{start: N, end: M, mark: '>>>'}]
+--
+-- Returns: line_number, line (trimmed content), mark (marker string or '')
+--
+-- Example:
+--   SELECT * FROM blq_read_lines(
+--       'line1\nline2\nline3',
+--       '1-3',
+--       [{start: 2, "end": 2, mark: '>>>'}]
+--   );
+--   -- Returns:
+--   -- | line_number | line  | mark |
+--   -- |-------------|-------|------|
+--   -- | 1           | line1 |      |
+--   -- | 2           | line2 | >>>  |
+--   -- | 3           | line3 |      |
+--
+CREATE OR REPLACE MACRO blq_read_lines(content, lines_spec, marks := []) AS TABLE
+SELECT
+    l.line_number,
+    rtrim(l.content, chr(10) || chr(13)) AS line,
+    coalesce(
+        (SELECT m.m.mark
+         FROM (SELECT unnest(marks) AS m) m
+         WHERE l.line_number >= m.m.start AND l.line_number <= m.m."end"
+         LIMIT 1),
+        ''
+    ) AS mark
+FROM parse_lines(content, lines := lines_spec) l
+ORDER BY l.line_number;

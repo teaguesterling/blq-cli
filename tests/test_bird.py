@@ -868,3 +868,151 @@ class TestMigration:
             assert events == 0
         finally:
             os.chdir(original_cwd)
+
+
+class TestBlqReadLinesMacro:
+    """Tests for blq_read_lines SQL macro."""
+
+    @pytest.fixture
+    def conn(self):
+        """Create DuckDB connection with read_lines and macro loaded."""
+        import duckdb
+
+        conn = duckdb.connect()
+        conn.execute("LOAD read_lines")
+        # Define the macro
+        conn.execute("""
+            CREATE OR REPLACE MACRO blq_read_lines(content, lines_spec, marks := []) AS TABLE
+            SELECT
+                l.line_number,
+                rtrim(l.content, chr(10) || chr(13)) AS line,
+                coalesce(
+                    (SELECT m.m.mark
+                     FROM (SELECT unnest(marks) AS m) m
+                     WHERE l.line_number >= m.m.start AND l.line_number <= m.m."end"
+                     LIMIT 1),
+                    ''
+                ) AS mark
+            FROM parse_lines(content, lines := lines_spec) l
+            ORDER BY l.line_number
+        """)
+        yield conn
+        conn.close()
+
+    def test_basic_line_selection(self, conn):
+        """Read lines without marks."""
+        result = conn.execute("""
+            SELECT * FROM blq_read_lines('line1
+line2
+line3', '1-3')
+        """).fetchall()
+
+        assert len(result) == 3
+        assert result[0] == (1, "line1", "")
+        assert result[1] == (2, "line2", "")
+        assert result[2] == (3, "line3", "")
+
+    def test_single_line_mark(self, conn):
+        """Mark a single line."""
+        result = conn.execute("""
+            SELECT * FROM blq_read_lines(
+                'line1
+line2
+line3',
+                '1-3',
+                [{start: 2, "end": 2, mark: '>>>'}]
+            )
+        """).fetchall()
+
+        assert result[0] == (1, "line1", "")
+        assert result[1] == (2, "line2", ">>>")
+        assert result[2] == (3, "line3", "")
+
+    def test_range_mark(self, conn):
+        """Mark a range of lines."""
+        result = conn.execute("""
+            SELECT * FROM blq_read_lines(
+                'line1
+line2
+line3
+line4
+line5',
+                '1-5',
+                [{start: 2, "end": 4, mark: '>>>'}]
+            )
+        """).fetchall()
+
+        assert result[0][2] == ""  # line 1
+        assert result[1][2] == ">>>"  # line 2
+        assert result[2][2] == ">>>"  # line 3
+        assert result[3][2] == ">>>"  # line 4
+        assert result[4][2] == ""  # line 5
+
+    def test_multiple_marks(self, conn):
+        """Multiple mark ranges with different markers."""
+        result = conn.execute("""
+            SELECT * FROM blq_read_lines(
+                'line1
+line2
+line3
+line4
+line5',
+                '1-5',
+                [
+                    {start: 2, "end": 2, mark: '>>>'},
+                    {start: 4, "end": 5, mark: '!!!'}
+                ]
+            )
+        """).fetchall()
+
+        assert result[0][2] == ""  # line 1
+        assert result[1][2] == ">>>"  # line 2
+        assert result[2][2] == ""  # line 3
+        assert result[3][2] == "!!!"  # line 4
+        assert result[4][2] == "!!!"  # line 5
+
+    def test_context_line_spec(self, conn):
+        """Use context-style line spec."""
+        result = conn.execute("""
+            SELECT * FROM blq_read_lines(
+                'line1
+line2
+line3
+line4
+line5',
+                '3 +/-1',
+                [{start: 3, "end": 3, mark: '>>>'}]
+            )
+        """).fetchall()
+
+        assert len(result) == 3
+        assert result[0] == (2, "line2", "")
+        assert result[1] == (3, "line3", ">>>")
+        assert result[2] == (4, "line4", "")
+
+    def test_empty_marks_list(self, conn):
+        """Empty marks list works."""
+        result = conn.execute("""
+            SELECT * FROM blq_read_lines('line1
+line2', '1-2', [])
+        """).fetchall()
+
+        assert len(result) == 2
+        assert all(row[2] == "" for row in result)
+
+    def test_custom_mark_strings(self, conn):
+        """Custom marker strings."""
+        result = conn.execute("""
+            SELECT * FROM blq_read_lines(
+                'line1
+line2
+line3',
+                '1-3',
+                [{start: 1, "end": 1, mark: 'ERR'},
+                 {start: 3, "end": 3, mark: 'WRN'}]
+            )
+        """).fetchall()
+
+        assert result[0][2] == "ERR"
+        assert result[1][2] == ""
+        assert result[2][2] == "WRN"
