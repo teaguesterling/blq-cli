@@ -65,8 +65,11 @@ class EventRef:
     - "test:5:3" - tag:run_id:event_id (full reference)
     - "+1" - relative: most recent run (any source)
     - "+2" - relative: second most recent run
+    - "latest" - alias for +1 (most recent run)
     - "test:+1" - relative: most recent run for tag "test"
+    - "test:latest" - alias for test:+1
     - "test:+1:3" - relative: event 3 in most recent "test" run
+    - "test:latest:3" - alias for test:+1:3
     """
 
     run_id: int | None = None  # None for relative refs until resolved
@@ -125,35 +128,40 @@ class EventRef:
         - "test:5:3" - tag:run_id:event_id
         - "+1" - relative: most recent run
         - "+2" - relative: second most recent run
+        - "latest" - alias for +1 (most recent run)
         - "test:+1" - relative: most recent run for tag "test"
+        - "test:latest" - alias for test:+1
         - "test:+1:3" - relative: event 3 in most recent "test" run
+        - "test:latest:3" - alias for test:+1:3
         """
         parts = ref.split(":")
 
-        # Helper to check if a part is a relative offset
+        # Helper to check if a part is a relative offset (+N or "latest")
         def is_relative_offset(s: str) -> bool:
-            return s.startswith("+") and s[1:].isdigit()
+            return s == "latest" or (s.startswith("+") and s[1:].isdigit())
 
         def parse_relative(s: str) -> int:
+            if s == "latest":
+                return 1  # latest is equivalent to +1
             return int(s[1:])
 
         if len(parts) == 1:
-            # "+1" or "5"
+            # "+1", "latest", or "5"
             if is_relative_offset(parts[0]):
                 return cls(relative=parse_relative(parts[0]))
             return cls(run_id=int(parts[0]))
 
         elif len(parts) == 2:
-            # Could be "+1:3", "5:3", "test:5", or "test:+1"
+            # Could be "+1:3", "latest:3", "5:3", "test:5", "test:+1", or "test:latest"
             if is_relative_offset(parts[0]):
-                # "+1:3" - relative with event_id
+                # "+1:3" or "latest:3" - relative with event_id
                 return cls(relative=parse_relative(parts[0]), event_id=int(parts[1]))
             try:
                 run_id = int(parts[0])
                 event_id = int(parts[1])
                 return cls(run_id=run_id, event_id=event_id)
             except ValueError:
-                # First part is a tag: "test:5" or "test:+1"
+                # First part is a tag: "test:5", "test:+1", or "test:latest"
                 tag = parts[0]
                 if is_relative_offset(parts[1]):
                     return cls(tag=tag, relative=parse_relative(parts[1]))
@@ -161,7 +169,7 @@ class EventRef:
                 return cls(run_id=run_id, tag=tag)
 
         elif len(parts) == 3:
-            # "tag:run_id:event_id" or "tag:+1:event_id"
+            # "tag:run_id:event_id", "tag:+1:event_id", or "tag:latest:event_id"
             tag = parts[0]
             if is_relative_offset(parts[1]):
                 return cls(tag=tag, relative=parse_relative(parts[1]), event_id=int(parts[2]))
@@ -173,7 +181,7 @@ class EventRef:
             raise ValueError(
                 f"Invalid reference: {ref}. "
                 "Expected format: run_id, run_id:event_id, tag:run_id, tag:run_id:event_id, "
-                "+N (relative), tag:+N, or tag:+N:event_id"
+                "+N (relative), latest, tag:+N, tag:latest, or tag:+N:event_id"
             )
 
 
