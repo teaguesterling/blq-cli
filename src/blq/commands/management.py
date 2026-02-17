@@ -150,6 +150,9 @@ def cmd_info(args: argparse.Namespace) -> None:
         else:
             try:
                 ref = EventRef.parse(ref_arg)
+                # Resolve relative refs like +1, latest, test:+1
+                if ref.is_relative:
+                    ref = resolve_ref(ref, store)
                 result = store.sql(f"""
                     SELECT * FROM blq_load_runs()
                     WHERE run_id = {ref.run_id}
