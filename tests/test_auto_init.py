@@ -224,9 +224,9 @@ class TestInitWithAutoMcp:
 
         config = json.loads(mcp_path.read_text())
         assert "mcpServers" in config
-        assert "blq" in config["mcpServers"]
+        assert "blq_mcp" in config["mcpServers"]
 
-        blq_config = config["mcpServers"]["blq"]
+        blq_config = config["mcpServers"]["blq_mcp"]
         assert blq_config["command"] == "blq"
         # Must be ["mcp", "serve"], not just ["serve"]
         assert blq_config["args"] == ["mcp", "serve"]

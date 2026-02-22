@@ -47,16 +47,6 @@ GITIGNORE_PATTERN = """# blq
 !.lq/config.toml
 !.lq/commands.toml"""
 
-MCP_CONFIG_TEMPLATE = """{
-  "mcpServers": {
-    "blq": {
-      "command": "blq",
-      "args": ["mcp", "serve"]
-    }
-  }
-}
-"""
-
 # Build system detection rules
 # Each entry: (file_to_check, [(command_name, command, description), ...])
 BUILD_SYSTEM_DETECTORS: list[tuple[str, list[tuple[str, str, str]]]] = [
@@ -465,10 +455,22 @@ def _detect_commands_inspect(cwd: Path) -> list[tuple[str, str, str]]:
     return detected
 
 
-def _write_mcp_config(path: Path) -> None:
-    """Write MCP configuration file."""
-    path.write_text(MCP_CONFIG_TEMPLATE)
-    print(f"  {path.name}   - MCP server configuration")
+def _write_mcp_config(mcp_file: Path) -> None:
+    """Create or update MCP configuration file (merges into existing)."""
+    from blq.commands.mcp_cmd import ensure_mcp_config
+
+    if ensure_mcp_config(mcp_file):
+        print(f"  {mcp_file.name}   - MCP server configuration")
+    else:
+        print(f"  {mcp_file.name}   - MCP server already configured")
+
+
+def _write_claude_md(cwd: Path) -> None:
+    """Create or update CLAUDE.md with blq agent instructions."""
+    from blq.commands.mcp_cmd import ensure_claude_md
+
+    if ensure_claude_md(cwd):
+        print("  CLAUDE.md - blq agent instructions")
 
 
 def _add_to_gitignore(cwd: Path) -> bool:
@@ -923,8 +925,9 @@ def cmd_init(args: argparse.Namespace) -> None:
         _install_extensions()
 
         # Check if user wants to add MCP config
-        if create_mcp and not mcp_config_path.exists():
+        if create_mcp:
             _write_mcp_config(mcp_config_path)
+            _write_claude_md(cwd)
 
         # Still allow command detection on existing projects
         if detect_commands:
@@ -1008,6 +1011,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     # Create MCP config if requested or auto-enabled
     if create_mcp:
         _write_mcp_config(mcp_config_path)
+        _write_claude_md(cwd)
         # Print notice if this was auto-enabled (not explicitly requested)
         if not explicit_mcp and user_config.auto_mcp:
             print("  (auto-created via user config)")

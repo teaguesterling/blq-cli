@@ -4,14 +4,123 @@ MCP (Model Context Protocol) commands for blq.
 Commands:
 - blq mcp install: Create or update .mcp.json configuration
 - blq mcp serve: Start the MCP server
+
+Shared utilities:
+- ensure_mcp_config(): Merge blq_mcp entry into .mcp.json
+- ensure_claude_md(): Inject blq agent instructions into CLAUDE.md
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
+
+MCP_SERVER_KEY = "blq_mcp"
+
+BLQ_MCP_CONFIG = {
+    "command": "blq",
+    "args": ["mcp", "serve"],
+}
+
+CLAUDE_MD_START_MARKER = "<!-- blq:agent-instructions -->"
+CLAUDE_MD_END_MARKER = "<!-- /blq:agent-instructions -->"
+
+CLAUDE_MD_INSTRUCTIONS = """\
+<!-- blq:agent-instructions -->
+## blq - Build Log Query
+
+Run builds and tests via blq MCP tools, not via Bash directly:
+- `mcp__blq_mcp__commands` - list available commands
+- `mcp__blq_mcp__run` - run a registered command (e.g., `run(command="test")`)
+- `mcp__blq_mcp__register_command` - register new commands
+- `mcp__blq_mcp__status` - check current build/test status
+- `mcp__blq_mcp__errors` - view errors from runs
+- `mcp__blq_mcp__info` - detailed run info (supports relative refs like `+1`, `latest`)
+<!-- /blq:agent-instructions -->"""
+
+
+def ensure_mcp_config(mcp_file: Path, force: bool = False) -> bool:
+    """Add or update blq_mcp entry in .mcp.json, preserving other servers.
+
+    Args:
+        mcp_file: Path to .mcp.json
+        force: If True, overwrite existing blq_mcp entry even if different
+
+    Returns:
+        True if the file was created or updated, False if already correct
+    """
+    if mcp_file.exists():
+        try:
+            config = json.loads(mcp_file.read_text())
+        except json.JSONDecodeError:
+            print(f"Error: {mcp_file} contains invalid JSON", file=sys.stderr)
+            sys.exit(1)
+
+        if "mcpServers" not in config:
+            config["mcpServers"] = {}
+
+        existing = config["mcpServers"].get(MCP_SERVER_KEY)
+        if existing == BLQ_MCP_CONFIG:
+            return False  # Already correct
+
+        if existing and not force:
+            print(f"{MCP_SERVER_KEY} server exists with different config. Use --force to overwrite.")
+            print(f"  Current: {json.dumps(existing)}")
+            print(f"  New:     {json.dumps(BLQ_MCP_CONFIG)}")
+            return False
+
+        config["mcpServers"][MCP_SERVER_KEY] = BLQ_MCP_CONFIG
+    else:
+        config = {"mcpServers": {MCP_SERVER_KEY: BLQ_MCP_CONFIG}}
+
+    mcp_file.write_text(json.dumps(config, indent=2) + "\n")
+    return True
+
+
+def ensure_claude_md(cwd: Path) -> bool:
+    """Add blq instructions to CLAUDE.md if not already present.
+
+    Uses marker comments for idempotent updates:
+    - If markers found, replaces the existing section
+    - If no markers, appends to end of file
+    - If no CLAUDE.md, creates it
+
+    Args:
+        cwd: Directory containing (or to contain) CLAUDE.md
+
+    Returns:
+        True if CLAUDE.md was created or updated, False if already correct
+    """
+    claude_md = cwd / "CLAUDE.md"
+    marker_pattern = re.compile(
+        re.escape(CLAUDE_MD_START_MARKER) + r".*?" + re.escape(CLAUDE_MD_END_MARKER),
+        re.DOTALL,
+    )
+
+    if claude_md.exists():
+        content = claude_md.read_text()
+
+        if CLAUDE_MD_START_MARKER in content:
+            # Replace existing section
+            new_content = marker_pattern.sub(CLAUDE_MD_INSTRUCTIONS, content)
+            if new_content == content:
+                return False  # Already correct
+            claude_md.write_text(new_content)
+            return True
+
+        # Append to end
+        if content and not content.endswith("\n"):
+            content += "\n"
+        content += "\n" + CLAUDE_MD_INSTRUCTIONS + "\n"
+        claude_md.write_text(content)
+        return True
+
+    # Create new file
+    claude_md.write_text(CLAUDE_MD_INSTRUCTIONS + "\n")
+    return True
 
 
 def cmd_mcp_install(args: argparse.Namespace) -> None:
@@ -24,7 +133,8 @@ def cmd_mcp_install(args: argparse.Namespace) -> None:
     """
     from blq.user_config import UserConfig
 
-    mcp_file = Path(".mcp.json")
+    cwd = Path.cwd()
+    mcp_file = cwd / ".mcp.json"
     force = getattr(args, "force", False)
 
     # Determine whether to install hooks
@@ -38,47 +148,18 @@ def cmd_mcp_install(args: argparse.Namespace) -> None:
         # Explicit flag passed
         install_hooks = hooks_arg
 
-    # Default blq server config
-    blq_config = {
-        "command": "blq",
-        "args": ["mcp", "serve"],
-    }
-
-    mcp_updated = False
-    if mcp_file.exists():
-        # Update existing file
-        try:
-            with open(mcp_file) as f:
-                config = json.load(f)
-        except json.JSONDecodeError:
-            print(f"Error: {mcp_file} contains invalid JSON", file=sys.stderr)
-            sys.exit(1)
-
-        if "mcpServers" not in config:
-            config["mcpServers"] = {}
-
-        if "blq" in config["mcpServers"] and not force:
-            existing = config["mcpServers"]["blq"]
-            if existing != blq_config:
-                print("blq server exists with different config. Use --force to overwrite.")
-                print(f"  Current: {json.dumps(existing)}")
-                print(f"  New:     {json.dumps(blq_config)}")
-        else:
-            config["mcpServers"]["blq"] = blq_config
-            with open(mcp_file, "w") as f:
-                json.dump(config, f, indent=2)
-            mcp_updated = True
-    else:
-        # Create new file
-        config = {"mcpServers": {"blq": blq_config}}
-        with open(mcp_file, "w") as f:
-            json.dump(config, f, indent=2)
-        mcp_updated = True
+    # Merge blq_mcp into .mcp.json
+    mcp_updated = ensure_mcp_config(mcp_file, force=force)
 
     if mcp_updated:
-        print(f"Configured blq MCP server in {mcp_file}")
+        print(f"Configured {MCP_SERVER_KEY} MCP server in {mcp_file.name}")
     else:
-        print(f"blq server already configured in {mcp_file}")
+        print(f"{MCP_SERVER_KEY} server already configured in {mcp_file.name}")
+
+    # Add agent instructions to CLAUDE.md
+    claude_updated = ensure_claude_md(cwd)
+    if claude_updated:
+        print("Updated CLAUDE.md with blq agent instructions")
 
     # Install Claude Code hooks if requested
     hook_installed = False
