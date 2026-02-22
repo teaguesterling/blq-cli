@@ -1065,3 +1065,229 @@ class TestDisabledTools:
 
         # Reset for other tests
         serve._disabled_tools = None
+
+
+class TestDetectShellPipes:
+    """Tests for the _detect_shell_pipes() helper."""
+
+    def test_clean_command_returns_none(self):
+        """Normal commands should not be detected as pipes."""
+        from blq.serve import _detect_shell_pipes
+
+        assert _detect_shell_pipes("pytest tests/") is None
+        assert _detect_shell_pipes("make -j8") is None
+        assert _detect_shell_pipes("echo hello world") is None
+
+    def test_standalone_2_redirect_tolerated(self):
+        """2>&1 alone should be tolerated (blq captures both streams)."""
+        from blq.serve import _detect_shell_pipes
+
+        assert _detect_shell_pipes("pytest tests/ 2>&1") is None
+        assert _detect_shell_pipes("make 2>&1") is None
+
+    def test_pipe_detected(self):
+        """Simple pipe should be detected."""
+        from blq.serve import _detect_shell_pipes
+
+        result = _detect_shell_pipes("pytest tests/ | tail -20")
+        assert result is not None
+        assert "error" in result
+        assert "base_command" in result
+        assert result["base_command"] == "pytest tests/"
+
+    def test_redirect_detected(self):
+        """Output redirect should be detected."""
+        from blq.serve import _detect_shell_pipes
+
+        result = _detect_shell_pipes("make > build.log")
+        assert result is not None
+        assert result["base_command"] == "make"
+
+    def test_append_redirect_detected(self):
+        """Append redirect should be detected."""
+        from blq.serve import _detect_shell_pipes
+
+        result = _detect_shell_pipes("make >> build.log")
+        assert result is not None
+
+    def test_and_chain_detected(self):
+        """&& chain should be detected."""
+        from blq.serve import _detect_shell_pipes
+
+        result = _detect_shell_pipes("pytest && mypy src/")
+        assert result is not None
+        assert result["base_command"] == "pytest"
+
+    def test_or_chain_detected(self):
+        """|| chain should be detected."""
+        from blq.serve import _detect_shell_pipes
+
+        result = _detect_shell_pipes("pytest || echo failed")
+        assert result is not None
+
+    def test_semicolon_detected(self):
+        """Semicolon chain should be detected."""
+        from blq.serve import _detect_shell_pipes
+
+        result = _detect_shell_pipes("pytest; echo done")
+        assert result is not None
+
+    def test_tail_suggestion(self):
+        """Pipe to tail generates specific output() suggestion."""
+        from blq.serve import _detect_shell_pipes
+
+        result = _detect_shell_pipes("pytest tests/ | tail -20")
+        assert result is not None
+        workflow = result["suggested_workflow"]
+        workflow_text = "\n".join(workflow)
+        assert "tail=20" in workflow_text
+
+    def test_head_suggestion(self):
+        """Pipe to head generates specific output() suggestion."""
+        from blq.serve import _detect_shell_pipes
+
+        result = _detect_shell_pipes("pytest tests/ | head -10")
+        assert result is not None
+        workflow = result["suggested_workflow"]
+        workflow_text = "\n".join(workflow)
+        assert "head=10" in workflow_text
+
+    def test_grep_suggestion(self):
+        """Pipe to grep generates specific output() suggestion."""
+        from blq.serve import _detect_shell_pipes
+
+        result = _detect_shell_pipes("make | grep error")
+        assert result is not None
+        workflow = result["suggested_workflow"]
+        workflow_text = "\n".join(workflow)
+        assert "grep=" in workflow_text
+        assert "error" in workflow_text
+
+    def test_shell_hint_present(self):
+        """Error should include hint about shell=True."""
+        from blq.serve import _detect_shell_pipes
+
+        result = _detect_shell_pipes("pytest | tail -5")
+        assert result is not None
+        assert "shell=True" in result.get("hint", "")
+
+    def test_input_redirect_detected(self):
+        """Input redirect should be detected."""
+        from blq.serve import _detect_shell_pipes
+
+        result = _detect_shell_pipes("wc -l < input.txt")
+        assert result is not None
+
+    def test_2_redirect_with_pipe_detected(self):
+        """2>&1 combined with a pipe should be detected."""
+        from blq.serve import _detect_shell_pipes
+
+        result = _detect_shell_pipes("make 2>&1 | grep error")
+        assert result is not None
+
+
+class TestExecPipeDetection:
+    """Tests for pipe detection in the exec tool via _exec_impl."""
+
+    def test_exec_rejects_pipes(self):
+        """exec with pipe in command returns error dict."""
+        from blq.serve import _exec_impl
+
+        result = _exec_impl("pytest tests/ | tail -20")
+        assert "error" in result
+        assert "Shell syntax" in result["error"]
+        assert "base_command" in result
+
+    def test_exec_rejects_chains(self):
+        """exec with && chain returns error dict."""
+        from blq.serve import _exec_impl
+
+        result = _exec_impl("pytest && mypy src/")
+        assert "error" in result
+        assert "Shell syntax" in result["error"]
+
+    def test_exec_allows_clean_command(self, mcp_server_empty):
+        """exec with clean command works normally."""
+        from blq.serve import _exec_impl
+
+        result = _exec_impl("echo hello")
+        # Should not have the pipe detection error
+        assert "Shell syntax" not in result.get("error", "")
+        # Should have normal run result structure
+        assert "status" in result
+
+    def test_exec_shell_bypasses_detection(self, mcp_server_empty):
+        """exec with shell=True bypasses pipe detection."""
+        from blq.serve import _exec_impl
+
+        result = _exec_impl("echo hello && echo world", shell=True)
+        # Should not have the pipe detection error
+        assert "Shell syntax" not in result.get("error", "")
+        assert "status" in result
+
+    def test_exec_shell_captures_output(self, mcp_server_empty):
+        """exec with shell=True captures output from shell commands."""
+        from blq.serve import _exec_impl
+
+        result = _exec_impl("echo hello && echo world", shell=True)
+        assert result.get("status") == "OK"
+        assert result.get("exit_code") == 0
+
+
+class TestBuildPreview:
+    """Tests for the _build_preview() helper."""
+
+    def test_no_preview_on_success(self):
+        """Successful runs should not include preview."""
+        from blq.serve import _build_preview
+
+        result = _build_preview(
+            {"head": ["line1"], "tail": ["line1"], "lines": 1, "bytes": 5},
+            status="OK",
+            has_errors=False,
+        )
+        assert "preview" not in result
+
+    def test_preview_on_failure_short_output(self):
+        """Failed runs with short output show all lines."""
+        from blq.serve import _build_preview
+
+        lines = ["line1", "line2", "line3"]
+        result = _build_preview(
+            {"head": lines, "tail": lines, "lines": 3, "bytes": 15},
+            status="FAIL",
+            has_errors=True,
+        )
+        assert "preview" in result
+        assert len(result["preview"]) == 3
+
+    def test_preview_on_failure_long_output(self):
+        """Failed runs with long output show head + separator + tail."""
+        from blq.serve import _build_preview
+
+        head = ["head1", "head2", "head3", "head4", "head5"]
+        tail = ["tail1", "tail2", "tail3", "tail4", "tail5"]
+        result = _build_preview(
+            {"head": head, "tail": tail, "lines": 100, "bytes": 500},
+            status="FAIL",
+            has_errors=True,
+        )
+        assert "preview" in result
+        preview = result["preview"]
+        # Should have 3 head + 1 separator + 3 tail = 7 lines
+        assert len(preview) == 7
+        assert "more lines" in preview[3]
+        assert preview[0] == "head1"
+        assert preview[-1] == "tail5"
+
+    def test_preview_includes_output_stats(self):
+        """Preview should include output_stats when output is longer than stored lines."""
+        from blq.serve import _build_preview
+
+        result = _build_preview(
+            {"head": ["h1"], "tail": ["t1"], "lines": 100, "bytes": 500},
+            status="FAIL",
+            has_errors=False,
+        )
+        assert "output_stats" in result
+        assert result["output_stats"]["lines"] == 100

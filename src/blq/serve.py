@@ -173,8 +173,9 @@ mcp = FastMCP(
         "Read blq://guide for detailed usage instructions. "
         "The database is shared with the CLI - users can run 'blq run build' "
         "and you can query the results, or vice versa. "
-        "Start with status() or commands() to see current state."
+        "Start with status() or commands() to see current state. "
         "Use errors(), event(ref), and context(ref) to drill down into issues. "
+        "Use output() to search/filter captured logs (not shell pipes). "
         "Docs: https://blq-cli.readthedocs.io/en/latest/"
     ),
 )
@@ -244,6 +245,8 @@ def _parse_ref(ref: str, storage: Any = None) -> tuple[str | None, int, int]:
 
     if parsed.event_id is None:
         raise ValueError(f"Invalid ref format: {ref}. Expected event reference with event_id")
+    if parsed.run_id is None:
+        raise ValueError(f"Invalid ref format: {ref}. Could not determine run_id")
 
     return parsed.tag, parsed.run_id, parsed.event_id
 
@@ -275,6 +278,9 @@ def _parse_run_ref(ref: str, storage: Any = None) -> tuple[str | None, int]:
             storage = _get_storage()
         parsed = resolve_ref(parsed, storage)
 
+    if parsed.run_id is None:
+        raise ValueError(f"Invalid ref format: {ref}. Could not determine run_id")
+
     return parsed.tag, parsed.run_id
 
 
@@ -282,6 +288,50 @@ def _parse_run_ref(ref: str, storage: Any = None) -> tuple[str | None, int]:
 # Implementation Functions
 # (Separated from decorators so they can be called from resources/prompts)
 # ============================================================================
+
+
+def _build_preview(
+    output_stats: dict[str, Any],
+    status: str,
+    has_errors: bool,
+) -> dict[str, Any]:
+    """Build preview and output_stats fields for a concise run/exec response.
+
+    Returns a dict of fields to merge into the concise response.
+    On failure, includes a ``preview`` showing the first and last few lines
+    of output (head + separator + tail) so agents see both the first error
+    and the summary line.
+
+    On success, no preview is included.
+    """
+    head = output_stats.get("head", [])
+    tail = output_stats.get("tail", [])
+    total_lines = output_stats.get("lines", 0)
+    preview_n = 3  # lines from each end
+
+    result: dict[str, Any] = {}
+
+    if status != "FAIL" or (not head and not tail):
+        return result
+
+    if total_lines <= preview_n * 2 + 1:
+        # Short output — show all available lines (tail contains the last N,
+        # but for short output head and tail overlap; use tail as the superset)
+        result["preview"] = tail if len(tail) >= len(head) else head
+    else:
+        result["preview"] = (
+            head[:preview_n]
+            + [f"... ({total_lines - preview_n * 2} more lines, use output() to see full log)"]
+            + tail[-preview_n:]
+        )
+
+    if total_lines > max(len(head), len(tail)):
+        result["output_stats"] = {
+            "lines": total_lines,
+            "bytes": output_stats.get("bytes", 0),
+        }
+
+    return result
 
 
 def _run_impl(
@@ -359,26 +409,11 @@ def _run_impl(
                 if duration > 5:
                     concise["duration_sec"] = round(duration, 1)
 
-                # Include tail conditionally:
-                # - Failed + errors: 2 lines (summary only)
-                # - Failed + no errors: all lines (fallback for debugging)
-                # - Success: none
+                # Include preview on failure (head + tail with separator)
                 output_stats = full_result.get("output_stats", {})
-                tail = output_stats.get("tail", [])
-                total_lines = output_stats.get("lines", 0)
-
-                if status == "FAIL" and tail:
-                    if has_errors:
-                        # Just summary lines when we have structured errors
-                        concise["tail"] = tail[-2:]
-                    else:
-                        # Full tail as fallback when no errors extracted
-                        concise["tail"] = tail
-                    if total_lines > len(tail):
-                        concise["output_stats"] = {
-                            "lines": total_lines,
-                            "bytes": output_stats.get("bytes", 0),
-                        }
+                concise.update(
+                    _build_preview(output_stats, status, has_errors)
+                )
 
                 return concise
             except json.JSONDecodeError:
@@ -462,36 +497,56 @@ def _exec_impl(
     command: str,
     args: list[str] | None = None,
     timeout: int | None = None,
+    shell: bool = False,
 ) -> dict[str, Any]:
     """Implementation of exec command (for ad-hoc shell commands).
 
     If the command matches a registered command prefix, uses run() instead
     for cleaner refs.
+
+    Args:
+        command: Shell command to run
+        args: Additional arguments to append
+        timeout: Timeout in seconds
+        shell: If True, skip pipe detection and pass command as a single
+               argument for shell interpretation
     """
     # Build full command string
     full_cmd = command
     if args:
         full_cmd = f"{command} {' '.join(args)}"
 
-    # Check if this matches a registered command
-    match = _find_matching_registered_command(full_cmd)
-    if match:
-        name, extra_args = match
-        result = _run_impl(name, extra=extra_args if extra_args else None, timeout=timeout)
-        result["matched_command"] = name
-        if extra_args:
-            result["extra_args"] = extra_args
-        return result
+    # Detect shell pipes/redirects unless shell=True
+    if not shell:
+        pipe_error = _detect_shell_pipes(full_cmd)
+        if pipe_error is not None:
+            return pipe_error
+
+    # Check if this matches a registered command (skip for shell mode)
+    if not shell:
+        match = _find_matching_registered_command(full_cmd)
+        if match:
+            name, extra_args = match
+            result = _run_impl(name, extra=extra_args if extra_args else None, timeout=timeout)
+            result["matched_command"] = name
+            if extra_args:
+                result["extra_args"] = extra_args
+            return result
 
     # No match - run as ad-hoc exec
-    # Split command into parts since CLI uses REMAINDER parsing
     # Use sys.executable to ensure we use the same Python/venv as the MCP server
     cmd_parts = [sys.executable, "-m", "blq", "exec", "--json", "--quiet"]
     if timeout:
         cmd_parts.extend(["--timeout", str(timeout)])
-    cmd_parts.extend(shlex.split(command))
-    if args:
-        cmd_parts.extend(args)
+
+    if shell:
+        # Pass as single argument so CLI can forward to shell
+        cmd_parts.extend(["--", full_cmd])
+    else:
+        # Split command into parts since CLI uses REMAINDER parsing
+        cmd_parts.extend(shlex.split(command))
+        if args:
+            cmd_parts.extend(args)
 
     try:
         # Add buffer to subprocess timeout so CLI timeout fires first
@@ -533,26 +588,11 @@ def _exec_impl(
                 if duration > 5:
                     concise["duration_sec"] = round(duration, 1)
 
-                # Include tail conditionally:
-                # - Failed + errors: 2 lines (summary only)
-                # - Failed + no errors: all lines (fallback for debugging)
-                # - Success: none
+                # Include preview on failure (head + tail with separator)
                 output_stats = full_result.get("output_stats", {})
-                tail = output_stats.get("tail", [])
-                total_lines = output_stats.get("lines", 0)
-
-                if status == "FAIL" and tail:
-                    if has_errors:
-                        # Just summary lines when we have structured errors
-                        concise["tail"] = tail[-2:]
-                    else:
-                        # Full tail as fallback when no errors extracted
-                        concise["tail"] = tail
-                    if total_lines > len(tail):
-                        concise["output_stats"] = {
-                            "lines": total_lines,
-                            "bytes": output_stats.get("bytes", 0),
-                        }
+                concise.update(
+                    _build_preview(output_stats, status, has_errors)
+                )
 
                 return concise
             except json.JSONDecodeError:
@@ -786,7 +826,7 @@ def _warnings_impl(
 
 
 def _try_extract_live_events(
-    storage: Any,
+    storage: BlqStorage,
     run_id: int | None,
     source: str | None,
     severity: str | None,
@@ -812,14 +852,8 @@ def _try_extract_live_events(
     Returns:
         Dict with events if live extraction was performed, None otherwise
     """
-    from blq.bird import BirdStore
-
     # Don't do live extraction when querying all runs
     if all_runs:
-        return None
-
-    # Only BirdStore supports live events
-    if not isinstance(storage, BirdStore):
         return None
 
     # Determine which attempt to check
@@ -874,8 +908,8 @@ def _try_extract_live_events(
     if not attempt_info:
         return None
 
-    # Extract live events
-    events = storage.extract_live_events(attempt_info["attempt_id"], attempt_info["format_hint"])
+    # Extract live events via the underlying BirdStore
+    events = storage._store.extract_live_events(attempt_info["attempt_id"], attempt_info["format_hint"])
 
     # Apply filters
     filtered_events = []
@@ -2047,6 +2081,113 @@ def _normalize_cmd(cmd: str) -> str:
     return " ".join(cmd.split())
 
 
+import re as _re
+
+# Shell metacharacters that indicate pipes, redirects, or command chains.
+# We detect these to prevent silent failures when agents pass shell syntax
+# to commands that are exec'd without a shell.
+_SHELL_PIPE_PATTERN = _re.compile(
+    r"""
+    (?<!\d)           # not preceded by a digit (to allow 2>&1)
+    (?:
+        \|(?!\|)      # single pipe (but not ||)
+      | >>            # append redirect
+      | >(?!&)        # output redirect (but not >&)
+      | <(?!<)        # input redirect (but not <<)
+      | <<            # heredoc
+      | \|\|          # or-chain
+      | &&            # and-chain
+      | ;             # command separator
+    )
+    """,
+    _re.VERBOSE,
+)
+
+# Pattern to detect standalone 2>&1 (which blq captures anyway)
+_ONLY_2_REDIRECT = _re.compile(r"^[^|;>&<]*2>&1\s*$")
+
+# Patterns for common post-pipe filters → output() suggestions
+_PIPE_SUGGESTIONS: list[tuple[_re.Pattern[str], str]] = [
+    (
+        _re.compile(r"\|\s*tail\s+(?:-n\s*|-)?(\d+)"),
+        'output(run_id=RUN_ID, tail={0})',
+    ),
+    (
+        _re.compile(r"\|\s*tail\b"),
+        'output(run_id=RUN_ID, tail=20)',
+    ),
+    (
+        _re.compile(r"\|\s*head\s+(?:-n\s*|-)?(\d+)"),
+        'output(run_id=RUN_ID, head={0})',
+    ),
+    (
+        _re.compile(r"\|\s*head\b"),
+        'output(run_id=RUN_ID, head=20)',
+    ),
+    (
+        _re.compile(r"""\|\s*grep\s+(?:-[a-zA-Z]+\s+)*['"]?([^'"|\s]+)['"]?"""),
+        'output(run_id=RUN_ID, grep="{0}", context=3)',
+    ),
+]
+
+
+def _detect_shell_pipes(command: str) -> dict[str, Any] | None:
+    """Detect shell pipes, redirects, and command chains in a command string.
+
+    Returns an error dict with base_command and suggestions if shell syntax
+    is found, or None if the command is clean.
+
+    Tolerates standalone ``2>&1`` since blq captures both streams anyway.
+    """
+    # Allow standalone 2>&1 (blq captures both streams)
+    if _ONLY_2_REDIRECT.match(command):
+        return None
+
+    match = _SHELL_PIPE_PATTERN.search(command)
+    if match is None:
+        return None
+
+    # Extract the base command (everything before the first metacharacter)
+    metachar_pos = match.start()
+    base_command = command[:metachar_pos].strip()
+
+    # Build suggestions from matched pipe patterns
+    suggestions: list[str] = []
+    for pattern, template in _PIPE_SUGGESTIONS:
+        m = pattern.search(command)
+        if m:
+            # Fill in captured groups
+            suggestion = template
+            for i, group in enumerate(m.groups()):
+                if group is not None:
+                    suggestion = suggestion.replace(f"{{{i}}}", group)
+            suggestions.append(suggestion)
+
+    # Build the suggested workflow
+    workflow = [
+        f'1. Run the base command: exec(command="{base_command}")',
+        "2. Then filter the captured output:",
+    ]
+    if suggestions:
+        for s in suggestions:
+            workflow.append(f"   {s}")
+    else:
+        workflow.append("   output(run_id=RUN_ID, tail=N)  # last N lines")
+        workflow.append('   output(run_id=RUN_ID, grep="PATTERN", context=3)  # search')
+
+    detected = command[metachar_pos : metachar_pos + 10].strip()
+    return {
+        "error": (
+            f"Shell syntax detected: '{detected}' in command. "
+            "Commands are executed directly, not through a shell. "
+            "Use the output() tool to filter captured logs instead."
+        ),
+        "base_command": base_command,
+        "suggested_workflow": workflow,
+        "hint": "Pass shell=True to force shell execution (advanced).",
+    }
+
+
 def _command_to_dict(cmd: Any) -> dict[str, Any]:
     """Convert RegisteredCommand to dict for JSON response."""
     result: dict[str, Any] = {
@@ -2261,6 +2402,8 @@ def run(
     """Run a registered command and capture its output.
 
     Can run a single command or multiple commands in sequence (batch mode).
+    To filter or search captured output after a run, use the output() tool
+    with grep/tail/head parameters.
 
     Args:
         command: Registered command name (use the exec tool for ad-hoc commands)
@@ -2272,7 +2415,7 @@ def run(
         stop_on_failure: In batch mode, stop after first failure (default: true)
 
     Returns:
-        Run result with status, errors, and warnings.
+        Run result with status, errors, and preview of output on failure.
         In batch mode, returns results for each command with overall status.
     """
     # Batch mode: run multiple commands in sequence
@@ -2307,8 +2450,14 @@ def exec(
     command: str,
     args: list[str] | None = None,
     timeout: int | None = None,
+    shell: bool = False,
 ) -> dict[str, Any]:
     """Execute an ad-hoc shell command and capture its output.
+
+    IMPORTANT: Do NOT use shell pipes, redirects, or command chains
+    (|, >, >>, <, &&, ||, ;) in the command string. Commands are executed
+    directly without a shell. To filter output, run the command first, then
+    use the output() tool with grep/tail/head parameters.
 
     If the command matches a registered command prefix, automatically uses
     run() instead for cleaner refs. For example, if 'test' is registered as
@@ -2318,16 +2467,18 @@ def exec(
     Note: This tool can be disabled via mcp.disabled_tools config.
 
     Args:
-        command: Shell command to run
+        command: Shell command to run (no pipes or redirects)
         args: Additional arguments to append
         timeout: Timeout in seconds (default: no timeout)
+        shell: Advanced: set True to allow shell syntax (pipes, redirects).
+               Prefer the two-step workflow: exec() then output() instead.
 
     Returns:
         Run result with status, errors, and warnings. If a registered command
         was matched, includes 'matched_command' and optionally 'extra_args'.
     """
     _check_tool_enabled("exec")
-    return _exec_impl(command, args, timeout)
+    return _exec_impl(command, args, timeout, shell=shell)
 
 
 @mcp.tool()

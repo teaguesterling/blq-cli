@@ -559,6 +559,7 @@ def _execute_with_live_output(
     output_stats: dict[str, int | list[str]] = {
         "lines": len(output_lines),
         "bytes": len(output),
+        "head": [_truncate_line(ln) for ln in output_lines[:tail_lines]],
         "tail": [_truncate_line(ln) for ln in output_lines[-tail_lines:]],
     }
 
@@ -874,6 +875,7 @@ def _execute_command(
     output_stats: dict[str, int | list[str]] = {
         "lines": len(output_lines),
         "bytes": len(output),
+        "head": [_truncate_line(ln) for ln in output_lines[:tail_lines]],
         "tail": [_truncate_line(ln) for ln in output_lines[-tail_lines:]],
     }
 
@@ -1284,9 +1286,11 @@ def cmd_exec(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     # Build command from args - properly quote for shell
+    # Single-arg commands pass through without quoting so that shell syntax
+    # (pipes, redirects) is preserved when shell=True in subprocess.
     import shlex
 
-    command = shlex.join(cmd_args)
+    command = cmd_args[0] if len(cmd_args) == 1 else shlex.join(cmd_args)
     # Use provided name, or extract basename of first command token
     if args.name:
         source_name = args.name

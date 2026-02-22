@@ -182,15 +182,16 @@ blq.run(command="test")
   "status": "FAIL",
   "exit_code": 1,
   "summary": {"error_count": 2, "warning_count": 5},
-  "errors": [...],  # Only if errors exist
-  "tail": [...]     # Conditional: 2 lines with errors, full without, none on success
+  "errors": [...],     # Only if errors exist
+  "preview": [...]     # Head + tail of output on failure (see below)
 }
 ```
 
-**Conditional tail behavior:**
-- **Failed + errors extracted**: 2 lines of tail (summary context)
-- **Failed + no errors**: Full tail (fallback for debugging)
-- **Success**: No tail included
+**Preview behavior:**
+- **Failed**: Shows first 3 + last 3 lines with separator (head and tail of output)
+- **Short output**: Shows all lines when total <= 7
+- **Success**: No preview included
+- Use `output(run_id=N)` to see the full log
 
 #### The `info` Tool with `context=N`
 
@@ -503,6 +504,43 @@ defaults = { path = "tests/", flags = "-v" }
 description = "Run tests"
 ```
 
+## Filtering and Searching Output
+
+**Do NOT use shell pipes, redirects, or command chains** in run or exec commands.
+Commands like `exec(command="pytest tests/ | tail -20")` will be rejected because
+commands are executed directly, not through a shell.
+
+### Correct Workflow: Run Then Filter
+
+```python
+# Step 1: Run the command
+result = blq.run(command="test")
+
+# Step 2: Filter the captured output using output()
+blq.output(run_id=47, tail=20)                      # Last 20 lines
+blq.output(run_id=47, head=10)                       # First 10 lines
+blq.output(run_id=47, grep="FAILED", context=3)      # Search with context
+blq.output(run_id=47, grep="error|warning")           # Regex search
+blq.output(run_id=47, lines="100-200")               # Specific line range
+```
+
+### Why This Works Better
+
+- **Persistent**: Output is stored — you can search it multiple times without re-running
+- **Structured**: The `output()` tool handles grep, context lines, and line selection natively
+- **Token-efficient**: Request only the lines you need instead of piping full output
+
+### Shell Escape Hatch
+
+For advanced use cases that genuinely need shell interpretation:
+
+```python
+blq.exec(command="echo hello && echo world", shell=True)
+```
+
+This bypasses pipe detection and passes the command to a shell. Prefer the
+two-step workflow above unless you have a specific reason to use shell syntax.
+
 ## Best Practices
 
 ### Do:
@@ -511,9 +549,11 @@ description = "Run tests"
 - Use `diff()` after fixes to verify no regressions
 - Use `inspect()` only when you need additional details (source context, error codes)
 - Register commands the user will run repeatedly
+- Use `output()` with grep/tail/head to filter captured logs
 
 ### Don't:
 - Use Bash to run builds when blq tools are available
+- Use shell pipes or redirects in run/exec commands (`| tail`, `| grep`, `> file`)
 - Assume you can read source files - use blq's stored error context
 - Skip checking existing results - the user may have already run the build
 - Call `events()` then `inspect()` for each error - use `info(context=N)` instead

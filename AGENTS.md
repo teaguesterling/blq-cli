@@ -10,6 +10,24 @@ This document provides guidance for AI agents (Claude, GPT, etc.) on effectively
 - Simple filter syntax for quick queries
 - SQL access for complex analysis
 
+## No Shell Pipes or Redirects
+
+**Do NOT use shell pipes, redirects, or command chains** in blq commands:
+
+```bash
+# WRONG - these will fail:
+blq exec pytest tests/ | tail -20
+blq exec "make 2>&1 | grep error"
+blq exec "pytest && mypy src/"
+
+# CORRECT - run then filter:
+blq exec pytest tests/                    # Run the command
+blq output --tail 20                      # Then filter the output
+blq output --grep "error" --context 3     # Search captured output
+```
+
+When using MCP tools, the same applies — run the command first, then use `output()` to filter.
+
 ## When to Use blq
 
 Use blq when the user:
