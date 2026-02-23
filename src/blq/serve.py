@@ -3182,10 +3182,11 @@ def _clean_impl(
     mode: str = "data",
     confirm: bool = False,
     days: int | None = None,
+    max_runs: int | None = None,
+    max_size_mb: int | None = None,
 ) -> dict[str, Any]:
     """Implementation of clean command."""
     import shutil
-    from datetime import datetime, timedelta
     from pathlib import Path
 
     valid_modes = ["data", "prune", "schema", "full"]
@@ -3196,23 +3197,33 @@ def _clean_impl(
             "error": f"Invalid mode '{mode}'. Valid modes: {', '.join(valid_modes)}",
         }
 
-    if mode == "prune" and days is None:
+    if mode == "prune" and days is None and max_runs is None and max_size_mb is None:
         return {
             "success": False,
-            "error": "Prune mode requires 'days' parameter",
+            "error": "Prune mode requires at least one of: days, max_runs, max_size_mb",
         }
 
     if not confirm:
+        desc = {
+            "data": "Clear run data but keep config and commands",
+            "schema": "Recreate database schema (clears data, keeps config)",
+            "full": "Delete and recreate entire .lq directory",
+        }
+        if mode == "prune":
+            parts = []
+            if days is not None:
+                parts.append(f"older than {days} days")
+            if max_runs is not None:
+                parts.append(f"exceeding {max_runs} runs per source")
+            if max_size_mb is not None:
+                parts.append(f"exceeding {max_size_mb} MB total output")
+            desc["prune"] = "Remove data " + " and ".join(parts)
+
         return {
             "success": False,
             "error": "Clean requires confirm=true to proceed. This is a destructive operation.",
             "mode": mode,
-            "description": {
-                "data": "Clear run data but keep config and commands",
-                "prune": f"Remove data older than {days} days",
-                "schema": "Recreate database schema (clears data, keeps config)",
-                "full": "Delete and recreate entire .lq directory",
-            }.get(mode, "Unknown mode"),
+            "description": desc.get(mode, "Unknown mode"),
         }
 
     try:
@@ -3255,93 +3266,51 @@ def _clean_impl(
             }
 
         elif mode == "prune":
-            # Remove data older than N days
-            assert days is not None  # Checked earlier in function
-            cutoff = datetime.now() - timedelta(days=days)
-            cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
-
             db_path = lq_dir / "blq.duckdb"
             if not db_path.exists():
                 return {"success": False, "error": "No database found", "mode": mode}
 
-            import duckdb
+            total_pruned = 0
+            removed: dict[str, int] = {}
 
-            conn = duckdb.connect(str(db_path))
+            with BlqStorage.open(lq_dir) as storage:
+                if days is not None:
+                    pruned = storage.prune(days=days)
+                    total_pruned += pruned
+                    removed["by_age"] = pruned
 
-            # Count what will be removed
-            result = conn.execute(
-                "SELECT COUNT(*) FROM invocations WHERE timestamp < ?", [cutoff_str]
-            ).fetchone()
-            invocation_count = result[0] if result else 0
+                if max_runs is not None:
+                    pruned = storage.prune_by_max_runs(max_runs)
+                    total_pruned += pruned
+                    removed["by_max_runs"] = pruned
 
-            if invocation_count == 0:
-                conn.close()
-                return {
-                    "success": True,
-                    "message": f"No data older than {days} days found.",
-                    "mode": mode,
-                    "removed": {"invocations": 0, "events": 0},
-                }
+                if max_size_mb is not None:
+                    pruned = storage.prune_by_size(max_size_mb)
+                    total_pruned += pruned
+                    removed["by_size"] = pruned
 
-            result = conn.execute(
-                """
-                SELECT COUNT(*) FROM events e
-                JOIN invocations i ON e.invocation_id = i.id
-                WHERE i.timestamp < ?
-            """,
-                [cutoff_str],
-            ).fetchone()
-            event_count = result[0] if result else 0
+                blobs_deleted = 0
+                bytes_freed = 0
+                if total_pruned > 0:
+                    blobs_deleted, bytes_freed = storage.cleanup_blobs()
 
-            # Delete events first
-            conn.execute(
-                """
-                DELETE FROM events WHERE invocation_id IN (
-                    SELECT id FROM invocations WHERE timestamp < ?
-                )
-            """,
-                [cutoff_str],
-            )
+            removed["total_invocations"] = total_pruned
+            removed["blobs"] = blobs_deleted
+            removed["bytes_freed"] = bytes_freed
 
-            # Delete outputs
-            conn.execute(
-                """
-                DELETE FROM outputs WHERE invocation_id IN (
-                    SELECT id FROM invocations WHERE timestamp < ?
-                )
-            """,
-                [cutoff_str],
-            )
-
-            # Delete invocations
-            conn.execute("DELETE FROM invocations WHERE timestamp < ?", [cutoff_str])
-
-            # Clean up orphaned sessions
-            conn.execute("""
-                DELETE FROM sessions WHERE id NOT IN (
-                    SELECT DISTINCT session_id FROM invocations WHERE session_id IS NOT NULL
-                )
-            """)
-
-            conn.close()
-
-            # Clean up orphaned blobs
-            from blq.bird import BirdStore
-
-            store = BirdStore.open(lq_dir)
-            blobs_deleted, bytes_freed = store.cleanup_orphaned_blobs()
-            store.close()
+            parts = []
+            if days is not None:
+                parts.append(f"age>{days}d")
+            if max_runs is not None:
+                parts.append(f"max_runs={max_runs}")
+            if max_size_mb is not None:
+                parts.append(f"max_size={max_size_mb}MB")
 
             return {
                 "success": True,
-                "message": f"Removed data older than {days} days.",
+                "message": f"Pruned {total_pruned} invocations ({', '.join(parts)}).",
                 "mode": mode,
-                "removed": {
-                    "invocations": invocation_count,
-                    "events": event_count,
-                    "blobs": blobs_deleted,
-                    "bytes_freed": bytes_freed,
-                },
+                "removed": removed,
             }
 
         elif mode == "schema":
@@ -3407,6 +3376,8 @@ def clean(
     mode: str = "data",
     confirm: bool = False,
     days: int | None = None,
+    max_runs: int | None = None,
+    max_size_mb: int | None = None,
 ) -> dict[str, Any]:
     """Database cleanup and maintenance.
 
@@ -3415,17 +3386,20 @@ def clean(
     Args:
         mode: Cleanup mode:
             - "data": Clear all run data but keep config and commands
-            - "prune": Remove data older than N days (requires `days` param)
+            - "prune": Remove data by age, run count, or size. Requires at least
+              one of: days, max_runs, max_size_mb
             - "schema": Recreate database schema (clears data, keeps config files)
             - "full": Delete and recreate entire .lq directory
         confirm: Must be true to proceed (safety check)
         days: For prune mode, remove data older than this many days
+        max_runs: For prune mode, keep at most N runs per source
+        max_size_mb: For prune mode, keep total output under N MB
 
     Returns:
         Success status and message
     """
     _check_tool_enabled("clean")
-    return _clean_impl(mode, confirm, days)
+    return _clean_impl(mode, confirm, days, max_runs, max_size_mb)
 
 
 # ============================================================================

@@ -695,6 +695,19 @@ class BlqConfig:
                 self._source_lookup = {}
 
     @property
+    def storage_config(self) -> dict[str, Any]:
+        """Get project-level [storage] config as a raw dict.
+
+        This exposes .lq/config.toml's [storage] section for merging
+        with user config during autoprune.
+
+        Returns:
+            Dict of storage config keys and values
+        """
+        self._ensure_storage_config_loaded()
+        return dict(self._storage_config or {})
+
+    @property
     def keep_raw(self) -> bool:
         """Whether to always keep raw output in BIRD storage.
 

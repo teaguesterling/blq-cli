@@ -259,6 +259,28 @@ prune_days = 14
             assert config.auto_prune is True
             assert config.prune_days == 14
 
+    def test_storage_section_new_fields(self, temp_dir):
+        """Load parses new storage fields correctly."""
+        config_dir = temp_dir / "blq"
+        config_dir.mkdir(parents=True)
+        config_file = config_dir / "config.toml"
+        config_file.write_text("""
+[storage]
+auto_prune = true
+prune_days = 7
+max_runs = 50
+max_size_mb = 500
+prune_interval_minutes = 30
+""")
+
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(temp_dir)}):
+            config = UserConfig.load()
+            assert config.auto_prune is True
+            assert config.prune_days == 7
+            assert config.max_runs == 50
+            assert config.max_size_mb == 500
+            assert config.prune_interval_minutes == 30
+
     def test_init_auto_detect(self, temp_dir):
         """Load parses auto_detect in [init] section."""
         config_dir = temp_dir / "blq"
@@ -292,6 +314,9 @@ auto_detect = true
             # Storage defaults
             assert config.auto_prune is False
             assert config.prune_days == 30
+            assert config.max_runs == 0
+            assert config.max_size_mb == 0
+            assert config.prune_interval_minutes == 60
 
             # Init defaults
             assert config.auto_detect is False
@@ -309,6 +334,9 @@ auto_detect = true
                     mcp_safe_mode=True,
                     auto_prune=True,
                     prune_days=7,
+                    max_runs=50,
+                    max_size_mb=500,
+                    prune_interval_minutes=30,
                     auto_detect=True,
                 )
                 original.save()
@@ -323,4 +351,7 @@ auto_detect = true
                 assert loaded.mcp_safe_mode == original.mcp_safe_mode
                 assert loaded.auto_prune == original.auto_prune
                 assert loaded.prune_days == original.prune_days
+                assert loaded.max_runs == original.max_runs
+                assert loaded.max_size_mb == original.max_size_mb
+                assert loaded.prune_interval_minutes == original.prune_interval_minutes
                 assert loaded.auto_detect == original.auto_detect

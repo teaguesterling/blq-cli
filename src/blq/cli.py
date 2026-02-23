@@ -865,7 +865,13 @@ def main() -> None:
     # clean prune - remove old data
     p_clean_prune = clean_subparsers.add_parser("prune", help="Remove data older than N days")
     p_clean_prune.add_argument(
-        "--days", "-d", type=int, required=True, help="Remove data older than N days"
+        "--days", "-d", type=int, default=None, help="Remove data older than N days"
+    )
+    p_clean_prune.add_argument(
+        "--max-runs", type=int, default=None, help="Keep at most N runs per source"
+    )
+    p_clean_prune.add_argument(
+        "--max-size", type=int, default=None, help="Keep total output under N MB"
     )
     p_clean_prune.add_argument(
         "--confirm", "-y", action="store_true", help="Confirm destructive operation"

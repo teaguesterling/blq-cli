@@ -991,6 +991,33 @@ class TestCleanTool:
             history = get_data(history_raw)
             assert len(history["runs"]) == 0
 
+    @pytest.mark.asyncio
+    async def test_clean_prune_requires_param(self, mcp_server):
+        """Prune mode requires at least one of days/max_runs/max_size_mb."""
+        async with Client(mcp_server) as client:
+            raw = await client.call_tool("clean", {"mode": "prune", "confirm": True})
+            result = get_data(raw)
+
+            assert result["success"] is False
+            assert "requires" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_clean_prune_with_max_runs(self, mcp_server_empty, sample_build_script):
+        """Prune mode with max_runs parameter."""
+        async with Client(mcp_server_empty) as client:
+            # Create some runs
+            for _ in range(3):
+                await client.call_tool("exec", {"command": str(sample_build_script)})
+
+            # Prune keeping only 1 run per source
+            raw = await client.call_tool(
+                "clean", {"mode": "prune", "max_runs": 1, "confirm": True}
+            )
+            result = get_data(raw)
+
+            assert result["success"] is True
+            assert "removed" in result
+
 
 class TestDisabledTools:
     """Tests for tool disabling (--disabled-tools, --safe-mode)."""

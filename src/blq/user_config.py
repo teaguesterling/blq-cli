@@ -84,6 +84,9 @@ class UserConfig:
     # Storage preferences
     auto_prune: bool = False  # Enable automatic pruning
     prune_days: int = 30  # Auto-prune logs older than N days
+    max_runs: int = 0  # Per source, 0 = unlimited
+    max_size_mb: int = 0  # Total output size, 0 = unlimited
+    prune_interval_minutes: int = 60  # Min minutes between auto-prunes
 
     # Hooks preferences
     hooks_auto_claude_code: bool = False  # Auto-install Claude Code hooks with mcp install
@@ -151,6 +154,9 @@ class UserConfig:
         mcp_safe_mode = False
         auto_prune = False
         prune_days = 30
+        max_runs = 0
+        max_size_mb = 0
+        prune_interval_minutes = 60
         hooks_auto_claude_code = False
         hooks_record_commands = False
         hooks_record_format = "auto"
@@ -210,6 +216,12 @@ class UserConfig:
                         auto_prune = bool(storage_section["auto_prune"])
                     if "prune_days" in storage_section:
                         prune_days = int(storage_section["prune_days"])
+                    if "max_runs" in storage_section:
+                        max_runs = int(storage_section["max_runs"])
+                    if "max_size_mb" in storage_section:
+                        max_size_mb = int(storage_section["max_size_mb"])
+                    if "prune_interval_minutes" in storage_section:
+                        prune_interval_minutes = int(storage_section["prune_interval_minutes"])
 
                 # Parse [hooks] section
                 hooks_section = data.get("hooks", {})
@@ -249,6 +261,9 @@ class UserConfig:
             mcp_safe_mode=mcp_safe_mode,
             auto_prune=auto_prune,
             prune_days=prune_days,
+            max_runs=max_runs,
+            max_size_mb=max_size_mb,
+            prune_interval_minutes=prune_interval_minutes,
             hooks_auto_claude_code=hooks_auto_claude_code,
             hooks_record_commands=hooks_record_commands,
             hooks_record_format=hooks_record_format,
@@ -321,6 +336,12 @@ class UserConfig:
             storage_section["auto_prune"] = self.auto_prune
         if self.prune_days != 30:
             storage_section["prune_days"] = self.prune_days
+        if self.max_runs != 0:
+            storage_section["max_runs"] = self.max_runs
+        if self.max_size_mb != 0:
+            storage_section["max_size_mb"] = self.max_size_mb
+        if self.prune_interval_minutes != 60:
+            storage_section["prune_interval_minutes"] = self.prune_interval_minutes
         if storage_section:
             data["storage"] = storage_section
 

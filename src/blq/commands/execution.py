@@ -1236,27 +1236,108 @@ def cmd_run(args: argparse.Namespace) -> None:
     sys.exit(result.exit_code)
 
 
-def _maybe_auto_prune(config: BlqConfig, user_config) -> None:
-    """Run auto-prune if enabled, with probability to avoid running every time.
+def _resolve_prune_config(config: BlqConfig, user_config) -> dict:
+    """Merge user config with project-level storage overrides.
 
-    Only runs ~10% of the time to avoid slowing down every command.
+    Project-level .lq/config.toml [storage] keys override user defaults.
+
+    Returns:
+        Dict with auto_prune, prune_days, max_runs, max_size_mb, prune_interval_minutes
     """
-    import random
+    result = {
+        "auto_prune": user_config.auto_prune,
+        "prune_days": user_config.prune_days,
+        "max_runs": user_config.max_runs,
+        "max_size_mb": user_config.max_size_mb,
+        "prune_interval_minutes": user_config.prune_interval_minutes,
+    }
 
-    if not user_config.auto_prune:
-        return
+    # Overlay project-level storage config
+    project_storage = config.storage_config
+    for key in result:
+        if key in project_storage:
+            val = project_storage[key]
+            if isinstance(val, bool):
+                result[key] = val
+            else:
+                try:
+                    result[key] = int(val)
+                except (ValueError, TypeError):
+                    pass
 
-    # Only run ~10% of the time
-    if random.random() > 0.1:
-        return
+    return result
+
+
+def _should_prune(lq_dir: Path, interval_minutes: int) -> bool:
+    """Check if enough time has passed since last auto-prune.
+
+    Args:
+        lq_dir: Path to .lq directory
+        interval_minutes: Minimum minutes between prunes
+
+    Returns:
+        True if prune should run
+    """
+    stamp_file = lq_dir / ".last_prune"
+    if not stamp_file.exists():
+        return True
 
     try:
+        content = stamp_file.read_text().strip()
+        last_prune = datetime.fromisoformat(content)
+        elapsed_minutes = (datetime.now() - last_prune).total_seconds() / 60
+        return elapsed_minutes >= interval_minutes
+    except (ValueError, OSError):
+        return True
+
+
+def _mark_pruned(lq_dir: Path) -> None:
+    """Write current timestamp to .lq/.last_prune."""
+    stamp_file = lq_dir / ".last_prune"
+    try:
+        stamp_file.write_text(datetime.now().isoformat())
+    except OSError:
+        pass
+
+
+def _maybe_auto_prune(config: BlqConfig, user_config) -> None:
+    """Run auto-prune if enabled, using time-based trigger and multi-strategy pruning."""
+    try:
+        prune_cfg = _resolve_prune_config(config, user_config)
+
+        if not prune_cfg["auto_prune"]:
+            return
+
+        if not _should_prune(config.lq_dir, prune_cfg["prune_interval_minutes"]):
+            return
+
         from blq.storage import BlqStorage
 
-        store = BlqStorage.open(config.lq_dir)
-        pruned = store.prune(days=user_config.prune_days)
-        if pruned > 0:
-            logger.info(f"Auto-pruned {pruned} old runs")
+        total_pruned = 0
+        with BlqStorage.open(config.lq_dir) as store:
+            # Apply limits in order
+            if prune_cfg["prune_days"] > 0:
+                pruned = store.prune(days=prune_cfg["prune_days"])
+                total_pruned += pruned
+
+            if prune_cfg["max_runs"] > 0:
+                pruned = store.prune_by_max_runs(prune_cfg["max_runs"])
+                total_pruned += pruned
+
+            if prune_cfg["max_size_mb"] > 0:
+                pruned = store.prune_by_size(prune_cfg["max_size_mb"])
+                total_pruned += pruned
+
+            # Clean up orphaned blobs if anything was pruned
+            if total_pruned > 0:
+                store.cleanup_blobs()
+
+            if total_pruned > 0:
+                logger.info(f"Auto-pruned {total_pruned} old runs")
+
+        # Mark pruned regardless of whether anything was deleted
+        _mark_pruned(config.lq_dir)
+
     except Exception:
         # Don't let pruning errors affect command execution
         pass

@@ -10,7 +10,6 @@ import argparse
 import shutil
 import subprocess
 import sys
-from datetime import datetime, timedelta
 from pathlib import Path
 
 from blq.commands.core import BlqConfig
@@ -38,9 +37,17 @@ def cmd_clean(args: argparse.Namespace) -> None:
     if mode == "data":
         _clean_data(lq_dir, confirm)
     elif mode == "prune":
-        days = args.days
+        days = getattr(args, "days", None)
+        max_runs = getattr(args, "max_runs", None)
+        max_size = getattr(args, "max_size", None)
         dry_run = getattr(args, "dry_run", False)
-        _clean_prune(lq_dir, days, confirm, dry_run)
+        if days is None and max_runs is None and max_size is None:
+            print(
+                "Error: At least one of --days, --max-runs, or --max-size is required.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        _clean_prune(lq_dir, days, max_runs, max_size, confirm, dry_run)
     elif mode == "orphans":
         dry_run = getattr(args, "dry_run", False)
         min_age = getattr(args, "min_age", 60)
@@ -85,98 +92,74 @@ def _clean_data(lq_dir: Path, confirm: bool) -> None:
     print("Cleared all run data. Config and commands preserved.")
 
 
-def _clean_prune(lq_dir: Path, days: int, confirm: bool, dry_run: bool) -> None:
-    """Remove data older than N days."""
-    import duckdb
-
-    cutoff = datetime.now() - timedelta(days=days)
-    cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
+def _clean_prune(
+    lq_dir: Path,
+    days: int | None,
+    max_runs: int | None,
+    max_size_mb: int | None,
+    confirm: bool,
+    dry_run: bool,
+) -> None:
+    """Remove data by age, max runs per source, or total size."""
+    from blq.storage import BlqStorage
 
     db_path = lq_dir / "blq.duckdb"
     if not db_path.exists():
         print("No database found.", file=sys.stderr)
         sys.exit(1)
 
-    conn = duckdb.connect(str(db_path))
+    # Describe what will happen
+    descriptions: list[str] = []
+    if days is not None:
+        descriptions.append(f"older than {days} days")
+    if max_runs is not None:
+        descriptions.append(f"exceeding {max_runs} runs per source")
+    if max_size_mb is not None:
+        descriptions.append(f"exceeding {max_size_mb} MB total output")
 
-    # Count what would be removed
-    result = conn.execute(
-        "SELECT COUNT(*) FROM invocations WHERE timestamp < ?", [cutoff_str]
-    ).fetchone()
-    invocation_count = result[0] if result else 0
-
-    result = conn.execute(
-        """
-        SELECT COUNT(*) FROM events e
-        JOIN invocations i ON e.invocation_id = i.id
-        WHERE i.timestamp < ?
-    """,
-        [cutoff_str],
-    ).fetchone()
-    event_count = result[0] if result else 0
-
-    if invocation_count == 0:
-        print(f"No data older than {days} days found.")
-        conn.close()
-        return
-
-    print(f"Found {invocation_count} invocations and {event_count} events older than {days} days.")
+    desc_str = " and ".join(descriptions)
+    print(f"Pruning data {desc_str}.")
 
     if dry_run:
         print("Dry run - no changes made.")
-        conn.close()
         return
 
     if not confirm:
         print("", file=sys.stderr)
         print("Run with --confirm to proceed.", file=sys.stderr)
-        conn.close()
         sys.exit(1)
 
-    # Delete events first (foreign key constraint)
-    conn.execute(
-        """
-        DELETE FROM events WHERE invocation_id IN (
-            SELECT id FROM invocations WHERE timestamp < ?
-        )
-    """,
-        [cutoff_str],
-    )
+    total_pruned = 0
+    with BlqStorage.open(lq_dir) as storage:
+        if days is not None:
+            pruned = storage.prune(days=days)
+            total_pruned += pruned
+            if pruned > 0:
+                print(f"  Pruned {pruned} invocations older than {days} days.")
 
-    # Delete outputs
-    conn.execute(
-        """
-        DELETE FROM outputs WHERE invocation_id IN (
-            SELECT id FROM invocations WHERE timestamp < ?
-        )
-    """,
-        [cutoff_str],
-    )
+        if max_runs is not None:
+            pruned = storage.prune_by_max_runs(max_runs)
+            total_pruned += pruned
+            if pruned > 0:
+                print(f"  Pruned {pruned} invocations exceeding {max_runs} per source.")
 
-    # Delete invocations
-    conn.execute("DELETE FROM invocations WHERE timestamp < ?", [cutoff_str])
+        if max_size_mb is not None:
+            pruned = storage.prune_by_size(max_size_mb)
+            total_pruned += pruned
+            if pruned > 0:
+                print(f"  Pruned {pruned} invocations to fit under {max_size_mb} MB.")
 
-    # Clean up orphaned sessions
-    conn.execute("""
-        DELETE FROM sessions WHERE id NOT IN (
-            SELECT DISTINCT session_id FROM invocations WHERE session_id IS NOT NULL
-        )
-    """)
+        # Clean up orphaned blobs
+        if total_pruned > 0:
+            blobs_deleted, bytes_freed = storage.cleanup_blobs()
+            if blobs_deleted > 0:
+                mb_freed = bytes_freed / (1024 * 1024)
+                print(f"  Freed {blobs_deleted} blobs ({mb_freed:.1f} MB).")
 
-    conn.close()
-
-    # Clean up orphaned blobs
-    from blq.bird import BirdStore
-
-    store = BirdStore.open(lq_dir)
-    blobs_deleted, bytes_freed = store.cleanup_orphaned_blobs()
-    store.close()
-
-    msg = f"Removed {invocation_count} invocations and {event_count} events."
-    if blobs_deleted > 0:
-        mb_freed = bytes_freed / (1024 * 1024)
-        msg += f" Freed {blobs_deleted} blobs ({mb_freed:.1f} MB)."
-    print(msg)
+    if total_pruned == 0:
+        print("No data matched prune criteria.")
+    else:
+        print(f"Total: removed {total_pruned} invocations.")
 
 
 def _clean_orphans(lq_dir: Path, min_age: int, dry_run: bool) -> None:

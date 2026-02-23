@@ -95,7 +95,7 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - [ ] Migrate to updated BIRD spec (when ready)
 
 **Maintenance:**
-- [ ] Configurable autoprune (periodic cleanup with predefined limits)
+- [x] Configurable autoprune (periodic cleanup with predefined limits)
 
 ## Architecture
 

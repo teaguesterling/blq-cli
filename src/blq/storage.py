@@ -579,6 +579,42 @@ class BlqStorage:
     # Maintenance
     # =========================================================================
 
+    def _delete_invocations(self, invocation_ids: list[str]) -> int:
+        """Delete invocations and their associated events and outputs.
+
+        This is the core cascading delete used by all prune methods.
+
+        Args:
+            invocation_ids: List of invocation UUIDs to delete
+
+        Returns:
+            Number of invocations deleted
+        """
+        if not invocation_ids:
+            return 0
+
+        placeholders = ",".join("?" * len(invocation_ids))
+
+        # Delete events for these invocations
+        self._conn.execute(
+            f"DELETE FROM events WHERE invocation_id IN ({placeholders})",
+            invocation_ids,
+        )
+
+        # Delete outputs (blobs will be orphaned but cleaned separately)
+        self._conn.execute(
+            f"DELETE FROM outputs WHERE invocation_id IN ({placeholders})",
+            invocation_ids,
+        )
+
+        # Delete invocations
+        self._conn.execute(
+            f"DELETE FROM invocations WHERE id IN ({placeholders})",
+            invocation_ids,
+        )
+
+        return len(invocation_ids)
+
     def prune(self, days: int = 30) -> int:
         """Remove data older than specified days.
 
@@ -599,27 +635,93 @@ class BlqStorage:
             [cutoff_str],
         ).fetchall()
 
-        if not result:
+        invocation_ids = [row[0] for row in result]
+        return self._delete_invocations(invocation_ids)
+
+    def prune_by_max_runs(self, max_runs: int) -> int:
+        """Remove excess runs per source, keeping only the newest N.
+
+        Args:
+            max_runs: Maximum number of runs to keep per source name
+
+        Returns:
+            Number of invocations pruned
+        """
+        if max_runs <= 0:
             return 0
 
+        # Rank runs per source, keeping newest max_runs
+        result = self._conn.execute(
+            """
+            SELECT id FROM (
+                SELECT id,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY COALESCE(source_name, '__none__')
+                        ORDER BY timestamp DESC
+                    ) AS rn
+                FROM invocations
+            ) ranked
+            WHERE rn > ?
+            """,
+            [max_runs],
+        ).fetchall()
+
         invocation_ids = [row[0] for row in result]
+        return self._delete_invocations(invocation_ids)
 
-        # Delete events for these invocations
-        self._conn.execute(
-            f"DELETE FROM events WHERE invocation_id IN ({','.join('?' * len(invocation_ids))})",
-            invocation_ids,
-        )
+    def prune_by_size(self, max_size_mb: int) -> int:
+        """Remove oldest runs until total output size is under budget.
 
-        # Delete outputs (blobs will be orphaned but cleaned separately)
-        self._conn.execute(
-            f"DELETE FROM outputs WHERE invocation_id IN ({','.join('?' * len(invocation_ids))})",
-            invocation_ids,
-        )
+        Args:
+            max_size_mb: Maximum total output size in megabytes
 
-        # Delete invocations
-        self._conn.execute(
-            f"DELETE FROM invocations WHERE id IN ({','.join('?' * len(invocation_ids))})",
-            invocation_ids,
-        )
+        Returns:
+            Number of invocations pruned
+        """
+        if max_size_mb <= 0:
+            return 0
 
-        return len(invocation_ids)
+        max_bytes = max_size_mb * 1024 * 1024
+        current_size = self.total_output_size()
+
+        if current_size <= max_bytes:
+            return 0
+
+        # Get invocations ordered oldest-first with their output sizes
+        rows = self._conn.execute(
+            """
+            SELECT i.id, COALESCE(SUM(o.byte_length), 0) AS total_bytes
+            FROM invocations i
+            LEFT JOIN outputs o ON o.invocation_id = i.id
+            GROUP BY i.id, i.timestamp
+            ORDER BY i.timestamp ASC
+            """
+        ).fetchall()
+
+        to_delete: list[str] = []
+        for inv_id, inv_bytes in rows:
+            if current_size <= max_bytes:
+                break
+            to_delete.append(inv_id)
+            current_size -= inv_bytes
+
+        return self._delete_invocations(to_delete)
+
+    def cleanup_blobs(self) -> tuple[int, int]:
+        """Remove orphaned blobs not referenced by any output.
+
+        Returns:
+            Tuple of (blobs_deleted, bytes_freed)
+        """
+        return self._store.cleanup_orphaned_blobs()
+
+    def total_output_size(self) -> int:
+        """Get total size of all stored outputs in bytes.
+
+        Returns:
+            Total byte count across all outputs
+        """
+        result = self._conn.execute(
+            "SELECT COALESCE(SUM(byte_length), 0) FROM outputs"
+        ).fetchone()
+        return result[0] if result else 0
