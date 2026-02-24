@@ -13,7 +13,7 @@ blq q [OPTIONS] [FILE...]
 
 ## Description
 
-The `query` command provides SQL-like querying of log files or stored events. When a file is specified, it queries the file directly using duck_hunt. Without a file, it queries previously captured events from `.lq/logs/`.
+The `query` command provides SQL-like querying of log files or stored events. When a file is specified, it queries the file directly using duck_hunt. Without a file, it queries previously captured events from the BIRD database.
 
 ## Options
 
@@ -80,7 +80,7 @@ blq q --markdown build.log
 
 ### Query Stored Events
 
-Without a file argument, queries the `lq_events` view:
+Without a file argument, queries stored events:
 
 ```bash
 # All stored errors
@@ -114,7 +114,7 @@ When querying log files, these columns are typically available:
 | `ref_line` | Line number in source |
 | `ref_column` | Column number in source |
 | `message` | Error/warning message |
-| `error_fingerprint` | Unique fingerprint for deduplication |
+| `fingerprint` | Unique fingerprint for deduplication |
 | `tool_name` | Tool that produced the event |
 | `category` | Event category |
 

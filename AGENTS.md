@@ -178,7 +178,7 @@ When using the MCP `run` tool, pass arguments as a dict:
 
 ## How blq Builds a Repository
 
-blq maintains a **local repository** of all captured logs in `.lq/logs/`. Each action adds to this repository:
+blq maintains a **local repository** of all captured logs in `.lq/` using BIRD storage (DuckDB tables with content-addressed blobs). Each action adds to this repository:
 
 ```
 Action                      → Result
@@ -239,24 +239,24 @@ The repository enables powerful cross-run queries:
 
 ```bash
 # Errors from the latest run
-blq q -f "run_id = (SELECT MAX(run_id) FROM lq_events)"
+blq q -f "run_id = (SELECT MAX(run_id) FROM blq_load_events())"
 
 # Compare latest run to previous
-blq sql "SELECT 'new' as status, message FROM lq_events
-        WHERE run_id = (SELECT MAX(run_id) FROM lq_events)
-          AND error_fingerprint NOT IN (
-              SELECT error_fingerprint FROM lq_events
-              WHERE run_id < (SELECT MAX(run_id) FROM lq_events))"
+blq sql "SELECT 'new' as status, message FROM blq_load_events()
+        WHERE run_id = (SELECT MAX(run_id) FROM blq_load_events())
+          AND fingerprint NOT IN (
+              SELECT fingerprint FROM blq_load_events()
+              WHERE run_id < (SELECT MAX(run_id) FROM blq_load_events()))"
 
 # Error frequency over time
-blq sql "SELECT date, COUNT(*) as errors FROM lq_events
+blq sql "SELECT date, COUNT(*) as errors FROM blq_load_events()
         WHERE severity='error' GROUP BY date ORDER BY date"
 
 # Most common errors across all runs
-blq sql "SELECT error_fingerprint, COUNT(*) as occurrences,
+blq sql "SELECT fingerprint, COUNT(*) as occurrences,
                ANY_VALUE(message) as example
-        FROM lq_events WHERE severity='error'
-        GROUP BY error_fingerprint ORDER BY occurrences DESC LIMIT 10"
+        FROM blq_load_events() WHERE severity='error'
+        GROUP BY fingerprint ORDER BY occurrences DESC LIMIT 10"
 ```
 
 ### Repository Commands
@@ -266,7 +266,7 @@ blq sql "SELECT error_fingerprint, COUNT(*) as occurrences,
 | `blq status` | Overview of repository (runs, errors, date range) |
 | `blq history` | List all runs with timestamps and status |
 | `blq errors` | Recent errors across all runs |
-| `blq prune --older-than 30` | Remove runs older than 30 days |
+| `blq clean prune --days 30` | Remove runs older than 30 days |
 
 ### Key Insight for Agents
 
@@ -369,20 +369,20 @@ blq f severity=error file_path~main.c build.log
 
 ```bash
 # Errors that appear in multiple runs
-blq sql "SELECT error_fingerprint, COUNT(*) as runs, ANY_VALUE(message)
-        FROM lq_events
+blq sql "SELECT fingerprint, COUNT(*) as runs, ANY_VALUE(message)
+        FROM blq_load_events()
         WHERE severity='error'
-        GROUP BY error_fingerprint
+        GROUP BY fingerprint
         HAVING COUNT(DISTINCT run_id) > 1"
 
 # New errors (in latest run but not previous)
 blq sql "SELECT message, file_path, line_number
-        FROM lq_events
-        WHERE run_id = (SELECT MAX(run_id) FROM lq_events)
+        FROM blq_load_events()
+        WHERE run_id = (SELECT MAX(run_id) FROM blq_load_events())
           AND severity = 'error'
-          AND error_fingerprint NOT IN (
-              SELECT error_fingerprint FROM lq_events
-              WHERE run_id < (SELECT MAX(run_id) FROM lq_events)
+          AND fingerprint NOT IN (
+              SELECT fingerprint FROM blq_load_events()
+              WHERE run_id < (SELECT MAX(run_id) FROM blq_load_events())
           )"
 ```
 
@@ -466,11 +466,11 @@ blq context 1:3 --lines 10  # more context
 
 ## MCP Server Integration
 
-bblq provides a full MCP (Model Context Protocol) server for AI agent integration. Start it with:
+blq provides a full MCP (Model Context Protocol) server for AI agent integration. Start it with:
 
 ```bash
-blq serve                    # stdio transport (for Claude Desktop, etc.)
-blq serve --transport sse    # SSE transport for HTTP clients
+blq mcp serve                    # stdio transport (for Claude Desktop, etc.)
+blq mcp serve --transport sse    # SSE transport for HTTP clients
 ```
 
 ### MCP Tools
@@ -479,18 +479,20 @@ All tools are namespaced by the server name `blq`, so they appear as `run`, `que
 
 | Tool | Parameters | Description |
 |------|------------|-------------|
-| `run` | `command`, `args?`, `timeout?` | Run a command and capture output |
-| `query` | `sql`, `limit?` | Query stored events with SQL |
-| `errors` | `limit?`, `run_id?`, `source?`, `file_pattern?` | Get recent errors |
-| `warnings` | `limit?`, `run_id?`, `source?` | Get recent warnings |
-| `event` | `ref` | Get full details for a specific event |
-| `context` | `ref`, `lines?` | Get log context around an event |
-| `status` | (none) | Get status summary of all sources |
-| `history` | `limit?`, `source?` | Get run history |
-| `diff` | `run1`, `run2` | Compare errors between two runs |
-| `register_command` | `name`, `cmd`, `description?`, `timeout?`, `capture?`, `force?` | Register a new command |
-| `unregister_command` | `name` | Remove a registered command |
-| `list_commands` | (none) | List all registered commands |
+| `run` | `command`, `args?`, `extra?`, `timeout?` | Run a registered command |
+| `exec` | `command`, `timeout?` | Run ad-hoc shell command |
+| `events` | `severity?`, `run_id?`, `run_ids?`, `file_pattern?`, `limit?` | Get events with filtering |
+| `inspect` | `ref`, `refs?`, `include_git_context?` | Get event details with context |
+| `info` | `ref?`, `context?`, `tail?` | Get run details (omit ref for most recent) |
+| `output` | `ref?`, `grep?`, `context?`, `lines?` | Get raw output |
+| `status` | (none) | Get status summary |
+| `history` | `limit?`, `source?`, `status?` | Get run history |
+| `diff` | `run1`, `run2` | Compare errors between runs |
+| `query` | `sql?`, `filter?`, `limit?` | SQL or filter expressions |
+| `commands` | (none) | List registered commands |
+| `register_command` | `name`, `cmd?`, `tpl?`, `defaults?`, `run_now?`, `force?` | Register a command |
+| `unregister_command` | `name` | Remove a command |
+| `clean` | `mode`, `confirm`, `days?`, `max_runs?`, `max_size_mb?` | Database cleanup |
 
 ### MCP Resources
 
@@ -499,14 +501,9 @@ Resources provide data that can be embedded in prompts or read directly:
 | Resource URI | Description |
 |--------------|-------------|
 | `blq://guide` | Agent usage guide (Markdown) |
-| `blq://status` | Current status of all sources (JSON) |
-| `blq://runs` | List of all runs (JSON) |
-| `blq://events` | All stored events (JSON) |
-| `blq://event/{ref}` | Single event details by ref (JSON) |
-| `blq://errors` | Recent errors across all runs (JSON) |
-| `blq://errors/{run_serial}` | Errors for a specific run (JSON) |
-| `blq://warnings` | Recent warnings across all runs (JSON) |
-| `blq://warnings/{run_serial}` | Warnings for a specific run (JSON) |
+| `blq://status` | Current status (JSON) |
+| `blq://errors` | Recent errors (JSON) |
+| `blq://warnings` | Recent warnings (JSON) |
 | `blq://context/{ref}` | Log context around an event (JSON) |
 | `blq://commands` | Registered commands (JSON) |
 
@@ -564,7 +561,7 @@ Pre-built prompts that guide agents through common workflows:
   "line_number": 15,
   "message": "undefined variable 'foo'",
   "raw_text": "src/main.c:15:5: error: use of undeclared identifier 'foo'",
-  "error_fingerprint": "abc123...",
+  "fingerprint": "abc123...",
   "cwd": "/home/user/project",
   "hostname": "dev-machine",
   "platform": "Linux",
@@ -644,7 +641,7 @@ Pre-built prompts that guide agents through common workflows:
 }
 ```
 
-**`list_commands` returns:**
+**`commands` returns:**
 ```json
 {
   "commands": [
@@ -705,7 +702,7 @@ Pre-built prompts that guide agents through common workflows:
 
 **Command Management:**
 ```
-1. Agent: calls list_commands() to see available commands
+1. Agent: calls commands() to see available commands
 2. If no build command exists:
    Agent: calls register_command(name="build", cmd="make -j8", description="Build the project")
 3. Agent: calls run(command="build") to run the registered command
@@ -736,7 +733,7 @@ For Claude Desktop, add to your MCP settings (`~/.config/claude/claude_desktop_c
   "mcpServers": {
     "blq": {
       "command": "blq",
-      "args": ["serve"],
+      "args": ["mcp", "serve"],
       "cwd": "/path/to/your/project"
     }
   }
@@ -817,7 +814,7 @@ If blq commands fail:
 | `line_number` | Line in source | `15` |
 | `column_number` | Column in source | `5` |
 | `message` | Error/warning text | `undefined variable` |
-| `error_fingerprint` | Unique hash for dedup | `abc123...` |
+| `fingerprint` | Unique hash for dedup | `abc123...` |
 | `ref` | Event reference | `1:3` |
 | `run_id` | Run identifier | `1` |
 

@@ -69,7 +69,7 @@ blq -g errors
 
 # SQL with partition columns
 blq -g sql "SELECT hostname, namespace, project, COUNT(*)
-           FROM lq_events WHERE severity='error'
+           FROM blq_load_events() WHERE severity='error'
            GROUP BY ALL"
 
 # History across all machines

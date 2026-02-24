@@ -325,9 +325,13 @@ Database cleanup. Requires `confirm: true`.
 ```json
 {"mode": "data", "confirm": true}      // clear runs, keep config
 {"mode": "prune", "days": 30, "confirm": true}  // remove old data
+{"mode": "prune", "max_runs": 50, "confirm": true}  // keep N per source
+{"mode": "prune", "max_size_mb": 500, "confirm": true}  // limit total size
 {"mode": "schema", "confirm": true}    // recreate schema
 {"mode": "full", "confirm": true}      // delete everything
 ```
+
+Prune mode requires at least one of `days`, `max_runs`, or `max_size_mb`.
 
 ---
 

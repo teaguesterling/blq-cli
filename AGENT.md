@@ -1,4 +1,4 @@
-# lq Agent Interface
+# blq Agent Interface
 
 This document describes how AI agents should interact with `blq` for efficient log analysis.
 
@@ -58,50 +58,55 @@ src/utils.cpp:15:1: missing semicolon
 blq errors --json --limit 5
 ```
 
-## MCP Tools (When Integrated)
+## MCP Tools
 
-When `blq` is exposed via duckdb_mcp, agents can use these tools:
+blq provides a built-in MCP server (`blq mcp serve`). Core tools:
 
 | Tool | Description | Token Cost |
 |------|-------------|------------|
-| `blq_status` | Quick status badges | ~10 |
-| `blq_errors` | Recent errors | ~200 |
-| `blq_summary` | Aggregate by tool/category | ~100 |
-| `blq_sql` | Custom queries | Variable |
+| `status` | Quick status badges | ~10 |
+| `events` | Errors/warnings with filtering | ~200 |
+| `info` | Run details with context | ~300 |
+| `inspect` | Event details with source context | ~200 |
+| `run` | Run command, get structured results | Variable |
+| `query` | SQL or filter expressions | Variable |
 
 ## Recommended Agent Workflow
 
 1. **Start with status**: `blq status` - see if anything failed
-2. **Drill into failures**: `blq errors --source "failed_source" --limit 5`
-3. **Get context if needed**: `blq sql "SELECT * FROM lq_events WHERE event_id = 42"`
+2. **Drill into failures**: `blq errors --limit 5`
+3. **Get context**: `blq inspect <ref>` - see error with surrounding code
+4. **Compare runs**: `blq diff <run1> <run2>` - what changed?
 
 ## SQL Macros Available
 
 ```sql
 -- Quick queries
-FROM lq_status();           -- Status badges
-FROM lq_errors(10);         -- Recent errors
-FROM lq_warnings(10);       -- Recent warnings
-FROM lq_summary();          -- Aggregate summary
+FROM blq_status();           -- Status badges
+FROM blq_errors(10);         -- Recent errors
+FROM blq_warnings(10);       -- Recent warnings
 
 -- Filtered queries
-FROM lq_errors_for('make', 5);  -- Errors for specific source
-FROM lq_file('main.cpp');       -- Events for specific file
+FROM blq_errors_for('make', 5);  -- Errors for specific source
 
 -- History
-FROM lq_history(20);        -- Run history
-lq_diff(run1, run2);        -- Compare two runs
+FROM blq_history(20);        -- Run history
+FROM blq_diff(run1, run2);   -- Compare two runs
 ```
 
-## Storage Location
+## Storage
 
-Logs are stored in `.lq/logs/` with Hive partitioning:
+Logs are stored in `.lq/` using BIRD storage (DuckDB tables with content-addressed blobs):
+
 ```
-.lq/logs/date=2024-01-15/source=run/001_make_103000.parquet
+.lq/
+├── blq.duckdb           # DuckDB database (events, runs, metadata)
+├── blobs/content/        # Content-addressed blob storage
+├── config.toml           # Project configuration
+└── commands.toml         # Registered commands
 ```
 
-Agents can directly query parquet files if needed:
+Direct database access:
 ```sql
-SELECT * FROM read_parquet('.lq/logs/**/*.parquet', hive_partitioning=true)
-WHERE severity = 'error'
+duckdb .lq/blq.duckdb "SELECT * FROM blq_load_events() WHERE severity = 'error'"
 ```

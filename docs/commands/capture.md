@@ -137,20 +137,22 @@ Usually auto-detection works well. Specify format when:
 
 ## Storage
 
-All captured logs are stored as parquet files:
+All captured logs are stored in the BIRD database (DuckDB tables with content-addressed blob storage):
 
 ```
-.lq/logs/
-└── date=2024-01-15/
-    └── source=build/
-        └── 001_make_103000.parquet
+.lq/
+├── blq.duckdb               # DuckDB database (events, runs, metadata)
+├── blobs/                    # Content-addressed blob storage
+│   └── content/
+├── config.toml               # Project configuration
+└── commands.toml              # Registered commands
 ```
 
 Query captured data:
 ```bash
 blq errors                    # View errors
 blq q -f "severity='error'"   # Query with SQL
-blq sql "SELECT * FROM lq_events WHERE source_name='build'"
+blq sql "SELECT * FROM blq_load_events() WHERE source_name='build'"
 ```
 
 ## Comparison
