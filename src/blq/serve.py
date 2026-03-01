@@ -38,9 +38,16 @@ from typing import Any
 import pandas as pd  # type: ignore[import-untyped]
 from fastmcp import FastMCP
 
+from blq.commands.ci_cmd import (
+    _compute_diff,
+    _find_baseline_run,
+    _find_current_run,
+    _generate_script,
+)
 from blq.commands.core import EventRef, get_all_suppressed_fingerprints
 from blq.commands.management import resolve_ref
 from blq.commands.query_cmd import parse_filter_expression
+from blq.commands.report_cmd import _collect_report_data, _generate_markdown_report
 from blq.output import format_context
 from blq.storage import BlqStorage
 
@@ -3400,6 +3407,315 @@ def clean(
     """
     _check_tool_enabled("clean")
     return _clean_impl(mode, confirm, days, max_runs, max_size_mb)
+
+
+# ============================================================================
+# CI Tool Implementations
+# ============================================================================
+
+
+def _report_impl(
+    ref: str | None = None,
+    baseline: str | None = None,
+    warnings: bool = False,
+    summary_only: bool = False,
+    error_limit: int = 20,
+    file_limit: int = 10,
+) -> dict[str, Any]:
+    """Implementation of report tool - generate markdown report.
+
+    Args:
+        ref: Run reference (e.g., 'test:5'). None for latest run.
+        baseline: Baseline for comparison (run ID or branch name)
+        warnings: Include warning details
+        summary_only: Summary without individual error details
+        error_limit: Max errors to include
+        file_limit: Max files in breakdown
+    """
+    try:
+        storage = _get_storage()
+
+        # Resolve run_id from ref
+        run_id = None
+        if ref is not None:
+            try:
+                _, run_id = _parse_run_ref(ref, storage)
+            except ValueError as e:
+                return {"error": str(e), "ref": ref}
+
+        # Find baseline
+        baseline_id = None
+        if baseline is not None:
+            baseline_id = _find_baseline_run(storage, baseline)
+            if baseline_id is None:
+                return {
+                    "error": f"Baseline '{baseline}' not found",
+                    "hint": "Specify a run ID, branch name, or commit SHA",
+                }
+
+        # Collect data and generate report
+        data = _collect_report_data(
+            storage,
+            run_id=run_id,
+            baseline_id=baseline_id,
+            error_limit=error_limit,
+            file_limit=file_limit,
+        )
+
+        if data.run_id is None:
+            return {"error": "No runs found"}
+
+        report = _generate_markdown_report(
+            data,
+            include_warnings=warnings,
+            include_details=not summary_only,
+        )
+
+        return {
+            "report": report,
+            "run_id": _safe_int(data.run_id),
+            "source_name": _to_json_safe(data.source_name),
+            "total_errors": int(data.total_errors),
+            "total_warnings": int(data.total_warnings),
+            "exit_code": _safe_int(data.exit_code),
+            "has_baseline": baseline_id is not None,
+        }
+    except FileNotFoundError:
+        return {"error": "No lq repository found"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _ci_check_impl(
+    baseline: str | None = None,
+    fail_on_any: bool = False,
+    run_id: int | None = None,
+    source: str | None = None,
+) -> dict[str, Any]:
+    """Implementation of ci_check tool - check for regressions.
+
+    Args:
+        baseline: Baseline specifier (run ID, branch name, or commit SHA).
+                  If not specified, tries main/master.
+        fail_on_any: If True, fail on any errors (no baseline comparison)
+        run_id: Specific run to check (None = auto-detect current)
+        source: Source name to filter by
+    """
+    try:
+        storage = _get_storage()
+
+        # Find current run
+        current_id: int
+        if run_id is not None:
+            current_id = run_id
+        else:
+            found = _find_current_run(storage)
+            if found is None:
+                return {"error": "No runs found", "status": "ERROR"}
+            current_id = found
+
+        # Handle fail_on_any mode (no baseline comparison)
+        if fail_on_any:
+            current_errors = storage.error_count(current_id)
+            return {
+                "status": "FAIL" if current_errors > 0 else "OK",
+                "current_run_id": current_id,
+                "current_errors": current_errors,
+                "has_errors": current_errors > 0,
+                "mode": "fail_on_any",
+            }
+
+        # Find baseline
+        baseline_id = _find_baseline_run(storage, baseline)
+
+        # Compute diff
+        diff = _compute_diff(storage, baseline_id, current_id)
+
+        result: dict[str, Any] = {
+            "status": "FAIL" if diff.has_new_errors else "OK",
+            "current_run_id": diff.current_run_id,
+            "current_errors": diff.current_errors,
+            "has_new_errors": diff.has_new_errors,
+            "mode": "baseline_comparison",
+        }
+
+        if baseline_id is not None:
+            result["baseline_run_id"] = diff.baseline_run_id
+            result["baseline_errors"] = diff.baseline_errors
+            result["fixed_count"] = len(diff.fixed)
+            result["new_count"] = len(diff.new_errors)
+            result["delta"] = diff.delta
+
+            # Include new errors (limited)
+            if diff.new_errors:
+                result["new_errors"] = [
+                    {
+                        "ref_file": e.get("ref_file"),
+                        "ref_line": e.get("ref_line"),
+                        "message": (e.get("message") or "")[:100],
+                        "fingerprint": e.get("fingerprint"),
+                    }
+                    for e in diff.new_errors[:20]
+                ]
+        else:
+            result["baseline_warning"] = (
+                f"Baseline '{baseline}' not found"
+                if baseline
+                else "No baseline found (no main/master branch runs)"
+            )
+
+        return result
+    except FileNotFoundError:
+        return {"error": "No lq repository found", "status": "ERROR"}
+    except Exception as e:
+        return {"error": str(e), "status": "ERROR"}
+
+
+def _ci_generate_impl(
+    commands_filter: list[str] | None = None,
+    shell: str = "bash",
+) -> dict[str, Any]:
+    """Implementation of ci_generate tool - generate CI shell scripts.
+
+    Returns script content rather than writing to disk,
+    so the agent can decide what to do with it.
+
+    Args:
+        commands_filter: List of command names to generate scripts for.
+                         None = all registered commands.
+        shell: Shell to use (bash, sh, zsh)
+    """
+    try:
+        from blq.cli import BlqConfig
+
+        config = BlqConfig.find()
+        if config is None:
+            return {"error": "No lq repository found. Run 'blq init' first."}
+
+        registered = config.commands
+        if not registered:
+            return {"error": "No registered commands found", "scripts": []}
+
+        # Validate shell
+        if shell not in ("bash", "sh", "zsh"):
+            return {"error": f"Invalid shell '{shell}'. Use: bash, sh, zsh"}
+
+        # Filter commands
+        command_names = commands_filter or list(registered.keys())
+        missing = set(command_names) - set(registered.keys())
+        if missing:
+            return {
+                "error": f"Unknown commands: {', '.join(sorted(missing))}",
+                "available": sorted(registered.keys()),
+            }
+
+        # Generate scripts
+        scripts = []
+        for name in sorted(command_names):
+            cmd = registered[name]
+            content = _generate_script(cmd, shell)
+            scripts.append({
+                "name": f"{name}.sh",
+                "command_name": name,
+                "content": content,
+                "is_template": cmd.is_template,
+                "description": cmd.description or "",
+            })
+
+        return {
+            "scripts": scripts,
+            "count": len(scripts),
+            "shell": shell,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ============================================================================
+# CI Tool Wrappers
+# ============================================================================
+
+
+@mcp.tool()
+def report(
+    ref: str | None = None,
+    baseline: str | None = None,
+    warnings: bool = False,
+    summary_only: bool = False,
+    error_limit: int = 20,
+    file_limit: int = 10,
+) -> dict[str, Any]:
+    """Generate a markdown report summarizing build/test results.
+
+    Produces a formatted report suitable for PR descriptions, CI summaries,
+    or team communication. Optionally compares against a baseline run.
+
+    Args:
+        ref: Run reference (e.g., 'test:5', '+1'). Default: latest run.
+        baseline: Baseline for comparison - run ID, branch name, or commit SHA.
+        warnings: Include warning details in the report (default: false)
+        summary_only: Generate summary without individual error details (default: false)
+        error_limit: Max errors to include in details (default: 20)
+        file_limit: Max files in breakdown table (default: 10)
+
+    Returns:
+        Report with 'report' key containing markdown content, plus metadata
+        like run_id, total_errors, total_warnings.
+    """
+    return _report_impl(ref, baseline, warnings, summary_only, error_limit, file_limit)
+
+
+@mcp.tool()
+def ci_check(
+    baseline: str | None = None,
+    fail_on_any: bool = False,
+    run_id: int | None = None,
+) -> dict[str, Any]:
+    """Check for regressions compared to a baseline run.
+
+    Compares error fingerprints between the current run and a baseline to
+    detect new errors (regressions) vs fixed errors (improvements).
+
+    Without a baseline specified, auto-detects by looking for main/master
+    branch runs.
+
+    Args:
+        baseline: Baseline to compare against - run ID, branch name, or
+                  commit SHA. If not specified, tries main then master.
+        fail_on_any: If true, check fails on any errors (no baseline needed)
+        run_id: Specific run ID to check. Default: auto-detect current run
+                by matching git commit or using latest.
+
+    Returns:
+        Check result with 'status' ('OK' or 'FAIL'), error counts,
+        and details of new/fixed errors when baseline is available.
+    """
+    return _ci_check_impl(baseline, fail_on_any, run_id)
+
+
+@mcp.tool()
+def ci_generate(
+    commands: list[str] | None = None,
+    shell: str = "bash",
+) -> dict[str, Any]:
+    """Generate standalone shell scripts from registered commands.
+
+    Creates shell script content for CI environments where blq may not be
+    installed. Scripts include blq integration when available, with fallback
+    to direct command execution.
+
+    Returns script content (does not write to disk). Template commands get
+    full argument parsing with --param flags.
+
+    Args:
+        commands: Command names to generate scripts for. Default: all commands.
+        shell: Shell to use: 'bash', 'sh', or 'zsh' (default: 'bash')
+
+    Returns:
+        Generated scripts with 'scripts' list containing name, content,
+        and metadata for each script.
+    """
+    return _ci_generate_impl(commands, shell)
 
 
 # ============================================================================
