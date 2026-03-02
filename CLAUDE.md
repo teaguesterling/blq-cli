@@ -39,7 +39,8 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **Run events** via `blq event <run_ref>` shows all events from a run
 - **Automatic .gitignore** handling in `blq init` (`--gitignore`/`--no-gitignore`)
 - **Inspect command** with dual context (log + source)
-- **Consolidated MCP tools** (reduced from 22 to 12 tools)
+- **Consolidated MCP tools** (15 tools including CI/report)
+- **MCP CI tools** (`report`, `ci_check`, `ci_generate`) for agent-driven CI workflows
 - **CLI command subgroups** (`blq commands list/register/unregister`)
 - **Clean command** (`blq clean data/prune/schema/full`) for database maintenance
 - **Timeout handling** for command execution with partial output capture
@@ -299,6 +300,9 @@ blq mcp serve --transport sse  # SSE transport
 | `register_command` | Register a command (idempotent, with run_now option) |
 | `unregister_command` | Remove a registered command |
 | `clean` | Database cleanup (modes: data, prune, schema, full) |
+| `report` | Generate markdown report for a run (with optional baseline comparison) |
+| `ci_check` | Check for regressions against baseline (fingerprint-based diff) |
+| `ci_generate` | Generate standalone CI shell scripts from registered commands |
 
 ### MCP Security
 

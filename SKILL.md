@@ -352,6 +352,65 @@ blq.inspect(
 }
 ```
 
+### CI & Reporting Tools
+
+| Tool | Purpose |
+|------|---------|
+| `report(ref, baseline, ...)` | Generate markdown report (for PRs, summaries) |
+| `ci_check(baseline, fail_on_any)` | Check for regressions vs baseline |
+| `ci_generate(commands, shell)` | Generate standalone CI shell scripts |
+
+#### The `report` Tool
+
+Generates a formatted markdown report suitable for PR descriptions or CI summaries:
+
+```python
+# Report for latest run
+blq.report()
+
+# Report with baseline comparison
+blq.report(baseline="main")
+
+# Summary only (no individual error details)
+blq.report(summary_only=True, warnings=True)
+```
+
+Returns `{"report": "# Build Report...", "run_id": 5, "total_errors": 3, ...}`
+
+#### The `ci_check` Tool
+
+Checks for regressions by comparing error fingerprints against a baseline:
+
+```python
+# Auto-detect baseline (tries main, then master)
+blq.ci_check()
+
+# Compare against specific branch
+blq.ci_check(baseline="main")
+
+# Fail on any errors (no baseline needed)
+blq.ci_check(fail_on_any=True)
+```
+
+Returns `{"status": "OK"|"FAIL", "has_new_errors": true, "new_count": 2, ...}`
+
+#### The `ci_generate` Tool
+
+Generates shell scripts from registered commands for CI environments without blq:
+
+```python
+# Generate scripts for all commands
+blq.ci_generate()
+
+# Specific commands only
+blq.ci_generate(commands=["build", "test"])
+
+# Different shell
+blq.ci_generate(shell="sh")
+```
+
+Returns script content (not written to disk) so you can review or save as needed.
+
 ### Command Management
 
 | Tool | Purpose |

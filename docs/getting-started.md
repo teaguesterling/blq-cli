@@ -177,5 +177,5 @@ Override if needed: `blq commands register build --format gcc "make"`
 - [Schema Reference](schema.md) — Database tables, macros, and example queries
 - [Query Guide](query-guide.md) — SQL queries, filters, advanced inspection
 - [MCP Guide](mcp.md) — Full MCP server documentation
-- [CI Integration](ci-cd.md) — `blq ci check` for regression detection
+- [CI Integration](integration.md) — `blq ci check` for regression detection
 - [Commands Reference](commands/) — All CLI commands

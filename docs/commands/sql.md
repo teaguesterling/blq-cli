@@ -1,15 +1,15 @@
 # SQL Commands
 
-blq stores all log data in DuckDB-compatible parquet files and provides commands for direct SQL access.
+blq stores all log data in a DuckDB database (BIRD storage) and provides commands for direct SQL access.
 
 ## sql - Execute SQL Queries
 
 Run arbitrary SQL queries against the log database.
 
 ```bash
-blq sql "SELECT * FROM lq_events LIMIT 10"
-blq sql "SELECT ref_file, COUNT(*) FROM lq_events GROUP BY ref_file"
-blq sql "FROM lq_status()"
+blq sql "SELECT * FROM blq_load_events() LIMIT 10"
+blq sql "SELECT ref_file, COUNT(*) FROM blq_load_events() GROUP BY ref_file"
+blq sql "FROM blq_status()"
 ```
 
 ### Usage
@@ -20,63 +20,63 @@ blq sql <query>
 
 Queries can span multiple words (quoted or unquoted):
 ```bash
-blq sql SELECT COUNT\(*\) FROM lq_events
-blq sql "SELECT COUNT(*) FROM lq_events"
+blq sql SELECT COUNT\(*\) FROM blq_load_events()
+blq sql "SELECT COUNT(*) FROM blq_load_events()"
 ```
 
-### Available Views
+### Available Table Macros
 
-| View | Description |
-|------|-------------|
-| `lq_events` | All parsed events (errors, warnings, info) |
-| `lq_runs` | Run metadata (command, exit code, timestamps) |
-| `lq_source_status` | Latest run status per source |
+| Macro | Description |
+|-------|-------------|
+| `blq_load_events()` | All parsed events (errors, warnings, info) |
+| `blq_load_runs()` | Run metadata (command, exit code, timestamps) |
+| `blq_load_source_status()` | Latest run status per source |
 
 ### Available Macros
 
 | Macro | Description |
 |-------|-------------|
-| `lq_status()` | Quick status overview |
-| `lq_status_verbose()` | Detailed status with exit codes |
-| `lq_errors(n)` | Recent errors (default n=10) |
-| `lq_errors_for(src, n)` | Errors for specific source |
-| `lq_warnings(n)` | Recent warnings (default n=10) |
-| `lq_summary()` | Aggregate by tool/category |
-| `lq_summary_latest()` | Summary for latest run only |
-| `lq_history(n)` | Run history (default n=20) |
-| `lq_diff(run1, run2)` | Compare errors between runs |
-| `lq_event(id)` | Get event by ID |
-| `lq_files()` | List all files with events |
-| `lq_file(path)` | Events for specific file |
-| `lq_similar_events(fp, n)` | Events in same file |
+| `blq_status()` | Quick status overview |
+| `blq_status_verbose()` | Detailed status with exit codes |
+| `blq_errors(n)` | Recent errors (default n=10) |
+| `blq_errors_for(src, n)` | Errors for specific source |
+| `blq_warnings(n)` | Recent warnings (default n=10) |
+| `blq_summary()` | Aggregate by tool/category |
+| `blq_summary_latest()` | Summary for latest run only |
+| `blq_history(n)` | Run history (default n=20) |
+| `blq_diff(run1, run2)` | Compare errors between runs |
+| `blq_event(id)` | Get event by ID |
+| `blq_files()` | List all files with events |
+| `blq_file(path)` | Events for specific file |
+| `blq_similar_events(fp, n)` | Events in same file |
 
 ### Example Queries
 
 **Errors by file:**
 ```bash
-blq sql "SELECT ref_file, COUNT(*) as errors FROM lq_events WHERE severity='error' GROUP BY ref_file ORDER BY errors DESC"
+blq sql "SELECT ref_file, COUNT(*) as errors FROM blq_load_events() WHERE severity='error' GROUP BY ref_file ORDER BY errors DESC"
 ```
 
 **Recent runs with errors:**
 ```bash
-blq sql "SELECT run_id, source_name, error_count FROM lq_runs WHERE error_count > 0 ORDER BY started_at DESC LIMIT 10"
+blq sql "SELECT run_id, source_name, error_count FROM blq_load_runs() WHERE error_count > 0 ORDER BY started_at DESC LIMIT 10"
 ```
 
 **Using macros:**
 ```bash
-blq sql "FROM lq_errors(20)"
-blq sql "FROM lq_diff(1, 2)"
-blq sql "FROM lq_file('src/main.c')"
+blq sql "FROM blq_errors(20)"
+blq sql "FROM blq_diff(1, 2)"
+blq sql "FROM blq_file('src/main.c')"
 ```
 
 **Time-based queries:**
 ```bash
-blq sql "SELECT * FROM lq_events WHERE started_at > now() - INTERVAL '1 hour'"
+blq sql "SELECT * FROM blq_load_events() WHERE started_at > now() - INTERVAL '1 hour'"
 ```
 
 **Run metadata:**
 ```bash
-blq sql "SELECT run_id, git_commit, git_branch, ci['provider'] as ci FROM lq_runs"
+blq sql "SELECT run_id, git_commit, git_branch, ci['provider'] as ci FROM blq_load_runs()"
 ```
 
 ## shell - Interactive DuckDB Shell
@@ -96,13 +96,13 @@ This opens a DuckDB CLI session with:
 
 ```
 blq shell
-blq> SELECT COUNT(*) FROM lq_events;
+blq> SELECT COUNT(*) FROM blq_load_events();
 ┌──────────────┐
 │ count_star() │
 ├──────────────┤
 │          142 │
 └──────────────┘
-blq> FROM lq_status();
+blq> FROM blq_status();
 ...
 blq> .quit
 ```
@@ -121,14 +121,14 @@ The shell supports all DuckDB CLI features:
 **Exploratory analysis:**
 ```sql
 -- Check schema
-.schema lq_events
+.schema
 
 -- Sample data
-SELECT * FROM lq_events LIMIT 5;
+SELECT * FROM blq_load_events() LIMIT 5;
 
 -- Find patterns
 SELECT message, COUNT(*)
-FROM lq_events
+FROM blq_load_events()
 WHERE severity = 'error'
 GROUP BY message
 ORDER BY COUNT(*) DESC;
@@ -137,18 +137,18 @@ ORDER BY COUNT(*) DESC;
 **Ad-hoc investigation:**
 ```sql
 -- What's breaking?
-FROM lq_errors(50);
+FROM blq_errors(50);
 
 -- Compare runs
-FROM lq_diff(3, 5);
+FROM blq_diff(3, 5);
 
 -- Find related errors
-FROM lq_similar_events('src/auth.c', 20);
+FROM blq_similar_events('src/auth.c', 20);
 ```
 
 ## Schema Reference
 
-### lq_events View
+### blq_load_events() Columns
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -165,7 +165,7 @@ FROM lq_similar_events('src/auth.c', 20);
 | `source_name` | VARCHAR | Source name (build, test, etc.) |
 | `started_at` | TIMESTAMP | When the run started |
 
-### lq_runs View
+### blq_load_runs() Columns
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -194,20 +194,20 @@ FROM lq_similar_events('src/auth.c', 20);
 
 When using `blq sql` from bash, escape or quote special characters:
 ```bash
-blq sql "SELECT * FROM lq_events WHERE message LIKE '%undefined%'"
-blq sql 'SELECT * FROM lq_events WHERE severity = '"'"'error'"'"
+blq sql "SELECT * FROM blq_load_events() WHERE message LIKE '%undefined%'"
+blq sql 'SELECT * FROM blq_load_events() WHERE severity = '"'"'error'"'"
 ```
 
 ### Export Results
 
 ```bash
 # To CSV
-blq sql "SELECT * FROM lq_events" > events.csv
+blq sql "SELECT * FROM blq_load_events()" > events.csv
 
 # To JSON (use DuckDB format)
 blq shell
 blq> .mode json
-blq> SELECT * FROM lq_events;
+blq> SELECT * FROM blq_load_events();
 ```
 
 ### Complex Analysis
@@ -218,7 +218,7 @@ blq shell << 'EOF'
 .timer on
 WITH error_files AS (
     SELECT ref_file, COUNT(*) as errors
-    FROM lq_events
+    FROM blq_load_events()
     WHERE severity = 'error'
     GROUP BY ref_file
 )
