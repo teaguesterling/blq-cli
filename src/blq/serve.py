@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import re as _re
 import shlex
 import subprocess
 import sys
@@ -916,7 +917,9 @@ def _try_extract_live_events(
         return None
 
     # Extract live events via the underlying BirdStore
-    events = storage._store.extract_live_events(attempt_info["attempt_id"], attempt_info["format_hint"])
+    events = storage._store.extract_live_events(
+        attempt_info["attempt_id"], attempt_info["format_hint"]
+    )
 
     # Apply filters
     filtered_events = []
@@ -2087,8 +2090,6 @@ def _normalize_cmd(cmd: str) -> str:
     """Normalize command string for comparison (collapse whitespace)."""
     return " ".join(cmd.split())
 
-
-import re as _re
 
 # Shell metacharacters that indicate pipes, redirects, or command chains.
 # We detect these to prevent silent failures when agents pass shell syntax
