@@ -1,11 +1,8 @@
 """Tests for autoprune trigger logic."""
 
-import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from blq.commands.execution import (
     _mark_pruned,

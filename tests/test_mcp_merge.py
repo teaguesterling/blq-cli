@@ -82,7 +82,7 @@ class TestEnsureMcpConfig:
         result = json.loads(mcp_file.read_text())
         assert result["mcpServers"][MCP_SERVER_KEY] == BLQ_MCP_CONFIG
 
-    def test_adds_mcpServers_key_if_missing(self, tmp_path):
+    def test_adds_mcp_servers_key_if_missing(self, tmp_path):
         """Adds mcpServers key to file that has other top-level keys."""
         mcp_file = tmp_path / ".mcp.json"
         mcp_file.write_text(json.dumps({"other": "data"}))
