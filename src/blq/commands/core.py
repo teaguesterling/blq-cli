@@ -1881,6 +1881,23 @@ def write_run_parquet(
 # ============================================================================
 
 
+def _parse_single_format(
+    conn: duckdb.DuckDBPyConnection, content: str, fmt: str
+) -> list[dict[str, Any]] | None:
+    """Try parsing content with a single format.
+
+    Returns list of events on success, None on failure.
+    """
+    try:
+        result = conn.execute(
+            "SELECT * FROM parse_duck_hunt_log($1, $2)", [content, fmt]
+        ).fetchall()
+        columns = [desc[0] for desc in conn.description]
+        return [dict(zip(columns, row)) for row in result]
+    except duckdb.Error:
+        return None
+
+
 def parse_log_content(content: str, format_hint: str = "auto") -> list[dict[str, Any]]:
     """Parse log content using duck_hunt extension.
 
@@ -1888,9 +1905,14 @@ def parse_log_content(content: str, format_hint: str = "auto") -> list[dict[str,
     or fails to parse, returns an empty list. Parsing improvements should be
     made upstream in duck_hunt, not in lq.
 
+    Supports comma-separated format hints (e.g. "gcc_text,make_error") — tries
+    each format in order, returning events from the first that succeeds. Falls
+    back to "auto" if all explicit formats fail.
+
     Args:
         content: Raw log content to parse
-        format_hint: Format hint for duck_hunt (default: "auto")
+        format_hint: Format hint for duck_hunt (default: "auto").
+            Can be comma-separated to try multiple formats.
 
     Returns:
         List of parsed events with BIRD spec column names:
@@ -1898,20 +1920,48 @@ def parse_log_content(content: str, format_hint: str = "auto") -> list[dict[str,
         - severity, message, error_code (content)
         - tool_name, category, fingerprint (metadata)
     """
-    conn = duckdb.connect(":memory:")
+    import logging
 
+    logger = logging.getLogger("blq-cli")
+
+    conn = duckdb.connect(":memory:")
     try:
         conn.execute("LOAD duck_hunt")
-        result = conn.execute(
-            "SELECT * FROM parse_duck_hunt_log($1, $2)", [content, format_hint]
-        ).fetchall()
-        columns = [desc[0] for desc in conn.description]
-        events = [dict(zip(columns, row)) for row in result]
-        return events
     except duckdb.Error:
-        # duck_hunt not available or parsing failed - return empty list
-        # Parsing improvements should be made in duck_hunt, not here
+        conn.close()
         return []
+
+    try:
+        # Handle comma-separated format hints
+        formats = [f.strip() for f in format_hint.split(",") if f.strip()]
+        if not formats:
+            formats = ["auto"]
+
+        if len(formats) == 1:
+            # Single format — try it, fall back to "auto" on failure
+            fmt = formats[0]
+            events = _parse_single_format(conn, content, fmt)
+            if events is not None:
+                return events
+            if fmt != "auto":
+                logger.warning("Format '%s' failed to parse, falling back to 'auto'", fmt)
+                events = _parse_single_format(conn, content, "auto")
+                return events if events is not None else []
+            return []
+
+        # Multiple formats — try each in order
+        for fmt in formats:
+            events = _parse_single_format(conn, content, fmt)
+            if events is not None:
+                return events
+
+        # All explicit formats failed — fall back to "auto"
+        logger.warning(
+            "All formats [%s] failed to parse, falling back to 'auto'",
+            ", ".join(formats),
+        )
+        events = _parse_single_format(conn, content, "auto")
+        return events if events is not None else []
     finally:
         conn.close()
 

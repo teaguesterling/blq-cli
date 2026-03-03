@@ -362,8 +362,24 @@ def format_table(
     return formatter.format(data)
 
 
+def _filter_nulls(obj: Any) -> Any:
+    """Filter null/empty values from dicts (recursively for lists of dicts).
+
+    Strips keys where the value is None or empty string, so JSON output
+    only includes fields that carry information.
+    """
+    if isinstance(obj, dict):
+        return {k: v for k, v in obj.items() if v is not None and v != ""}
+    if isinstance(obj, list):
+        return [_filter_nulls(item) for item in obj]
+    return obj
+
+
 def format_json(data: Any, indent: int = 2) -> str:
     """Format data as JSON.
+
+    Filters out null/empty fields from dicts so output only includes
+    fields that carry information.
 
     Args:
         data: Data to format
@@ -372,7 +388,7 @@ def format_json(data: Any, indent: int = 2) -> str:
     Returns:
         JSON string
     """
-    return json.dumps(data, indent=indent, default=str)
+    return json.dumps(_filter_nulls(data), indent=indent, default=str)
 
 
 def format_markdown(
