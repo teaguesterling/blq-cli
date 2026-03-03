@@ -138,9 +138,7 @@ class TestReportTool:
     async def test_report_with_limits(self, mcp_server_with_data):
         """Report respects error_limit and file_limit."""
         async with Client(mcp_server_with_data) as client:
-            raw = await client.call_tool(
-                "report", {"error_limit": 1, "file_limit": 1}
-            )
+            raw = await client.call_tool("report", {"error_limit": 1, "file_limit": 1})
             result = get_data(raw)
 
             assert "report" in result

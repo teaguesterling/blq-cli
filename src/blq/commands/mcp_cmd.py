@@ -72,8 +72,7 @@ def ensure_mcp_config(mcp_file: Path, force: bool = False) -> bool:
 
         if existing and not force:
             print(
-                f"{MCP_SERVER_KEY} server exists with different config."
-                " Use --force to overwrite."
+                f"{MCP_SERVER_KEY} server exists with different config. Use --force to overwrite."
             )
             print(f"  Current: {json.dumps(existing)}")
             print(f"  New:     {json.dumps(BLQ_MCP_CONFIG)}")

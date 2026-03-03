@@ -34,9 +34,7 @@ class TestDeleteInvocations:
                     "source_type": "run",
                     "exit_code": 1,
                 },
-                events=[
-                    {"severity": "error", "message": "fail", "ref_file": "a.c", "ref_line": 1}
-                ],
+                events=[{"severity": "error", "message": "fail", "ref_file": "a.c", "ref_line": 1}],
                 output=b"build output",
             )
 
@@ -141,9 +139,7 @@ class TestPruneByMaxRuns:
             assert pruned == 3
 
             # Verify 2 remain
-            count = storage.connection.execute(
-                "SELECT COUNT(*) FROM invocations"
-            ).fetchone()
+            count = storage.connection.execute("SELECT COUNT(*) FROM invocations").fetchone()
             assert count[0] == 2
 
     def test_per_source(self, initialized_project):
@@ -175,9 +171,7 @@ class TestPruneByMaxRuns:
             assert pruned == 2
 
             # 4 should remain (2 per source)
-            count = storage.connection.execute(
-                "SELECT COUNT(*) FROM invocations"
-            ).fetchone()
+            count = storage.connection.execute("SELECT COUNT(*) FROM invocations").fetchone()
             assert count[0] == 4
 
 

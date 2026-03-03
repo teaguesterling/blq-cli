@@ -721,7 +721,5 @@ class BlqStorage:
         Returns:
             Total byte count across all outputs
         """
-        result = self._conn.execute(
-            "SELECT COALESCE(SUM(byte_length), 0) FROM outputs"
-        ).fetchone()
+        result = self._conn.execute("SELECT COALESCE(SUM(byte_length), 0) FROM outputs").fetchone()
         return result[0] if result else 0

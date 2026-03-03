@@ -419,9 +419,7 @@ def _run_impl(
 
                 # Include preview on failure (head + tail with separator)
                 output_stats = full_result.get("output_stats", {})
-                concise.update(
-                    _build_preview(output_stats, status, has_errors)
-                )
+                concise.update(_build_preview(output_stats, status, has_errors))
 
                 return concise
             except json.JSONDecodeError:
@@ -598,9 +596,7 @@ def _exec_impl(
 
                 # Include preview on failure (head + tail with separator)
                 output_stats = full_result.get("output_stats", {})
-                concise.update(
-                    _build_preview(output_stats, status, has_errors)
-                )
+                concise.update(_build_preview(output_stats, status, has_errors))
 
                 return concise
             except json.JSONDecodeError:
@@ -2118,19 +2114,19 @@ _ONLY_2_REDIRECT = _re.compile(r"^[^|;>&<]*2>&1\s*$")
 _PIPE_SUGGESTIONS: list[tuple[_re.Pattern[str], str]] = [
     (
         _re.compile(r"\|\s*tail\s+(?:-n\s*|-)?(\d+)"),
-        'output(run_id=RUN_ID, tail={0})',
+        "output(run_id=RUN_ID, tail={0})",
     ),
     (
         _re.compile(r"\|\s*tail\b"),
-        'output(run_id=RUN_ID, tail=20)',
+        "output(run_id=RUN_ID, tail=20)",
     ),
     (
         _re.compile(r"\|\s*head\s+(?:-n\s*|-)?(\d+)"),
-        'output(run_id=RUN_ID, head={0})',
+        "output(run_id=RUN_ID, head={0})",
     ),
     (
         _re.compile(r"\|\s*head\b"),
-        'output(run_id=RUN_ID, head=20)',
+        "output(run_id=RUN_ID, head=20)",
     ),
     (
         _re.compile(r"""\|\s*grep\s+(?:-[a-zA-Z]+\s+)*['"]?([^'"|\s]+)['"]?"""),
@@ -3615,13 +3611,15 @@ def _ci_generate_impl(
         for name in sorted(command_names):
             cmd = registered[name]
             content = _generate_script(cmd, shell)
-            scripts.append({
-                "name": f"{name}.sh",
-                "command_name": name,
-                "content": content,
-                "is_template": cmd.is_template,
-                "description": cmd.description or "",
-            })
+            scripts.append(
+                {
+                    "name": f"{name}.sh",
+                    "command_name": name,
+                    "content": content,
+                    "is_template": cmd.is_template,
+                    "description": cmd.description or "",
+                }
+            )
 
         return {
             "scripts": scripts,

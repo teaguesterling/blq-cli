@@ -1010,9 +1010,7 @@ class TestCleanTool:
                 await client.call_tool("exec", {"command": str(sample_build_script)})
 
             # Prune keeping only 1 run per source
-            raw = await client.call_tool(
-                "clean", {"mode": "prune", "max_runs": 1, "confirm": True}
-            )
+            raw = await client.call_tool("clean", {"mode": "prune", "max_runs": 1, "confirm": True})
             result = get_data(raw)
 
             assert result["success"] is True
