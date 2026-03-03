@@ -235,6 +235,7 @@ class RunResult:
     parquet_path: str | None = None
     output_stats: dict[str, int | list[str]] = field(default_factory=dict)
     source_name: str | None = None  # Tag for run_ref (e.g., "build", "test", "pytest")
+    status_reason: str | None = None  # Human-readable explanation for the status
 
     def to_json(self, include_warnings: bool = False) -> str:
         """Convert to JSON string."""
@@ -251,6 +252,8 @@ class RunResult:
         }
         if self.source_name:
             data["source_name"] = self.source_name
+        if self.status_reason:
+            data["status_reason"] = self.status_reason
         if include_warnings:
             data["warnings"] = [asdict(w) for w in self.warnings]
         if self.output_stats:
@@ -266,8 +269,10 @@ class RunResult:
             f"**Command:** `{self.command}`",
             f"**Duration:** {self.duration_sec:.1f}s | **Exit code:** {self.exit_code} | "
             f"**Run ID:** {self.run_id}",
-            "",
         ]
+        if self.status_reason:
+            lines.append(f"**Reason:** {self.status_reason}")
+        lines.append("")
 
         if self.errors:
             lines.append(f"### Errors ({len(self.errors)})")
@@ -294,6 +299,53 @@ class RunResult:
             lines.append("")
 
         return "\n".join(lines)
+
+
+# ============================================================================
+# Well-known exit codes for common build/test tools
+# ============================================================================
+
+WELL_KNOWN_EXIT_CODES: dict[str, dict[int, str]] = {
+    "pytest": {
+        1: "Tests failed",
+        2: "Interrupted",
+        3: "Internal error",
+        4: "Usage error",
+        5: "No tests collected",
+    },
+    "ruff": {1: "Lint violations found", 2: "Fatal error"},
+    "mypy": {1: "Type errors found", 2: "Fatal error"},
+    "cargo": {101: "Build/test failed"},
+    "make": {2: "Errors encountered"},
+    "go": {1: "Build/test failed", 2: "Usage error"},
+    "npm": {1: "Generic failure"},
+    "tsc": {1: "Type errors found"},
+    "eslint": {1: "Lint violations found", 2: "Fatal error"},
+    "black": {1: "Files would be reformatted", 123: "Internal error"},
+    "flake8": {1: "Violations found"},
+    "gcc": {1: "Compilation errors"},
+    "rustc": {1: "Compilation errors"},
+}
+
+
+def _get_exit_code_reason(source_name: str, exit_code: int) -> str | None:
+    """Look up a human-readable reason for a tool's exit code.
+
+    Tries exact match on source_name, then prefix match (e.g., "pytest-unit"
+    matches the "pytest" entry).
+
+    Returns None if no match found.
+    """
+    # Exact match
+    if source_name in WELL_KNOWN_EXIT_CODES:
+        return WELL_KNOWN_EXIT_CODES[source_name].get(exit_code)
+
+    # Prefix match (e.g., "pytest-unit" starts with "pytest")
+    for tool_name, codes in WELL_KNOWN_EXIT_CODES.items():
+        if source_name.startswith(tool_name):
+            return codes.get(exit_code)
+
+    return None
 
 
 # Default environment variables to capture for all runs
@@ -1010,6 +1062,7 @@ class RegisteredCommand:
     capture: bool = True  # Whether to capture and parse logs (default: True)
     capture_env: list[str] = field(default_factory=list)  # Additional env vars
     suppress: list[str] = field(default_factory=list)  # Fingerprints to suppress in reports
+    lines: str | None = None  # Default line selection for run/exec output (e.g., "+20-")
 
     @property
     def is_template(self) -> bool:
@@ -1103,6 +1156,8 @@ class RegisteredCommand:
             d["capture_env"] = self.capture_env
         if self.suppress:
             d["suppress"] = self.suppress
+        if self.lines is not None:
+            d["lines"] = self.lines
         return d
 
 
@@ -1312,6 +1367,7 @@ def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
                 capture=config.get("capture", True),
                 capture_env=capture_env,
                 suppress=suppress,
+                lines=config.get("lines"),  # Default line selection for output
             )
     return commands
 

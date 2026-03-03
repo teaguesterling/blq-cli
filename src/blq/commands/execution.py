@@ -33,6 +33,7 @@ from blq.commands.core import (
     BlqConfig,
     EventSummary,
     RunResult,
+    _get_exit_code_reason,
     capture_ci_info,
     capture_environment,
     capture_git_info,
@@ -46,6 +47,59 @@ from blq.commands.core import (
 
 # Logger for lq status messages
 logger = logging.getLogger("blq-cli")
+
+
+def _compute_status_reason(
+    status: str,
+    exit_code: int,
+    error_count: int,
+    warning_count: int,
+    source_name: str,
+    timed_out: bool,
+) -> str | None:
+    """Compute a human-readable reason for the run status.
+
+    Returns None when the status is self-evident (errors/warnings present, or OK).
+    """
+    if timed_out:
+        return "Command timed out"
+
+    if status == "FAIL" and error_count == 0 and warning_count == 0 and exit_code != 0:
+        reason = _get_exit_code_reason(source_name, exit_code)
+        if reason:
+            return reason
+        return f"Non-zero exit code ({exit_code}) with no errors detected"
+
+    return None
+
+
+def _make_synthetic_exit_event(
+    source_name: str,
+    exit_code: int,
+    status_reason: str,
+) -> dict:
+    """Create a synthetic info-level event for non-zero exits with no parsed errors.
+
+    This makes the exit condition visible in blq errors/events queries.
+    """
+    import hashlib
+
+    fingerprint = hashlib.md5(f"{source_name}:exit_{exit_code}".encode()).hexdigest()[:16]
+
+    return {
+        "event_id": 1,
+        "severity": "info",
+        "message": status_reason,
+        "error_code": f"exit_{exit_code}",
+        "tool_name": source_name,
+        "ref_file": None,
+        "ref_line": None,
+        "ref_column": None,
+        "test_name": None,
+        "fingerprint": fingerprint,
+        "log_line_start": None,
+        "log_line_end": None,
+    }
 
 
 def _print_run_summary(
@@ -546,6 +600,14 @@ def _execute_with_live_output(
     else:
         status = "OK"
 
+    # Compute status_reason and synthetic event for unexplained failures
+    status_reason = _compute_status_reason(
+        status, exit_code, len(error_events), len(warning_events), source_name, timed_out
+    )
+    if status == "FAIL" and not error_events and not warning_events and exit_code != 0:
+        synthetic = _make_synthetic_exit_event(source_name, exit_code, status_reason or "")
+        events.append(synthetic)
+
     # Build output stats
     tail_lines = 5
     max_line_length = 120
@@ -563,6 +625,10 @@ def _execute_with_live_output(
         "tail": [_truncate_line(ln) for ln in output_lines[-tail_lines:]],
     }
 
+    # Re-count after potential synthetic event
+    all_events = events
+    info_events = [e for e in all_events if e.get("severity") == "info"]
+
     return RunResult(
         run_id=run_id,
         command=command,
@@ -572,15 +638,17 @@ def _execute_with_live_output(
         completed_at=completed_at.isoformat(),
         duration_sec=duration_ms / 1000.0,
         summary={
-            "total_events": len(events),
+            "total_events": len(all_events),
             "errors": len(error_events),
             "warnings": len(warning_events),
+            "info": len(info_events),
         },
         errors=[_make_event_summary(run_id, e) for e in error_events[:error_limit]],
         warnings=[_make_event_summary(run_id, e) for e in warning_events[:error_limit]],
         parquet_path=str(lq_dir / "blq.duckdb"),
         output_stats=output_stats,
         source_name=source_name,
+        status_reason=status_reason,
     )
 
 
@@ -862,6 +930,14 @@ def _execute_command(
     else:
         status = "OK"
 
+    # Compute status_reason and synthetic event for unexplained failures
+    status_reason = _compute_status_reason(
+        status, exit_code, len(error_events), len(warning_events), source_name, timed_out
+    )
+    if status == "FAIL" and not error_events and not warning_events and exit_code != 0:
+        synthetic = _make_synthetic_exit_event(source_name, exit_code, status_reason or "")
+        events.append(synthetic)
+
     # Build output stats for visibility when no events are parsed
     tail_lines = 5
     max_line_length = 120  # Truncate long lines to conserve context
@@ -879,6 +955,10 @@ def _execute_command(
         "tail": [_truncate_line(ln) for ln in output_lines[-tail_lines:]],
     }
 
+    # Re-count after potential synthetic event
+    all_events = events
+    info_events = [e for e in all_events if e.get("severity") == "info"]
+
     return RunResult(
         run_id=run_id,
         command=command,
@@ -888,15 +968,17 @@ def _execute_command(
         completed_at=completed_at.isoformat(),
         duration_sec=duration_sec,
         summary={
-            "total_events": len(events),
+            "total_events": len(all_events),
             "errors": len(error_events),
             "warnings": len(warning_events),
+            "info": len(info_events),
         },
         errors=[_make_event_summary(run_id, e) for e in error_events[:error_limit]],
         warnings=[_make_event_summary(run_id, e) for e in warning_events[:error_limit]],
         parquet_path=str(filepath),
         source_name=source_name,
         output_stats=output_stats,
+        status_reason=status_reason,
     )
 
 

@@ -342,11 +342,47 @@ def _build_preview(
     return result
 
 
+def _resolve_command_lines(command: str, lines: str | None) -> str | None:
+    """Resolve effective lines spec: explicit param > command config > None."""
+    if lines is not None:
+        return lines
+    try:
+        from blq.cli import BlqConfig
+
+        config = BlqConfig.find()
+        if config and command in config.commands:
+            return config.commands[command].lines
+    except Exception:
+        pass
+    return None
+
+
+def _attach_output(
+    concise: dict[str, Any], run_id: int | None, lines_spec: str | None
+) -> None:
+    """Fetch output lines and attach to the concise response dict.
+
+    When output is attached, the preview field is removed (output supersedes it).
+    """
+    if lines_spec is None or run_id is None:
+        return
+    result = _output_impl(run_id, lines=lines_spec)
+    if "content" in result:
+        concise["output"] = result["content"]
+    elif "error" in result:
+        concise["output"] = f"(output error: {result['error']})"
+    else:
+        concise["output"] = "(no captured output)"
+    # Output supersedes preview
+    concise.pop("preview", None)
+
+
 def _run_impl(
     command: str,
     args: dict[str, str] | list[str] | None = None,
     extra: list[str] | None = None,
     timeout: int | None = None,
+    lines: str | None = None,
 ) -> dict[str, Any]:
     """Implementation of run command (for registered commands).
 
@@ -355,6 +391,7 @@ def _run_impl(
         args: Either a dict of named arguments (recommended) or a list of CLI args
         extra: Passthrough arguments appended to command (when args is a dict)
         timeout: Command timeout in seconds
+        lines: Line selection spec for output (e.g., '+20-' for last 20 lines)
     """
     # Build command for blq run (registered commands only)
     # Use sys.executable to ensure we use the same Python/venv as the MCP server
@@ -408,6 +445,11 @@ def _run_impl(
                     "summary": summary,
                 }
 
+                # Include status_reason when present
+                status_reason = full_result.get("status_reason")
+                if status_reason:
+                    concise["status_reason"] = status_reason
+
                 # Only include errors if there are any
                 if errors:
                     concise["errors"] = errors
@@ -417,9 +459,15 @@ def _run_impl(
                 if duration > 5:
                     concise["duration_sec"] = round(duration, 1)
 
-                # Include preview on failure (head + tail with separator)
-                output_stats = full_result.get("output_stats", {})
-                concise.update(_build_preview(output_stats, status, has_errors))
+                # Resolve lines spec: explicit param > command config > None
+                effective_lines = _resolve_command_lines(command, lines)
+
+                if effective_lines:
+                    _attach_output(concise, run_id, effective_lines)
+                else:
+                    # Include preview on failure (head + tail with separator)
+                    output_stats = full_result.get("output_stats", {})
+                    concise.update(_build_preview(output_stats, status, has_errors))
 
                 return concise
             except json.JSONDecodeError:
@@ -504,6 +552,7 @@ def _exec_impl(
     args: list[str] | None = None,
     timeout: int | None = None,
     shell: bool = False,
+    lines: str | None = None,
 ) -> dict[str, Any]:
     """Implementation of exec command (for ad-hoc shell commands).
 
@@ -516,6 +565,7 @@ def _exec_impl(
         timeout: Timeout in seconds
         shell: If True, skip pipe detection and pass command as a single
                argument for shell interpretation
+        lines: Line selection spec for output (e.g., '+20-' for last 20 lines)
     """
     # Build full command string
     full_cmd = command
@@ -533,7 +583,9 @@ def _exec_impl(
         match = _find_matching_registered_command(full_cmd)
         if match:
             name, extra_args = match
-            result = _run_impl(name, extra=extra_args if extra_args else None, timeout=timeout)
+            result = _run_impl(
+                name, extra=extra_args if extra_args else None, timeout=timeout, lines=lines
+            )
             result["matched_command"] = name
             if extra_args:
                 result["extra_args"] = extra_args
@@ -585,6 +637,11 @@ def _exec_impl(
                     "summary": summary,
                 }
 
+                # Include status_reason when present
+                status_reason = full_result.get("status_reason")
+                if status_reason:
+                    concise["status_reason"] = status_reason
+
                 # Only include errors if there are any
                 if errors:
                     concise["errors"] = errors
@@ -594,9 +651,12 @@ def _exec_impl(
                 if duration > 5:
                     concise["duration_sec"] = round(duration, 1)
 
-                # Include preview on failure (head + tail with separator)
-                output_stats = full_result.get("output_stats", {})
-                concise.update(_build_preview(output_stats, status, has_errors))
+                if lines:
+                    _attach_output(concise, run_id, lines)
+                else:
+                    # Include preview on failure (head + tail with separator)
+                    output_stats = full_result.get("output_stats", {})
+                    concise.update(_build_preview(output_stats, status, has_errors))
 
                 return concise
             except json.JSONDecodeError:
@@ -2206,6 +2266,8 @@ def _command_to_dict(cmd: Any) -> dict[str, Any]:
         result["defaults"] = cmd.defaults
     else:
         result["cmd"] = cmd.cmd
+    if cmd.lines is not None:
+        result["lines"] = cmd.lines
     return result
 
 
@@ -2220,6 +2282,7 @@ def _register_command_impl(
     force: bool = False,
     format: str | None = None,
     run_now: bool = False,
+    lines: str | None = None,
 ) -> dict[str, Any]:
     """Implementation of register_command."""
     try:
@@ -2311,6 +2374,7 @@ def _register_command_impl(
             timeout=timeout,
             capture=capture,
             format=format or "auto",
+            lines=lines,
         )
         commands[name] = new_command
         config.save_commands()
@@ -2399,6 +2463,7 @@ def run(
     args: dict[str, str] | list[str] | None = None,
     extra: list[str] | None = None,
     timeout: int | None = None,
+    lines: str | None = None,
     # Batch mode parameters
     commands: list[str] | None = None,
     stop_on_failure: bool = True,
@@ -2406,8 +2471,6 @@ def run(
     """Run a registered command and capture its output.
 
     Can run a single command or multiple commands in sequence (batch mode).
-    To filter or search captured output after a run, use the output() tool
-    with grep/tail/head parameters.
 
     Args:
         command: Registered command name (use the exec tool for ad-hoc commands)
@@ -2415,11 +2478,16 @@ def run(
               or a list of CLI args for backward compatibility
         extra: Passthrough arguments appended to command
         timeout: Timeout in seconds (default: no timeout)
+        lines: Line selection for inline output (e.g., '+20-' for last 20 lines,
+               '-50' for first 50, '100-200' for range). Overrides the command's
+               configured lines default. When set, output is included directly
+               in the response instead of requiring a separate output() call.
         commands: List of command names for batch mode (overrides `command`)
         stop_on_failure: In batch mode, stop after first failure (default: true)
 
     Returns:
         Run result with status, errors, and preview of output on failure.
+        When lines is active (explicit or from command config), includes 'output' key.
         In batch mode, returns results for each command with overall status.
     """
     # Batch mode: run multiple commands in sequence
@@ -2428,7 +2496,7 @@ def run(
         overall_status = "OK"
 
         for cmd in commands:
-            result = _run_impl(cmd, timeout=timeout)
+            result = _run_impl(cmd, timeout=timeout, lines=lines)
             results.append({"command": cmd, "result": result})
 
             if result.get("status") == "FAIL":
@@ -2446,7 +2514,7 @@ def run(
         }
 
     # Single command mode
-    return _run_impl(command, args, extra, timeout)
+    return _run_impl(command, args, extra, timeout, lines=lines)
 
 
 @mcp.tool()
@@ -2455,6 +2523,7 @@ def exec(
     args: list[str] | None = None,
     timeout: int | None = None,
     shell: bool = False,
+    lines: str | None = None,
 ) -> dict[str, Any]:
     """Execute an ad-hoc shell command and capture its output.
 
@@ -2476,13 +2545,17 @@ def exec(
         timeout: Timeout in seconds (default: no timeout)
         shell: Advanced: set True to allow shell syntax (pipes, redirects).
                Prefer the two-step workflow: exec() then output() instead.
+        lines: Line selection for inline output (e.g., '+20-' for last 20 lines,
+               '-50' for first 50, '100-200' for range). When set, output is
+               included directly in the response.
 
     Returns:
         Run result with status, errors, and warnings. If a registered command
         was matched, includes 'matched_command' and optionally 'extra_args'.
+        When lines is active, includes 'output' key.
     """
     _check_tool_enabled("exec")
-    return _exec_impl(command, args, timeout, shell=shell)
+    return _exec_impl(command, args, timeout, shell=shell, lines=lines)
 
 
 @mcp.tool()
@@ -3125,6 +3198,7 @@ def register_command(
     force: bool = False,
     format: str | None = None,
     run_now: bool = False,
+    lines: str | None = None,
 ) -> dict[str, Any]:
     """Register a new command.
 
@@ -3145,6 +3219,8 @@ def register_command(
         force: Overwrite existing command if it exists
         format: Log format for parsing (auto-detected from command if not specified)
         run_now: Run the command immediately after registering (default: false)
+        lines: Default line selection for output (e.g., '+20-' for last 20 lines).
+               Saved in command config; used automatically on each run unless overridden.
 
     Returns:
         Success status and registered command details. If run_now=True,
@@ -3152,7 +3228,7 @@ def register_command(
     """
     _check_tool_enabled("register_command")
     return _register_command_impl(
-        name, cmd, tpl, defaults, description, timeout, capture, force, format, run_now
+        name, cmd, tpl, defaults, description, timeout, capture, force, format, run_now, lines
     )
 
 
