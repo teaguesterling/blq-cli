@@ -1316,3 +1316,157 @@ class TestBuildPreview:
         )
         assert "output_stats" in result
         assert result["output_stats"]["lines"] == 100
+
+
+class TestExecTracker:
+    """Tests for the _ExecTracker class."""
+
+    def setup_method(self):
+        from blq.serve import _exec_tracker
+
+        _exec_tracker.reset()
+
+    def teardown_method(self):
+        from blq.serve import _exec_tracker
+
+        _exec_tracker.reset()
+
+    def test_record_returns_count(self):
+        from blq.serve import _exec_tracker
+
+        assert _exec_tracker.record("pytest tests/") == 1
+        assert _exec_tracker.record("pytest tests/") == 2
+        assert _exec_tracker.record("pytest tests/") == 3
+
+    def test_get_original_returns_first_form(self):
+        from blq.serve import _exec_tracker
+
+        _exec_tracker.record("pytest  tests/")
+        _exec_tracker.record("pytest tests/")  # different whitespace, same normalized
+        assert _exec_tracker.get_original("pytest tests/") == "pytest  tests/"
+
+    def test_get_original_unknown_returns_input(self):
+        from blq.serve import _exec_tracker
+
+        assert _exec_tracker.get_original("unknown cmd") == "unknown cmd"
+
+    def test_reset_clears_state(self):
+        from blq.serve import _exec_tracker
+
+        _exec_tracker.record("pytest tests/")
+        _exec_tracker.reset()
+        assert _exec_tracker.record("pytest tests/") == 1
+
+    def test_whitespace_normalization(self):
+        from blq.serve import _exec_tracker
+
+        assert _exec_tracker.record("pytest   tests/  -v") == 1
+        assert _exec_tracker.record("pytest tests/ -v") == 2
+
+    def test_different_commands_independent(self):
+        from blq.serve import _exec_tracker
+
+        assert _exec_tracker.record("pytest tests/") == 1
+        assert _exec_tracker.record("mypy src/") == 1
+        assert _exec_tracker.record("pytest tests/") == 2
+        assert _exec_tracker.record("mypy src/") == 2
+
+
+class TestDeriveCommandName:
+    """Tests for _derive_command_name()."""
+
+    def test_simple_command(self):
+        from blq.serve import _derive_command_name
+
+        assert _derive_command_name("pytest tests/ -v") == "pytest"
+
+    def test_absolute_path(self):
+        from blq.serve import _derive_command_name
+
+        assert _derive_command_name("/usr/bin/make -j8") == "make"
+
+    def test_python_module(self):
+        from blq.serve import _derive_command_name
+
+        assert _derive_command_name("python -m pytest tests/") == "pytest"
+        assert _derive_command_name("python3 -m mypy src/") == "mypy"
+
+    def test_empty_string(self):
+        from blq.serve import _derive_command_name
+
+        assert _derive_command_name("") == "cmd"
+
+    def test_single_command(self):
+        from blq.serve import _derive_command_name
+
+        assert _derive_command_name("make") == "make"
+
+    def test_python_without_m_flag(self):
+        from blq.serve import _derive_command_name
+
+        assert _derive_command_name("python script.py") == "python"
+
+
+class TestExecRegistrationRecommendation:
+    """Tests for _build_registration_recommendation()."""
+
+    def setup_method(self):
+        from blq.serve import _exec_tracker
+
+        _exec_tracker.reset()
+
+    def teardown_method(self):
+        from blq.serve import _exec_tracker
+
+        _exec_tracker.reset()
+
+    def test_first_run_no_recommendation(self):
+        from blq.serve import _build_registration_recommendation
+
+        result = _build_registration_recommendation("pytest tests/")
+        assert result is None
+
+    def test_second_run_has_recommendation(self):
+        from blq.serve import _build_registration_recommendation
+
+        _build_registration_recommendation("pytest tests/ -v")
+        result = _build_registration_recommendation("pytest tests/ -v")
+        assert result is not None
+        assert "2nd" in result["message"]
+        assert result["suggested_call"]["tool"] == "register_command"
+        assert result["suggested_call"]["args"]["name"] == "pytest"
+        assert result["suggested_call"]["args"]["cmd"] == "pytest tests/ -v"
+
+    def test_third_run_ordinal(self):
+        from blq.serve import _build_registration_recommendation
+
+        _build_registration_recommendation("make -j8")
+        _build_registration_recommendation("make -j8")
+        result = _build_registration_recommendation("make -j8")
+        assert result is not None
+        assert "3rd" in result["message"]
+
+    def test_different_commands_independent(self):
+        from blq.serve import _build_registration_recommendation
+
+        _build_registration_recommendation("pytest tests/")
+        result = _build_registration_recommendation("mypy src/")
+        assert result is None  # first time for mypy
+
+    def test_disabled_register_command_no_recommendation(self, monkeypatch):
+        from blq import serve
+        from blq.serve import _build_registration_recommendation
+
+        monkeypatch.setattr(serve, "_load_disabled_tools", lambda: {"register_command"})
+        _build_registration_recommendation("pytest tests/")
+        result = _build_registration_recommendation("pytest tests/")
+        assert result is None
+
+    def test_recommendation_has_reason(self):
+        from blq.serve import _build_registration_recommendation
+
+        _build_registration_recommendation("pytest tests/")
+        result = _build_registration_recommendation("pytest tests/")
+        assert result is not None
+        assert "reason" in result
+        assert "pytest:1" in result["reason"]

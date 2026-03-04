@@ -508,6 +508,34 @@ def _run_impl(
         }
 
 
+class _ExecTracker:
+    """Track commands run via the exec tool within an MCP session."""
+
+    def __init__(self) -> None:
+        self._counts: dict[str, int] = {}  # normalized_cmd -> count
+        self._originals: dict[str, str] = {}  # normalized_cmd -> first original form
+
+    def record(self, command: str) -> int:
+        """Record a command execution. Returns the occurrence count."""
+        key = _normalize_cmd(command)
+        self._counts[key] = self._counts.get(key, 0) + 1
+        if key not in self._originals:
+            self._originals[key] = command
+        return self._counts[key]
+
+    def get_original(self, command: str) -> str:
+        """Get the first-seen form of a command."""
+        return self._originals.get(_normalize_cmd(command), command)
+
+    def reset(self) -> None:
+        """Clear all tracking state."""
+        self._counts.clear()
+        self._originals.clear()
+
+
+_exec_tracker = _ExecTracker()
+
+
 def _find_matching_registered_command(full_cmd: str) -> tuple[str, list[str]] | None:
     """Check if command matches a registered command prefix.
 
@@ -657,6 +685,11 @@ def _exec_impl(
                     # Include preview on failure (head + tail with separator)
                     output_stats = full_result.get("output_stats", {})
                     concise.update(_build_preview(output_stats, status, has_errors))
+
+                # Recommend registration for repeated ad-hoc commands
+                recommendation = _build_registration_recommendation(full_cmd)
+                if recommendation is not None:
+                    concise["recommendation"] = recommendation
 
                 return concise
             except json.JSONDecodeError:
@@ -2145,6 +2178,48 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
 def _normalize_cmd(cmd: str) -> str:
     """Normalize command string for comparison (collapse whitespace)."""
     return " ".join(cmd.split())
+
+
+def _derive_command_name(command: str) -> str:
+    """Derive a short command name for registration suggestions."""
+    parts = command.split()
+    if not parts:
+        return "cmd"
+    name = os.path.basename(parts[0])
+    # Handle "python -m <module>" pattern
+    if name in ("python", "python3") and len(parts) >= 3 and parts[1] == "-m":
+        return parts[2]
+    return name or "cmd"
+
+
+def _build_registration_recommendation(command: str) -> dict[str, Any] | None:
+    """Build a recommendation to register a repeatedly exec'd command, or None."""
+    disabled = _load_disabled_tools()
+    if "register_command" in disabled:
+        return None
+
+    count = _exec_tracker.record(command)
+    if count < 2:
+        return None
+
+    name = _derive_command_name(command)
+    original_cmd = _exec_tracker.get_original(command)
+    ordinal = {2: "2nd", 3: "3rd"}.get(count, f"{count}th")
+
+    return {
+        "message": (
+            f"This is the {ordinal} time this command has been run via exec."
+            " Consider registering it."
+        ),
+        "suggested_call": {
+            "tool": "register_command",
+            "args": {"name": name, "cmd": original_cmd},
+        },
+        "reason": (
+            f"Registered commands have cleaner refs (e.g., '{name}:1'), "
+            "support per-command config, and don't need repeated approval."
+        ),
+    }
 
 
 # Shell metacharacters that indicate pipes, redirects, or command chains.
