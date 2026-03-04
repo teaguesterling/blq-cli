@@ -1709,7 +1709,7 @@ def _status_impl() -> dict[str, Any]:
                     "status": status_str,
                     "error_count": error_count,
                     "warning_count": warning_count,
-                    "last_run": str(row.get("started_at", "")),
+                    "last_run": str(_to_json_safe(row.get("started_at")) or ""),
                     "run_ref": run_ref,
                     "run_serial": run_serial,
                 }
@@ -1909,9 +1909,9 @@ def _info_impl(ref: str) -> dict[str, Any]:
                 "warning_count": 0,
                 "info_count": 0,
                 "event_count": 0,
-                "started_at": str(row.get("started_at", "")),
+                "started_at": str(_to_json_safe(row.get("started_at")) or ""),
                 "completed_at": (
-                    str(row.get("completed_at", "")) if attempt_status != "pending" else None
+                    str(_to_json_safe(row.get("completed_at")) or "") if attempt_status != "pending" else None
                 ),
                 "cwd": _to_json_safe(row.get("cwd")),
                 "executable_path": _to_json_safe(row.get("executable")),
@@ -1965,8 +1965,8 @@ def _info_impl(ref: str) -> dict[str, Any]:
             "warning_count": _safe_int(row.get("warning_count")) or 0,
             "info_count": _safe_int(row.get("info_count")) or 0,
             "event_count": _safe_int(row.get("event_count")) or 0,
-            "started_at": str(row.get("started_at", "")),
-            "completed_at": str(row.get("completed_at", "")),
+            "started_at": str(_to_json_safe(row.get("started_at")) or ""),
+            "completed_at": str(_to_json_safe(row.get("completed_at")) or ""),
             "cwd": _to_json_safe(row.get("cwd")),
             "executable_path": _to_json_safe(row.get("executable_path")),
             "hostname": _to_json_safe(row.get("hostname")),
@@ -1974,7 +1974,7 @@ def _info_impl(ref: str) -> dict[str, Any]:
             "arch": _to_json_safe(row.get("arch")),
             "git_branch": _to_json_safe(row.get("git_branch")),
             "git_commit": _to_json_safe(row.get("git_commit")),
-            "git_dirty": bool(row.get("git_dirty")),
+            "git_dirty": bool(row.get("git_dirty")) if not pd.isna(row.get("git_dirty")) else None,
             "outputs": outputs,
         }
     except FileNotFoundError:
@@ -2077,7 +2077,7 @@ def _history_impl(
                     "status": status_str,
                     "error_count": error_count,
                     "warning_count": warning_count,
-                    "started_at": str(row.get("started_at", "")),
+                    "started_at": str(_to_json_safe(row.get("started_at")) or ""),
                     "exit_code": _safe_int(row.get("exit_code")),
                     "command": _to_json_safe(row.get("command")),
                     "cwd": _to_json_safe(row.get("cwd")),
@@ -2120,10 +2120,10 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
 
         # Use fingerprints for comparison if available, else use file+line+message
         def get_error_key(row):
-            fp = row.get("fingerprint")
+            fp = _to_json_safe(row.get("fingerprint"))
             if fp:
                 return fp
-            return f"{row.get('ref_file')}:{row.get('ref_line')}:{row.get('message', '')[:50]}"
+            return f"{_to_json_safe(row.get('ref_file'))}:{_to_json_safe(row.get('ref_line'))}:{(_to_json_safe(row.get('message')) or '')[:50]}"
 
         keys1 = set(get_error_key(row) for _, row in errors1.iterrows())
         keys2 = set(get_error_key(row) for _, row in errors2.iterrows())
@@ -2138,8 +2138,8 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
             if get_error_key(row) in fixed_keys:
                 fixed.append(
                     {
-                        "ref_file": row.get("ref_file"),
-                        "message": row.get("message"),
+                        "ref_file": _to_json_safe(row.get("ref_file")),
+                        "message": _to_json_safe(row.get("message")),
                     }
                 )
 
@@ -2149,9 +2149,9 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
                 new_errors.append(
                     {
                         "ref": _to_json_safe(row.get("ref")),
-                        "ref_file": row.get("ref_file"),
-                        "ref_line": row.get("ref_line"),
-                        "message": row.get("message"),
+                        "ref_file": _to_json_safe(row.get("ref_file")),
+                        "ref_line": _safe_int(row.get("ref_line")),
+                        "message": _to_json_safe(row.get("message")),
                     }
                 )
 
@@ -3623,8 +3623,8 @@ def _report_impl(
             "report": report,
             "run_id": _safe_int(data.run_id),
             "source_name": _to_json_safe(data.source_name),
-            "total_errors": int(data.total_errors),
-            "total_warnings": int(data.total_warnings),
+            "total_errors": _safe_int(data.total_errors) or 0,
+            "total_warnings": _safe_int(data.total_warnings) or 0,
             "exit_code": _safe_int(data.exit_code),
             "has_baseline": baseline_id is not None,
         }
