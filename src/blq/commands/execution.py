@@ -1385,6 +1385,10 @@ def _mark_pruned(lq_dir: Path) -> None:
 def _maybe_auto_prune(config: BlqConfig, user_config) -> None:
     """Run auto-prune if enabled, using time-based trigger and multi-strategy pruning."""
     try:
+        # Auto-prune only works with BIRD storage (operates on DuckDB tables)
+        if not config.use_bird:
+            return
+
         prune_cfg = _resolve_prune_config(config, user_config)
 
         if not prune_cfg["auto_prune"]:
