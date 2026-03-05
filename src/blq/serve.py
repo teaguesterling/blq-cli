@@ -357,9 +357,7 @@ def _resolve_command_lines(command: str, lines: str | None) -> str | None:
     return None
 
 
-def _attach_output(
-    concise: dict[str, Any], run_id: int | None, lines_spec: str | None
-) -> None:
+def _attach_output(concise: dict[str, Any], run_id: int | None, lines_spec: str | None) -> None:
     """Fetch output lines and attach to the concise response dict.
 
     When output is attached, the preview field is removed (output supersedes it).
@@ -1911,7 +1909,9 @@ def _info_impl(ref: str) -> dict[str, Any]:
                 "event_count": 0,
                 "started_at": str(_to_json_safe(row.get("started_at")) or ""),
                 "completed_at": (
-                    str(_to_json_safe(row.get("completed_at")) or "") if attempt_status != "pending" else None
+                    str(_to_json_safe(row.get("completed_at")) or "")
+                    if attempt_status != "pending"
+                    else None
                 ),
                 "cwd": _to_json_safe(row.get("cwd")),
                 "executable_path": _to_json_safe(row.get("executable")),
@@ -2123,7 +2123,10 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
             fp = _to_json_safe(row.get("fingerprint"))
             if fp:
                 return fp
-            return f"{_to_json_safe(row.get('ref_file'))}:{_to_json_safe(row.get('ref_line'))}:{(_to_json_safe(row.get('message')) or '')[:50]}"
+            ref = _to_json_safe(row.get("ref_file"))
+            line = _to_json_safe(row.get("ref_line"))
+            msg = (_to_json_safe(row.get("message")) or "")[:50]
+            return f"{ref}:{line}:{msg}"
 
         keys1 = set(get_error_key(row) for _, row in errors1.iterrows())
         keys2 = set(get_error_key(row) for _, row in errors2.iterrows())
