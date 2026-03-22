@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from blq.sandbox import (
+from blq_sandbox.spec import (
     PRESETS,
     SandboxSpec,
     format_duration,

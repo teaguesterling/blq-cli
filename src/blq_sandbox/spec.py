@@ -237,6 +237,27 @@ class SandboxSpec:
                 return name
         return None
 
+    def active_dimensions(self) -> set[str]:
+        """Return the set of dimensions that differ from unrestricted defaults."""
+        dims: set[str] = set()
+        if self.network != "unrestricted":
+            dims.add("network")
+        if self.filesystem != "unrestricted":
+            dims.add("filesystem")
+        if self.memory is not None:
+            dims.add("memory")
+        if self.cpu is not None:
+            dims.add("cpu")
+        if self.processes != "visible":
+            dims.add("processes")
+        if self.tmpfs is not None:
+            dims.add("tmpfs")
+        if self.paths_readable:
+            dims.add("paths_readable")
+        if self.paths_hidden:
+            dims.add("paths_hidden")
+        return dims
+
 
 # =============================================================================
 # Presets
