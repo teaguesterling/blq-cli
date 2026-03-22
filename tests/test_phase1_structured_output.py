@@ -204,16 +204,9 @@ class TestRunResult:
         assert data["errors"][0]["ref"] == "5:1"
         assert data["errors"][0]["ref_file"] == "src/main.c"
 
-    def test_to_json_warnings_excluded_by_default(self, sample_result):
-        """JSON output excludes warnings by default."""
+    def test_to_json_always_includes_warnings(self, sample_result):
+        """JSON output always includes warnings when present."""
         output = sample_result.to_json()
-        data = json.loads(output)
-
-        assert "warnings" not in data
-
-    def test_to_json_include_warnings(self, sample_result):
-        """JSON output includes warnings when requested."""
-        output = sample_result.to_json(include_warnings=True)
         data = json.loads(output)
 
         assert "warnings" in data
