@@ -117,10 +117,12 @@ The computation level depends on what the command CAN do, which is bounded by th
 
 | What the sandbox allows | Max reachable level | Why |
 |---|---|---|
-| readonly, no network | Level 2 (read + compute) | Can read and process but can't mutate or reach out |
-| workspace write, no network | Level 3 (mutation) | Can modify files, future reads see changes |
-| workspace write, localhost | Level 5+ (environment modification, service interaction) | Can install packages, talk to local services |
-| unrestricted | Level 7+ (subprocess spawning, network, persistence) | Unbounded — can spawn processes, open ports, exfiltrate |
+| readonly, no network, pids.max=1 | Level 2 (read + compute) | Can read and process but can't mutate, spawn, or reach out |
+| readonly, no network | Level 2 (read + compute) | Can spawn children but they can't write either — effectively level 2 |
+| workspace write, no network, pids.max=1 | Level 4 (computation amplification) | Can write + execute, but no child processes |
+| workspace write, no network | Level 7 (subprocess spawning) | Can spawn persistent background processes within sandbox |
+| workspace write, localhost | Level 7+ (service interaction) | Can talk to local services, install packages |
+| unrestricted | Level 8 (controller modification) | Unbounded — can modify .mcp.json, reach external services |
 
 ### Grading our experiment conditions
 
@@ -128,15 +130,18 @@ This is where it gets precise. Our experimental conditions, graded by their actu
 
 ```
 Condition I (file_edit + run_tests):
-  file_edit:  (scoped, level 0)    — structured write to workspace
-  run_tests:  (scoped-ro, level 2*) — executes code but read-only + no network
-  Composite:  (scoped, level 2*)    — the join
-  * level 2 because effects are bounded to read + compute, even though
-    the computation is Turing-complete. The sandbox constrains the level.
+  file_edit:  (scoped, level 3)     — structured mutation (writes to workspace,
+                                       future reads return different data)
+  run_tests:  (scoped-ro, level 2)  — executes code but read-only + no network
+                                       (Turing-complete computation, but effects
+                                       bounded by sandbox to read + compute)
+  Composite:  (scoped, level 3)     — the join (mutation via file_edit)
 
 Condition D (bash_sandboxed):
-  bash:       (scoped-rw, level 4+) — read-write workspace, no network
-  But actually: can the agent write a script that spawns a background process?
+  bash:       (scoped-rw, level 7)  — read-write workspace, no network,
+                                       but CAN spawn persistent subprocesses
+  With pids.max=1: (scoped-rw, level 4) — can write + execute, no subprocess spawning
+  With readonly:   (scoped-ro, level 2) — can read + compute only
 ```
 
 ### What level is D really?
@@ -267,12 +272,12 @@ class SandboxSpec:
     @property
     def max_computation_level(self) -> int:
         """Compute maximum reachable computation level from spec."""
-        if self.processes == "visible" and self.network != "none":
-            return 8  # can modify controller, reach external services
-        if self.processes == "visible":
-            return 7  # can spawn persistent subprocesses
+        if self.network != "none":
+            return 8  # can reach external services, modify controller
+        if self.processes == "visible" and self.filesystem not in ("readonly",):
+            return 7  # can spawn persistent subprocesses + write
         if self.filesystem not in ("readonly",):
-            return 4  # can write + execute (computation amplification)
+            return 4  # can write + execute (computation amplification), no spawning
         return 2      # read + compute only
 ```
 
