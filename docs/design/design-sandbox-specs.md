@@ -285,6 +285,122 @@ Each step down the taxonomy removes specific capabilities. The sandbox spec make
 
 ## Implementation
 
+### Enforcement engine: nsjail
+
+The enforcement layer should use [nsjail](https://github.com/google/nsjail) rather than raw bwrap. nsjail is Google's process isolation tool, built for exactly this use case: declarative sandbox specs enforced via Linux namespaces, cgroups, and seccomp.
+
+**Why nsjail over bwrap:**
+
+| Capability | bwrap | nsjail |
+|---|---|---|
+| Namespace isolation (PID, mount, net, IPC, UTS) | ✓ | ✓ |
+| Filesystem bind mounts | ✓ | ✓ |
+| cgroup v2 resource limits (memory, CPU, PID) | Manual | Built-in |
+| seccomp filters (syscall allowlisting) | Manual | Built-in (Kafel policy language) |
+| rlimits (file descriptors, stack, processes) | No | Built-in |
+| Declarative config format | CLI flags only | Protobuf config files |
+| Per-process cgroup creation/cleanup | Manual | Automatic |
+| User-mode NAT for network control | No | Built-in |
+
+bwrap is a building block — you assemble the sandbox from CLI flags. nsjail is a framework — you declare the sandbox in a config file and it enforces the full stack. Our `SandboxSpec` maps almost 1:1 to nsjail's `config.proto`, which means the translation layer is minimal.
+
+**The key advantage**: nsjail manages the full lifecycle. It creates cgroups, applies seccomp filters, sets up namespaces, runs the command, and cleans up — all from a single config. With bwrap, we'd need to build the cgroup management, seccomp compilation, and resource limit enforcement ourselves.
+
+**What we build on top**: nsjail handles enforcement. blq adds the layers nsjail doesn't provide:
+1. Named command registry with specs (nsjail has per-config-file specs, not a registry)
+2. Spec logged alongside every run into DuckDB
+3. Resource usage capture from cgroup stats before cleanup
+4. Queryable correlation of spec + enforcement + outcome
+5. Grade computation (effects_ceiling, grade_w) from the spec
+
+### Phase 0: Monitoring mode (observe before restricting)
+
+Before enforcing sandbox specs, observe what commands actually do. The ratchet's discovery phase applied to execution environments.
+
+**The workflow**: Run commands without restriction. Record what they actually access, consume, and attempt. Use the observations to generate a sandbox spec with margin. Then enforce.
+
+**Implementation — three tiers:**
+
+**Tier 1: Resource profiling via cgroups (simplest)**
+
+Run commands inside a `systemd-run --scope` transient unit with accounting enabled but no limits. After the command exits, read cgroup v2 stats before cleanup:
+
+```python
+@dataclass
+class ResourceProfile:
+    """Observed resource usage from a single run."""
+    memory_peak: int          # bytes — from memory.peak
+    memory_swap_peak: int     # bytes — from memory.swap.peak
+    cpu_usage_usec: int       # microseconds — from cpu.stat usage_usec
+    cpu_user_usec: int        # microseconds — from cpu.stat user_usec
+    cpu_system_usec: int      # microseconds — from cpu.stat system_usec
+    wall_time_ms: int         # milliseconds — measured by blq
+
+def read_cgroup_stats(cgroup_path: str) -> ResourceProfile:
+    """Read cgroup v2 stats before cleanup. Requires kernel 5.19+ for memory.peak."""
+    # memory.peak persists after process exit until rmdir
+    memory_peak = int(Path(f"{cgroup_path}/memory.peak").read_text().strip())
+    cpu_stat = parse_cpu_stat(Path(f"{cgroup_path}/cpu.stat").read_text())
+    return ResourceProfile(
+        memory_peak=memory_peak,
+        cpu_usage_usec=cpu_stat["usage_usec"],
+        # ...
+    )
+```
+
+Log the `ResourceProfile` alongside every run. After N runs, suggest a spec:
+
+```sql
+-- Generate sandbox spec from observed resource usage (with 2x headroom)
+SELECT command,
+       max(memory_peak) * 2 as suggested_memory,
+       max(cpu_usage_usec) / 1e6 * 2 as suggested_cpu_seconds,
+       max(wall_time_ms) / 1000 * 3 as suggested_timeout
+FROM blq_resource_profiles
+GROUP BY command
+HAVING count(*) >= 10;
+```
+
+**Tier 2: File and network access profiling via strace**
+
+For the first run of a new command (or on explicit `blq profile <command>`), wrap in strace:
+
+```bash
+strace -f -e trace=%file,%network,%process -o /tmp/blq-profile-{run_id}.log \
+    -- <command>
+```
+
+Parse the trace to extract:
+- Files opened (paths — determines `paths_readable`, `filesystem`)
+- Network connections attempted (determines `network`)
+- Subprocesses spawned (determines `processes`)
+
+This has 2-10x overhead, so it's a one-time profiling step, not continuous.
+
+**Tier 3: seccomp learning mode via nsjail**
+
+nsjail supports `seccomp_log: true`, which sets `SECCOMP_FILTER_FLAG_LOG`. Combined with a Kafel policy where the default action is `LOG` (not `KILL`), every syscall is logged to the kernel audit subsystem but allowed to execute. Parse the audit log afterward to generate a seccomp allowlist.
+
+```protobuf
+# nsjail config for learning mode
+seccomp_log: true
+seccomp_string: "DEFAULT LOG"  # log everything, block nothing
+```
+
+The audit records go to `dmesg` / `journalctl -k` / `auditd`. They include syscall numbers but not arguments — for argument-level detail (which files, which addresses), use Tier 2 strace.
+
+**The monitoring-to-enforcement progression:**
+
+```
+1. No spec          → command runs unrestricted, blq logs output only
+2. monitor: true    → command runs unrestricted, blq logs resource usage (Tier 1)
+3. profile: true    → one-time strace run captures access patterns (Tier 2)
+4. sandbox: "test"  → spec declared, enforced via nsjail
+5. Violations       → logged as structured events, queryable
+```
+
+Each step is a ratchet turn. The spec tightens as confidence grows. Start unrestricted, observe, crystallize, enforce.
+
 ### Phase 1: Spec definition and logging
 
 Add sandbox spec to the command registry schema. Log the spec alongside every run. No enforcement yet — just declaration and capture.
@@ -340,75 +456,80 @@ class SandboxSpec:
         return 2      # read + compute only (effects bounded)
 ```
 
-### Phase 2: Enforcement via bwrap
+### Phase 2: Enforcement via nsjail
 
-When `blq run` executes a command with a sandbox spec, wrap it in bwrap:
+When `blq run` executes a command with a sandbox spec, generate an nsjail config and run through nsjail:
 
 ```python
-def build_bwrap_command(cmd: str, spec: SandboxSpec, workspace: Path) -> list[str]:
-    args = ["bwrap"]
+def build_nsjail_config(cmd: str, spec: SandboxSpec, workspace: Path) -> str:
+    """Generate nsjail protobuf config from a SandboxSpec."""
+    config = []
 
-    # Filesystem
+    # Execution
+    config.append(f'exec_bin {{ path: "/bin/bash" arg: "-c" arg: "{cmd}" }}')
+    config.append(f'cwd: "{workspace}"')
+
+    # Filesystem — workspace mount
     if spec.filesystem == "readonly":
-        args.extend(["--ro-bind", str(workspace), str(workspace)])
+        config.append(f'mount {{ src: "{workspace}" dst: "{workspace}" is_bind: true rw: false }}')
     elif spec.filesystem == "workspace_only":
-        args.extend(["--bind", str(workspace), str(workspace)])
+        config.append(f'mount {{ src: "{workspace}" dst: "{workspace}" is_bind: true rw: true }}')
 
     # System libraries (always read-only)
     for sys_path in ["/usr", "/bin", "/lib", "/lib64"]:
-        args.extend(["--ro-bind", sys_path, sys_path])
-
-    # Selective /etc mounting
-    for etc_file in ["resolv.conf", "alternatives", "ld.so.cache", "ssl"]:
-        etc_path = f"/etc/{etc_file}"
-        if Path(etc_path).exists():
-            args.extend(["--ro-bind", etc_path, etc_path])
-
-    # Hidden paths (explicitly not mounted)
-    # paths_hidden items are simply not bind-mounted — invisible by default
-
-    # Network
-    if spec.network == "none":
-        args.append("--unshare-net")
-
-    # Process isolation
-    if spec.processes == "isolated":
-        args.append("--unshare-pid")
+        config.append(f'mount {{ src: "{sys_path}" dst: "{sys_path}" is_bind: true rw: false }}')
 
     # Tmpfs
-    if spec.tmpfs:
-        args.extend(["--tmpfs", "/tmp", f"--size={spec.tmpfs}"])
-    else:
-        args.extend(["--tmpfs", "/tmp"])
+    tmpfs_size = spec.tmpfs or 100 * 1024 * 1024  # default 100MB
+    config.append(f'mount {{ dst: "/tmp" fstype: "tmpfs" rw: true options: "size={tmpfs_size}" }}')
+    config.append('mount { dst: "/proc" fstype: "proc" rw: false }')
+    config.append('mount { dst: "/dev" fstype: "tmpfs" rw: false }')
 
-    args.extend(["--proc", "/proc", "--dev", "/dev", "--new-session"])
-    args.extend(["--chdir", str(workspace)])
-    args.extend(["bash", "-c", cmd])
+    # Namespaces — nsjail handles all of these natively
+    if spec.network == "none":
+        config.append("clone_newnet: true")
+    if spec.processes == "isolated":
+        config.append("clone_newpid: true")
+    config.append("clone_newns: true")    # always: mount namespace
+    config.append("clone_newipc: true")   # always: IPC isolation
 
-    return args
-```
-
-### Phase 3: Enforcement via cgroups
-
-For CPU and memory limits, create a cgroup per run:
-
-```python
-def setup_cgroup(run_id: str, spec: SandboxSpec) -> str:
-    cgroup_path = f"/sys/fs/cgroup/blq-{run_id}"
-    os.makedirs(cgroup_path, exist_ok=True)
-
+    # Resource limits — nsjail manages cgroups automatically
     if spec.memory:
-        with open(f"{cgroup_path}/memory.max", "w") as f:
-            f.write(str(spec.memory))
-
+        config.append(f"cgroup_mem_max: {spec.memory}")
     if spec.cpu:
-        # cpu.max format: "quota period" in microseconds
-        # For 30 CPU-seconds over 60 wall-seconds: quota=500000, period=1000000
-        with open(f"{cgroup_path}/cpu.max", "w") as f:
-            f.write(f"{spec.cpu * 1000000 // 60} 1000000")
+        config.append(f"rlimit_cpu_type: HARD")
+        config.append(f"rlimit_cpu: {spec.cpu}")
+    if spec.timeout:
+        config.append(f"time_limit: {spec.timeout}")
 
-    return cgroup_path
+    # Seccomp — optional, from Kafel policy file
+    # config.append('seccomp_policy_file: "policies/{command}.policy"')
+
+    return "\n".join(config)
+
+
+def run_sandboxed(cmd: str, spec: SandboxSpec, workspace: Path, run_id: str) -> subprocess.CompletedProcess:
+    """Execute a command inside an nsjail sandbox, capture resource usage."""
+    config_path = f"/tmp/blq-nsjail-{run_id}.cfg"
+    config = build_nsjail_config(cmd, spec, workspace)
+    Path(config_path).write_text(config)
+
+    # nsjail creates and manages cgroups automatically
+    # Use --cgroup_mem_mount and --cgroup_pids_mount for cgroup v2
+    result = subprocess.run(
+        ["nsjail", "--config", config_path, "--cgroup_mem_mount", "/sys/fs/cgroup"],
+        capture_output=True, text=True,
+    )
+
+    # Read resource usage from cgroup before nsjail cleans up
+    # (may require patching nsjail or using --keep_env to delay cleanup)
+    # See Phase 0 for the systemd-run alternative for resource profiling
+
+    Path(config_path).unlink()
+    return result
 ```
+
+nsjail handles namespace creation, cgroup setup, resource enforcement, and cleanup in one tool. The `SandboxSpec` → nsjail config translation is the only glue code blq needs.
 
 ### Phase 4: Queryable sandbox events
 
@@ -469,10 +590,255 @@ The sandbox spec tightens over time as confidence grows. Start with `sandbox = "
 
 ## Priorities
 
-1. **Spec definition + logging** — no enforcement, just declaration. Ships first because it's useful for audit and documentation even without enforcement.
-2. **bwrap enforcement** — network isolation, filesystem bounds, process isolation. The highest-value security bounds.
-3. **cgroup enforcement** — CPU and memory limits. Important for resource exhaustion prevention.
-4. **Presets** — named configurations for common patterns (test, build, lint).
-5. **MCP integration** — agents can query their sandbox. Transparency principle.
-6. **Grade computation** — auto-compute the Ma grade from the spec. Queryable.
-7. **Ratchet integration** — observe resource usage, suggest spec tightening. The sandbox ratchet.
+1. **Monitoring mode** — resource profiling via cgroups (Phase 0, Tier 1). Log `memory.peak`, `cpu.stat`, and wall time for every run. No enforcement, no new dependencies. Ships first because it produces the data that informs everything else.
+2. **Spec definition + logging** — add `SandboxSpec` to the command registry schema. Log the spec alongside every run. Still no enforcement — declaration and capture.
+3. **nsjail enforcement** — translate `SandboxSpec` → nsjail config, enforce the full stack (namespaces, cgroups, seccomp). This replaces the earlier bwrap plan — nsjail handles the entire lifecycle.
+4. **Presets** — named configurations for common patterns (test, build, lint, readonly).
+5. **Profile command** — `blq profile <command>` runs strace-based access profiling (Phase 0, Tier 2). One-time operation that generates a suggested spec from observed behavior.
+6. **MCP integration** — agents can query their sandbox via `sandbox_info()`. Transparency principle.
+7. **Grade computation** — auto-compute `effects_ceiling` and `grade_w` from the spec. Queryable.
+8. **Spec suggestion** — after N monitored runs, suggest a sandbox spec with headroom. The monitoring-to-enforcement ratchet.
+
+## Extension framework note
+
+Sandbox enforcement, execution environments, and execution platforms should be blq extensions, not core features. blq's core is capture and query. The execution path between command resolution and output capture is the extension point.
+
+Three concerns, three potential extension packages:
+
+| Concern | Question it answers | Example package |
+|---|---|---|
+| **Sandbox spec** | What effects are allowed? | `blq-sandbox` (nsjail + systemd-run) |
+| **Execution environment** | What's available? (interpreters, deps, env vars, source scripts) | `blq-env` or per-platform |
+| **Execution platform** | Where does it run? (local, Docker, SLURM, K8s) | `blq-docker`, `blq-slurm`, `blq-k8s` |
+
+Each extension wraps the command execution. blq core captures output and resource profiles regardless of which extensions are active. The sandbox spec is platform-independent — `network = "none"` means the same thing whether enforced by nsjail (local), `--network=none` (Docker), or NetworkPolicy (K8s).
+
+Platforms have different enforcement capabilities. An extension should declare what dimensions it can enforce, so blq can validate that a spec is fully enforceable on the selected platform — or warn about unenforced dimensions.
+
+This is analogous to Flyte's task-level container/resource declarations and Bazel's execution platform constraints, but with the sandbox spec and Ma grading layered on top. The extension framework keeps blq from becoming an orchestration platform while allowing the ecosystem to grow.
+
+## Prior art
+
+The combination of declarative spec + enforcement + logging + queryable results has no direct prior art as a shipped product. The closest tools by dimension:
+
+| What we need | Closest tool | Gap |
+|---|---|---|
+| Declarative sandbox config | **nsjail** (protobuf config) | No command registry, no audit query layer |
+| Per-command profiles | **Firejail** (.profile files) | No structured logging, no SQL |
+| Enforcement + logging | **systemd-run + journald** | No spec-per-run, not SQL-queryable |
+| Audit + query | **AgentLens** (SQLite, tamper-evident) | No sandbox enforcement |
+| Supply chain attestation | **SLSA provenance** | Records what happened, not what was allowed |
+| Agent sandboxing | **Anthropic sandbox-runtime** | Limited dimensions, no query layer |
+| ML workflow isolation | **Flyte** (K8s pod specs + provenance) | Per-task resources but K8s-level, not Linux-primitive |
+
+Build systems (Bazel, Nix) sandbox per-action/per-derivation but don't log enforcement specs alongside results in a queryable store. CI systems (Tekton) allow per-step resource declarations via K8s pod specs but lack fine-grained Linux-primitive sandboxing.
+
+The genuine novelty: spec-per-command in a named registry, logged alongside every run into the same DuckDB store as the output, queryable with SQL, and graded on the Ma lattice. The enforcement primitives are solved problems (nsjail). The contribution is making the spec a first-class queryable artifact.
+
+## Addendum: Overhead analysis and integration design
+
+### Overhead budget
+
+The monitoring and enforcement stack adds overhead at three levels. The key constraint: monitoring must be cheap enough to run on every invocation; profiling can be expensive because it's one-time.
+
+#### systemd-run --scope (cgroup accounting + enforcement)
+
+cgroup v2 memory and CPU accounting are kernel counters that increment during normal page fault and scheduler operations. `MemoryAccounting=yes` makes the stats readable — it doesn't add new computation. Enforcement (`MemoryMax`, `CPUQuota`) adds a comparison on each allocation or scheduling decision.
+
+| Component | Cost | When |
+|---|---|---|
+| Scope creation (D-Bus call to systemd) | ~5-10ms | Once per run, startup |
+| cgroup directory creation | ~1ms | Once per run, startup |
+| Memory accounting | ~0 | Piggybacks on existing page fault path |
+| CPU accounting | ~0 | Piggybacks on existing scheduler tick |
+| Enforcement checks | ~0 | Comparison against limit per allocation |
+| Reading stats after exit | ~1ms | Once per run, after process exit |
+
+**Total: ~10ms startup, negligible runtime.** The scope persists as long as blq's wrapper process is alive, so there is no race between process exit and stat collection — blq reads the cgroup files before exiting the scope.
+
+#### nsjail (namespace + seccomp enforcement)
+
+Namespace creation involves real kernel work. The costs scale with the isolation dimensions requested:
+
+| Namespace | Cost | What happens |
+|---|---|---|
+| Mount (clone_newns) | ~1-5ms | Clones the mount table; scales with number of mounts (typical system: 30-100) |
+| PID (clone_newpid) | ~0.1ms | New PID table |
+| Network (clone_newnet) | ~1-2ms | New network stack |
+| IPC (clone_newipc) | ~0.1ms | New IPC namespace |
+| Bind mount setup | ~0.5ms per mount | One per entry in the nsjail config |
+| seccomp BPF compilation | <1ms | Kernel JIT-compiles the Kafel policy (typical: 50-100 rules) |
+| seccomp per-syscall check | ~50-100ns | BPF filter runs on every syscall after installation |
+
+The per-syscall seccomp overhead is the only runtime cost. A Python process makes millions of syscalls during a test run — mostly `read`, `write`, `mmap`, `fstat`. At ~100ns each, a pytest run making 5M syscalls adds ~500ms. For a 5-second test run, that's ~10%. For a 60-second build, it's <1%.
+
+**Total: ~10-20ms startup, ~1-5% runtime** depending on syscall volume.
+
+#### strace (one-time profiling — `blq profile`)
+
+strace uses `ptrace`, which interposes on every syscall with two context switches (entry + exit). Each traced syscall:
+
+1. Target process stops (trap to kernel)
+2. Context switch to strace process
+3. strace reads syscall number + arguments
+4. strace resumes target
+5. Syscall executes normally
+6. Target stops again (syscall exit)
+7. strace reads return value
+8. strace resumes target
+
+Two full context switches per syscall. Python's import machinery alone generates thousands of `openat`/`fstat`/`mmap` calls.
+
+**Total: 2-10x slowdown.** A 5-second test run becomes 10-50 seconds. This is acceptable for a one-time `blq profile test` but not for every-run monitoring.
+
+#### Combined overhead for the normal execution path
+
+The normal path (every `blq run` with monitoring + enforcement):
+
+| Layer | Startup | Runtime | Total on 5s command |
+|---|---|---|---|
+| systemd-run scope | ~10ms | ~0 | ~10ms |
+| nsjail (namespaces + seccomp) | ~15ms | ~1-5% | ~65-265ms |
+| cgroup stat read at exit | ~1ms | — | ~1ms |
+| **Total** | **~25ms** | **~1-5%** | **~75-275ms (~1.5-5.5%)** |
+
+For a `blq profile test` run (one-time, adds strace):
+
+| Layer | Total on 5s command |
+|---|---|
+| Normal path overhead | ~75-275ms |
+| strace ptrace overhead | ~5-45s |
+| **Total** | **~10-50s (2-10x)** |
+
+The cost structure matches the workflow: monitoring is cheap enough to always run, profiling is expensive but one-time, enforcement adds near-nothing on top of monitoring.
+
+### Integration with blq's execution path
+
+#### Artifact storage
+
+Three artifact types, three storage strategies:
+
+| Artifact | Storage | Why |
+|---|---|---|
+| Resource profiles (cgroup stats) | DuckDB table (`resource_profiles`) | Small structured data, always queryable |
+| strace profiles | Content-addressed blob (`.lq/blobs/`) | Large, same dedup/storage as stdout |
+| nsjail logs | Content-addressed blob (`.lq/blobs/`) | Moderate size, queryable via `blq output` |
+| Kafel policies | `.lq/policies/{command}.kafel` | Reusable across runs, version-controllable |
+| nsjail configs | `.lq/sandbox/{command}.cfg` | Generated from SandboxSpec, regenerated on spec change |
+
+Strace profiles and nsjail logs are stored through the existing blob pipeline — same content-addressed storage, same dedup via BLAKE3 hash, same `outputs` table with an `output_kind` discriminator. duck_hunt's strace parser can read them from blob storage.
+
+#### Profiling file lifecycle
+
+strace requires a file path at invocation time, but the content hash isn't known until the command finishes:
+
+1. strace writes to `.lq/live/{attempt_id}/profile.strace` (alongside existing `combined` stdout file)
+2. Command exits
+3. blq reads the tempfile, hashes it (BLAKE3)
+4. Stores through existing blob pipeline (dedup check → content-addressed path → `blob_registry`)
+5. Links in `outputs` table with `output_kind = 'profile'`
+6. Cleans up `.lq/live/{attempt_id}/`
+
+Same lifecycle as stdout capture — live file during execution, blob after completion.
+
+#### Execution flow with monitoring
+
+Current path in `execution.py`:
+
+```
+write AttemptRecord → Popen(cmd) → stream output → wait → parse → write OutcomeRecord
+```
+
+With monitoring + enforcement:
+
+```
+write AttemptRecord
+  → generate nsjail config from SandboxSpec  (if sandbox spec exists)
+  → start systemd-run scope with cgroup accounting
+    → start nsjail with namespace/seccomp enforcement  (if sandbox spec exists)
+      → if profiling: wrap in strace -o .lq/live/{id}/profile.strace
+      → Popen(cmd)
+      → stream output to .lq/live/{id}/combined
+      → wait for process exit
+    ← nsjail exits
+  ← scope still alive (blq wrapper is still in it)
+  → read cgroup stats: memory.peak, cpu.stat
+  ← exit scope (systemd cleans up cgroup)
+  → parse stdout output
+  → if profiling: hash + store strace blob, parse with duck_hunt
+  → write OutcomeRecord + ResourceProfile + output blobs
+```
+
+The critical property: blq's wrapper process stays in the systemd scope after the command exits, keeping the cgroup alive for stat collection. No race condition.
+
+#### Resource profiles schema
+
+```sql
+CREATE TABLE resource_profiles (
+    attempt_id UUID REFERENCES attempts(id),
+    memory_peak_bytes BIGINT,       -- from memory.peak
+    memory_swap_peak_bytes BIGINT,  -- from memory.swap.peak (if swap enabled)
+    cpu_usage_usec BIGINT,          -- from cpu.stat: usage_usec
+    cpu_user_usec BIGINT,           -- from cpu.stat: user_usec
+    cpu_system_usec BIGINT,         -- from cpu.stat: system_usec
+    wall_time_ms INTEGER            -- measured by blq (already captured in outcomes)
+);
+```
+
+#### Output kind extension
+
+```sql
+-- Extend outputs table to distinguish artifact types
+-- output_kind: 'stdout' (default), 'stderr', 'profile', 'sandbox_log'
+ALTER TABLE outputs ADD COLUMN output_kind TEXT DEFAULT 'stdout';
+```
+
+Queryable through existing `blq output` interface:
+
+```
+blq output run_id=42 kind=profile grep="connect"
+blq output run_id=42 kind=sandbox_log grep="VIOLATION"
+```
+
+#### Monitoring-to-spec suggestion query
+
+After accumulating resource profiles across runs:
+
+```sql
+-- Suggest sandbox spec from observed resource usage (2x headroom)
+SELECT a.source_name as command,
+       count(*) as runs,
+       max(r.memory_peak_bytes) as observed_max_memory,
+       max(r.memory_peak_bytes) * 2 as suggested_memory_limit,
+       max(r.cpu_usage_usec) / 1e6 as observed_max_cpu_sec,
+       max(r.cpu_usage_usec) / 1e6 * 2 as suggested_cpu_limit,
+       max(r.wall_time_ms) / 1000 as observed_max_wall_sec,
+       max(r.wall_time_ms) / 1000 * 3 as suggested_timeout
+FROM resource_profiles r
+JOIN attempts a ON r.attempt_id = a.id
+JOIN outcomes o ON o.attempt_id = a.id
+WHERE o.exit_code = 0  -- only successful runs
+GROUP BY a.source_name
+HAVING count(*) >= 10;
+```
+
+#### File layout
+
+```
+.lq/
+├── commands.toml                    # command registry (+ sandbox specs)
+├── config.toml                      # project config
+├── blq.duckdb                       # DuckDB (attempts, outcomes, events,
+│                                    #          outputs, resource_profiles)
+├── blobs/content/{hash}.bin         # content-addressed storage
+│                                    #   (stdout, strace profiles, nsjail logs)
+├── policies/                        # seccomp policies (reusable)
+│   ├── test.kafel
+│   └── build.kafel
+├── sandbox/                         # nsjail configs (generated from spec)
+│   ├── test.cfg
+│   └── build.cfg
+└── live/{attempt_id}/               # transient, during execution
+    ├── combined                     # stdout stream
+    └── profile.strace               # strace output (if profiling)
+```
