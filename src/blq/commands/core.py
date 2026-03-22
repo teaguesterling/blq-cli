@@ -232,12 +232,13 @@ class RunResult:
     summary: dict[str, int] = field(default_factory=dict)
     errors: list[EventSummary] = field(default_factory=list)
     warnings: list[EventSummary] = field(default_factory=list)
+    infos: list[EventSummary] = field(default_factory=list)
     parquet_path: str | None = None
     output_stats: dict[str, int | list[str]] = field(default_factory=dict)
     source_name: str | None = None  # Tag for run_ref (e.g., "build", "test", "pytest")
     status_reason: str | None = None  # Human-readable explanation for the status
 
-    def to_json(self, include_warnings: bool = False) -> str:
+    def to_json(self) -> str:
         """Convert to JSON string."""
         data = {
             "run_id": self.run_id,
@@ -254,8 +255,10 @@ class RunResult:
             data["source_name"] = self.source_name
         if self.status_reason:
             data["status_reason"] = self.status_reason
-        if include_warnings:
+        if self.warnings:
             data["warnings"] = [asdict(w) for w in self.warnings]
+        if self.infos:
+            data["infos"] = [asdict(i) for i in self.infos]
         if self.output_stats:
             data["output_stats"] = self.output_stats
         return json.dumps(data, indent=2)

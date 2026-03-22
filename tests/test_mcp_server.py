@@ -1305,8 +1305,8 @@ class TestBuildPreview:
         assert preview[0] == "head1"
         assert preview[-1] == "tail5"
 
-    def test_preview_includes_output_stats(self):
-        """Preview should include output_stats when output is longer than stored lines."""
+    def test_preview_no_output_stats(self):
+        """Preview no longer includes output_stats (moved to main concise dict)."""
         from blq.serve import _build_preview
 
         result = _build_preview(
@@ -1314,8 +1314,30 @@ class TestBuildPreview:
             status="FAIL",
             has_errors=False,
         )
-        assert "output_stats" in result
-        assert result["output_stats"]["lines"] == 100
+        assert "output_stats" not in result
+        assert "preview" in result
+
+    def test_preview_on_warn_with_errors(self):
+        """Preview should appear on WARN status when errors are present."""
+        from blq.serve import _build_preview
+
+        result = _build_preview(
+            {"head": ["h1", "h2"], "tail": ["t1", "t2"], "lines": 4, "bytes": 100},
+            status="WARN",
+            has_errors=True,
+        )
+        assert "preview" in result
+
+    def test_no_preview_on_clean_ok(self):
+        """No preview on OK status without errors."""
+        from blq.serve import _build_preview
+
+        result = _build_preview(
+            {"head": ["h1"], "tail": ["t1"], "lines": 2, "bytes": 50},
+            status="OK",
+            has_errors=False,
+        )
+        assert result == {}
 
 
 class TestExecTracker:
