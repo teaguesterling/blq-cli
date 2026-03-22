@@ -235,7 +235,7 @@ class RunResult:
     output_stats: dict[str, int | list[str]] = field(default_factory=dict)
     source_name: str | None = None  # Tag for run_ref (e.g., "build", "test", "pytest")
     status_reason: str | None = None  # Human-readable explanation for the status
-    sandbox: dict[str, Any] | None = None  # Sandbox spec in effect for this run
+    extension_data: dict[str, Any] | None = None  # Extension data (namespaced by extension)
 
     def to_json(self, include_warnings: bool = False) -> str:
         """Convert to JSON string."""
@@ -258,8 +258,8 @@ class RunResult:
             data["warnings"] = [asdict(w) for w in self.warnings]
         if self.output_stats:
             data["output_stats"] = self.output_stats
-        if self.sandbox:
-            data["sandbox"] = self.sandbox
+        if self.extension_data:
+            data["extension_data"] = self.extension_data
         return json.dumps(data, indent=2)
 
     def to_markdown(self, include_warnings: bool = False) -> str:

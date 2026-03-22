@@ -159,7 +159,7 @@ class InvocationRecord:
     git_branch: str | None = None
     git_dirty: bool | None = None
     ci: dict[str, str] | None = None
-    sandbox: dict[str, Any] | None = None
+    extension_data: dict[str, Any] | None = None
 
     # Partitioning
     date: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
@@ -216,7 +216,7 @@ class AttemptRecord:
     git_branch: str | None = None
     git_dirty: bool | None = None
     ci: dict[str, str] | None = None
-    sandbox: dict[str, Any] | None = None
+    extension_data: dict[str, Any] | None = None
 
     # Partitioning
     date: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
@@ -555,6 +555,34 @@ class BirdStore:
             # Update schema version
             conn.execute("UPDATE blq_metadata SET value = '2.3.0' WHERE key = 'schema_version'")
 
+        # Migration: 2.3.0 -> 2.4.0 (rename sandbox to extension_data)
+        if (major, minor) < (2, 4):
+            for table in ("attempts", "invocations"):
+                try:
+                    # Check if old column exists
+                    result = conn.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        f"WHERE table_name = '{table}' AND column_name = 'sandbox'"
+                    ).fetchone()
+                    if result:
+                        conn.execute(f"ALTER TABLE {table} RENAME COLUMN sandbox TO extension_data")
+                        logger.info(f"Migration: Renamed sandbox to extension_data in {table}")
+                        migrations_applied = True
+                    else:
+                        # Check if new column exists, add if not
+                        result = conn.execute(
+                            "SELECT column_name FROM information_schema.columns "
+                            f"WHERE table_name = '{table}' AND column_name = 'extension_data'"
+                        ).fetchone()
+                        if not result:
+                            conn.execute(f"ALTER TABLE {table} ADD COLUMN extension_data JSON")
+                            logger.info(f"Migration: Added extension_data column to {table}")
+                            migrations_applied = True
+                except duckdb.Error as e:
+                    logger.warning(f"Migration warning: {e}")
+
+            conn.execute("UPDATE blq_metadata SET value = '2.4.0' WHERE key = 'schema_version'")
+
         # If migrations were applied, reload views/macros to pick up new columns
         if migrations_applied:
             cls._reload_views_and_macros(conn)
@@ -671,7 +699,7 @@ class BirdStore:
                 id, session_id, timestamp, duration_ms, cwd, cmd, executable, pid,
                 exit_code, format_hint, client_id, hostname, username, tag,
                 source_name, source_type, environment, platform, arch,
-                git_commit, git_branch, git_dirty, ci, sandbox, date
+                git_commit, git_branch, git_dirty, ci, extension_data, date
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -699,7 +727,7 @@ class BirdStore:
                 record.git_branch,
                 record.git_dirty,
                 json.dumps(record.ci) if record.ci else None,
-                json.dumps(record.sandbox) if record.sandbox else None,
+                json.dumps(record.extension_data) if record.extension_data else None,
                 record.date,
             ],
         )
@@ -742,7 +770,7 @@ class BirdStore:
                 id, session_id, timestamp, cwd, cmd, executable, pid,
                 format_hint, client_id, hostname, username, tag,
                 source_name, source_type, environment, platform, arch,
-                git_commit, git_branch, git_dirty, ci, sandbox, date
+                git_commit, git_branch, git_dirty, ci, extension_data, date
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -768,7 +796,7 @@ class BirdStore:
                 record.git_branch,
                 record.git_dirty,
                 json.dumps(record.ci) if record.ci else None,
-                json.dumps(record.sandbox) if record.sandbox else None,
+                json.dumps(record.extension_data) if record.extension_data else None,
                 record.date,
             ],
         )
@@ -1628,7 +1656,7 @@ def write_bird_invocation(
             git_branch=run_meta.get("git_branch"),
             git_dirty=run_meta.get("git_dirty"),
             ci=run_meta.get("ci"),
-            sandbox=run_meta.get("sandbox"),
+            extension_data=run_meta.get("extension_data"),
         )
 
         # Write invocation

@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS blq_metadata (
 );
 
 -- Insert schema version (ignore if exists)
-INSERT OR IGNORE INTO blq_metadata VALUES ('schema_version', '2.3.0');
+INSERT OR IGNORE INTO blq_metadata VALUES ('schema_version', '2.4.0');
 INSERT OR IGNORE INTO blq_metadata VALUES ('storage_mode', 'duckdb');
 
 -- Base path for blob storage (set at runtime)
@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     git_branch        VARCHAR,                          -- Current branch
     git_dirty         BOOLEAN,                          -- Uncommitted changes
     ci                JSON,                             -- CI provider context
-    sandbox           JSON,                             -- Sandbox specification (declared bounds)
+    extension_data    JSON,                             -- Extension data (namespaced by extension)
 
     -- Partitioning
     date              DATE NOT NULL DEFAULT CURRENT_DATE
@@ -168,7 +168,7 @@ CREATE TABLE IF NOT EXISTS invocations (
     git_branch        VARCHAR,                          -- Current branch
     git_dirty         BOOLEAN,                          -- Uncommitted changes
     ci                JSON,                             -- CI provider context
-    sandbox           JSON,                             -- Sandbox specification (declared bounds)
+    extension_data    JSON,                             -- Extension data (namespaced by extension)
 
     -- Partitioning
     date              DATE NOT NULL DEFAULT CURRENT_DATE
@@ -861,26 +861,27 @@ ORDER BY l.line_number;
 CREATE OR REPLACE MACRO blq_sandbox_summary() AS TABLE
 SELECT
     source_name,
-    sandbox->>'network' AS sandbox_network,
-    sandbox->>'filesystem' AS sandbox_filesystem,
-    sandbox->>'timeout' AS sandbox_timeout,
-    sandbox->>'memory' AS sandbox_memory,
+    extension_data->'sandbox'->>'network' AS sandbox_network,
+    extension_data->'sandbox'->>'filesystem' AS sandbox_filesystem,
+    extension_data->'sandbox'->>'timeout' AS sandbox_timeout,
+    extension_data->'sandbox'->>'memory' AS sandbox_memory,
     CASE
-        WHEN sandbox->>'network' = 'unrestricted'
-             AND sandbox->>'filesystem' = 'unrestricted' THEN 'open'
-        WHEN sandbox->>'network' != 'none' THEN 'broad'
-        WHEN sandbox->>'filesystem' IN ('workspace_only', 'scoped_write') THEN 'scoped'
-        WHEN sandbox->>'filesystem' = 'readonly' THEN 'pinhole'
+        WHEN extension_data->'sandbox'->>'network' = 'unrestricted'
+             AND extension_data->'sandbox'->>'filesystem' = 'unrestricted' THEN 'open'
+        WHEN extension_data->'sandbox'->>'network' != 'none' THEN 'broad'
+        WHEN extension_data->'sandbox'->>'filesystem' IN ('workspace_only', 'scoped_write') THEN 'scoped'
+        WHEN extension_data->'sandbox'->>'filesystem' = 'readonly' THEN 'pinhole'
         ELSE 'sealed'
     END AS grade_w,
     CASE
-        WHEN sandbox->>'network' != 'none' THEN 8
-        WHEN sandbox->>'processes' = 'visible'
-             AND sandbox->>'filesystem' != 'readonly' THEN 7
-        WHEN sandbox->>'filesystem' != 'readonly' THEN 4
+        WHEN extension_data->'sandbox'->>'network' != 'none' THEN 8
+        WHEN extension_data->'sandbox'->>'processes' = 'visible'
+             AND extension_data->'sandbox'->>'filesystem' != 'readonly' THEN 7
+        WHEN extension_data->'sandbox'->>'filesystem' != 'readonly' THEN 4
         ELSE 2
     END AS effects_ceiling,
     count(*) AS run_count
 FROM invocations
-WHERE sandbox IS NOT NULL
+WHERE extension_data IS NOT NULL
+  AND extension_data->'sandbox' IS NOT NULL
 GROUP BY ALL;

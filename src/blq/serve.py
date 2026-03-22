@@ -457,10 +457,10 @@ def _run_impl(
                 if duration > 5:
                     concise["duration_sec"] = round(duration, 1)
 
-                # Include sandbox spec if present
-                sandbox_data = full_result.get("sandbox")
-                if sandbox_data:
-                    concise["sandbox"] = sandbox_data
+                # Include extension data if present
+                ext_data = full_result.get("extension_data")
+                if ext_data:
+                    concise["extension_data"] = ext_data
 
                 # Resolve lines spec: explicit param > command config > None
                 effective_lines = _resolve_command_lines(command, lines)
@@ -1982,10 +1982,10 @@ def _info_impl(ref: str) -> dict[str, Any]:
             "git_dirty": bool(row.get("git_dirty")) if not pd.isna(row.get("git_dirty")) else None,
             "outputs": outputs,
         }
-        # Include sandbox spec if present in the invocation record
-        sandbox_data = _to_json_safe(row.get("sandbox"))
-        if sandbox_data:
-            info["sandbox"] = sandbox_data
+        # Include extension data if present in the invocation record
+        ext_data = _to_json_safe(row.get("extension_data"))
+        if ext_data:
+            info["extension_data"] = ext_data
         return info
     except FileNotFoundError:
         return {"error": "No lq repository found"}
