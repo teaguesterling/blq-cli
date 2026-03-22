@@ -312,9 +312,89 @@ Register a command. Idempotent—returns existing if same command already regist
 {"name": "test", "cmd": "pytest -v"}
 {"name": "test", "cmd": "pytest -v", "run_now": true}
 {"name": "test", "cmd": "pytest -v", "force": true}  // overwrite
+{"name": "build", "cmd": "make {target}", "tpl": true, "defaults": {"target": "all"}}
 ```
 
 Format is auto-detected from the command. Duplicate commands (same cmd, different name) return an error.
+
+---
+
+### unregister_command
+
+Remove a registered command.
+
+```json
+{"name": "test"}
+```
+
+---
+
+### commands
+
+List all registered commands.
+
+```json
+{}
+```
+
+**Returns:** List of commands with their configuration (cmd, format, capture settings).
+
+---
+
+### output
+
+Get raw captured stdout/stderr for a run.
+
+```json
+{"ref": "test:5"}
+{"ref": "test:5", "grep": "error", "context": 3}
+{"ref": "test:5", "lines": "100-200"}
+```
+
+---
+
+### status
+
+Quick status summary of all sources.
+
+```json
+{}
+```
+
+**Returns:** List of sources with latest run status, error/warning counts, and last run time.
+
+---
+
+### report
+
+Generate a markdown summary report for a run.
+
+```json
+{"ref": "test:5"}
+{"ref": "test:5", "baseline": "test:4"}  // with comparison
+```
+
+---
+
+### ci_check
+
+Check for regressions against a baseline run using fingerprint-based diff.
+
+```json
+{"baseline": "test:4"}
+{"baseline": "test:4", "current": "test:5"}
+```
+
+---
+
+### ci_generate
+
+Generate standalone CI shell scripts from registered commands.
+
+```json
+{}
+{"commands": ["test", "lint"]}
+```
 
 ---
 
