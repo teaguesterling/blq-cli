@@ -26,6 +26,7 @@ from blq.config_format import (
     load_toml,
     save_toml,
 )
+from blq.sandbox import SandboxSpec, resolve_sandbox
 
 # Git integration - re-exported for backward compatibility
 from blq.git import GitInfo, capture_git_info  # noqa: F401
@@ -236,6 +237,7 @@ class RunResult:
     output_stats: dict[str, int | list[str]] = field(default_factory=dict)
     source_name: str | None = None  # Tag for run_ref (e.g., "build", "test", "pytest")
     status_reason: str | None = None  # Human-readable explanation for the status
+    sandbox: dict[str, Any] | None = None  # Sandbox spec in effect for this run
 
     def to_json(self, include_warnings: bool = False) -> str:
         """Convert to JSON string."""
@@ -258,6 +260,8 @@ class RunResult:
             data["warnings"] = [asdict(w) for w in self.warnings]
         if self.output_stats:
             data["output_stats"] = self.output_stats
+        if self.sandbox:
+            data["sandbox"] = self.sandbox
         return json.dumps(data, indent=2)
 
     def to_markdown(self, include_warnings: bool = False) -> str:
@@ -1063,6 +1067,7 @@ class RegisteredCommand:
     capture_env: list[str] = field(default_factory=list)  # Additional env vars
     suppress: list[str] = field(default_factory=list)  # Fingerprints to suppress in reports
     lines: str | None = None  # Default line selection for run/exec output (e.g., "+20-")
+    sandbox: SandboxSpec | None = None  # Sandbox specification (Phase 1: declaration only)
 
     @property
     def is_template(self) -> bool:
@@ -1158,6 +1163,12 @@ class RegisteredCommand:
             d["suppress"] = self.suppress
         if self.lines is not None:
             d["lines"] = self.lines
+        if self.sandbox is not None:
+            preset = self.sandbox.matching_preset()
+            if preset is not None:
+                d["sandbox"] = preset
+            else:
+                d["sandbox"] = self.sandbox.to_dict()
         return d
 
 
@@ -1356,6 +1367,9 @@ def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
             if not isinstance(suppress, list):
                 suppress = []
 
+            # Parse sandbox spec (string preset or dict)
+            sandbox = resolve_sandbox(config.get("sandbox"))
+
             commands[name] = RegisteredCommand(
                 name=name,
                 cmd=config.get("cmd"),  # None if not present
@@ -1368,6 +1382,7 @@ def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
                 capture_env=capture_env,
                 suppress=suppress,
                 lines=config.get("lines"),  # Default line selection for output
+                sandbox=sandbox,
             )
     return commands
 

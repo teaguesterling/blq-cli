@@ -457,6 +457,11 @@ def _run_impl(
                 if duration > 5:
                     concise["duration_sec"] = round(duration, 1)
 
+                # Include sandbox spec if present
+                sandbox_data = full_result.get("sandbox")
+                if sandbox_data:
+                    concise["sandbox"] = sandbox_data
+
                 # Resolve lines spec: explicit param > command config > None
                 effective_lines = _resolve_command_lines(command, lines)
 
@@ -1948,7 +1953,7 @@ def _info_impl(ref: str) -> dict[str, Any]:
             """).fetchall()
             outputs = [{"stream": r[0], "bytes": r[1]} for r in outputs_result]
 
-        return {
+        info = {
             "run_ref": run_ref,
             "run_serial": run_serial,
             "invocation_id": invocation_id,
@@ -1977,6 +1982,11 @@ def _info_impl(ref: str) -> dict[str, Any]:
             "git_dirty": bool(row.get("git_dirty")) if not pd.isna(row.get("git_dirty")) else None,
             "outputs": outputs,
         }
+        # Include sandbox spec if present in the invocation record
+        sandbox_data = _to_json_safe(row.get("sandbox"))
+        if sandbox_data:
+            info["sandbox"] = sandbox_data
+        return info
     except FileNotFoundError:
         return {"error": "No lq repository found"}
     except Exception as e:
@@ -2346,6 +2356,10 @@ def _command_to_dict(cmd: Any) -> dict[str, Any]:
         result["cmd"] = cmd.cmd
     if cmd.lines is not None:
         result["lines"] = cmd.lines
+    if cmd.sandbox is not None:
+        result["sandbox"] = cmd.sandbox.to_dict()
+        result["sandbox_grade"] = cmd.sandbox.grade_w
+        result["effects_ceiling"] = cmd.sandbox.effects_ceiling
     return result
 
 
@@ -2361,6 +2375,7 @@ def _register_command_impl(
     format: str | None = None,
     run_now: bool = False,
     lines: str | None = None,
+    sandbox: str | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Implementation of register_command."""
     try:
@@ -2443,6 +2458,8 @@ def _register_command_impl(
             format = detect_format_from_command(command_str)
             format_detected = True
 
+        from blq.sandbox import resolve_sandbox
+
         new_command = RegisteredCommand(
             name=name,
             cmd=cmd,
@@ -2453,6 +2470,7 @@ def _register_command_impl(
             capture=capture,
             format=format or "auto",
             lines=lines,
+            sandbox=resolve_sandbox(sandbox),
         )
         commands[name] = new_command
         config.save_commands()
@@ -2524,6 +2542,10 @@ def _commands_impl() -> dict[str, Any]:
             entry["timeout"] = cmd.timeout
             entry["capture"] = cmd.capture
             entry["format"] = cmd.format
+            if cmd.sandbox is not None:
+                entry["sandbox"] = cmd.sandbox.to_dict()
+                entry["sandbox_grade"] = cmd.sandbox.grade_w
+                entry["effects_ceiling"] = cmd.sandbox.effects_ceiling
             result.append(entry)
         return {"commands": result}
     except Exception as e:
@@ -3277,6 +3299,7 @@ def register_command(
     format: str | None = None,
     run_now: bool = False,
     lines: str | None = None,
+    sandbox: str | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Register a new command.
 
@@ -3299,6 +3322,9 @@ def register_command(
         run_now: Run the command immediately after registering (default: false)
         lines: Default line selection for output (e.g., '+20-' for last 20 lines).
                Saved in command config; used automatically on each run unless overridden.
+        sandbox: Sandbox specification. Either a preset name ('test', 'build', 'readonly',
+                 'integration', 'unrestricted', 'none') or a dict with individual fields
+                 (network, filesystem, timeout, memory, cpu, processes, tmpfs).
 
     Returns:
         Success status and registered command details. If run_now=True,
@@ -3306,7 +3332,8 @@ def register_command(
     """
     _check_tool_enabled("register_command")
     return _register_command_impl(
-        name, cmd, tpl, defaults, description, timeout, capture, force, format, run_now, lines
+        name, cmd, tpl, defaults, description, timeout, capture, force, format, run_now, lines,
+        sandbox,
     )
 
 

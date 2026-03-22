@@ -235,6 +235,7 @@ def _execute_with_live_output(
     session_id: str | None = None,
     capture_env_vars: list[str] | None = None,
     timeout: int | None = None,
+    sandbox: dict[str, Any] | None = None,
 ) -> RunResult:
     """Execute command with live output streaming (attempts/outcomes pattern).
 
@@ -308,6 +309,7 @@ def _execute_with_live_output(
         git_branch=git_info.branch,
         git_dirty=git_info.dirty,
         ci=ci_info,
+        sandbox=sandbox,
     )
 
     # =========================================================================
@@ -649,6 +651,7 @@ def _execute_with_live_output(
         output_stats=output_stats,
         source_name=source_name,
         status_reason=status_reason,
+        sandbox=sandbox,
     )
 
 
@@ -664,6 +667,7 @@ def _execute_command(
     session_id: str | None = None,
     capture_env_vars: list[str] | None = None,
     timeout: int | None = None,
+    sandbox: dict[str, Any] | None = None,
 ) -> RunResult:
     """Execute a command and capture its output.
 
@@ -701,6 +705,7 @@ def _execute_command(
             session_id=session_id,
             capture_env_vars=capture_env_vars,
             timeout=timeout,
+            sandbox=sandbox,
         )
 
     # Legacy parquet mode - write everything at the end
@@ -979,6 +984,7 @@ def _execute_command(
         source_name=source_name,
         output_stats=output_stats,
         status_reason=status_reason,
+        sandbox=sandbox,
     )
 
 
@@ -1285,6 +1291,13 @@ def cmd_run(args: argparse.Namespace) -> None:
     # Determine keep_raw (user config default or explicit flag)
     keep_raw = args.keep_raw or structured_output or user_config.keep_raw
 
+    # Get sandbox spec from registered command (if any)
+    sandbox_dict = None
+    if cmd_name in registered_commands:
+        reg = registered_commands[cmd_name]
+        if reg.sandbox is not None:
+            sandbox_dict = reg.sandbox.to_dict()
+
     # Execute command with capture
     result = _execute_command(
         command=command,
@@ -1297,6 +1310,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         error_limit=args.error_limit,
         capture_env_vars=capture_env_vars,
         timeout=timeout,
+        sandbox=sandbox_dict,
     )
 
     # Output based on format
