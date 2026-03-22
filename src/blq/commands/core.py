@@ -206,6 +206,19 @@ class EventSummary:
     log_line_start: int | None = None
     log_line_end: int | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dict, stripping null values."""
+        return {k: v for k, v in asdict(self).items() if v is not None}
+
+    def to_compact_dict(self) -> dict[str, Any]:
+        """Convert to compact dict with only ref and message."""
+        d: dict[str, Any] = {"ref": self.ref}
+        if self.message:
+            d["message"] = self.message
+        if self.error_code:
+            d["error_code"] = self.error_code
+        return d
+
     def location(self) -> str:
         """Format as file:line:col string."""
         if not self.ref_file:
@@ -249,16 +262,16 @@ class RunResult:
             "completed_at": self.completed_at,
             "duration_sec": round(self.duration_sec, 3),
             "summary": self.summary,
-            "errors": [asdict(e) for e in self.errors],
+            "errors": [e.to_dict() for e in self.errors],
         }
         if self.source_name:
             data["source_name"] = self.source_name
         if self.status_reason:
             data["status_reason"] = self.status_reason
         if self.warnings:
-            data["warnings"] = [asdict(w) for w in self.warnings]
+            data["warnings"] = [w.to_dict() for w in self.warnings]
         if self.infos:
-            data["infos"] = [asdict(i) for i in self.infos]
+            data["infos"] = [i.to_compact_dict() for i in self.infos]
         if self.output_stats:
             data["output_stats"] = self.output_stats
         return json.dumps(data, indent=2)
