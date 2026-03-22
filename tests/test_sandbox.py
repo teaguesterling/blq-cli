@@ -365,21 +365,15 @@ class TestResolve:
 
 
 class TestRegisteredCommandIntegration:
-    def test_command_with_sandbox_preset(self) -> None:
+    """Test that sandbox config lands in RegisteredCommand._extra (not a typed field)."""
+
+    def test_command_with_sandbox_in_extra(self) -> None:
         from blq.commands.core import RegisteredCommand
 
-        cmd = RegisteredCommand(name="test", cmd="pytest", sandbox=SandboxSpec.from_preset("test"))
+        sandbox_dict = {"network": "none", "filesystem": "readonly", "timeout": "1m"}
+        cmd = RegisteredCommand(name="test", cmd="pytest", _extra={"sandbox": sandbox_dict})
         d = cmd.to_dict()
-        assert d["sandbox"] == "test"
-
-    def test_command_with_sandbox_dict(self) -> None:
-        from blq.commands.core import RegisteredCommand
-
-        spec = SandboxSpec(network="none", filesystem="readonly", timeout=99)
-        cmd = RegisteredCommand(name="test", cmd="pytest", sandbox=spec)
-        d = cmd.to_dict()
-        assert isinstance(d["sandbox"], dict)
-        assert d["sandbox"]["network"] == "none"
+        assert d["sandbox"] == sandbox_dict
 
     def test_command_without_sandbox(self) -> None:
         from blq.commands.core import RegisteredCommand
@@ -388,8 +382,8 @@ class TestRegisteredCommandIntegration:
         d = cmd.to_dict()
         assert "sandbox" not in d
 
-    def test_toml_roundtrip_preset(self, tmp_path: object) -> None:
-        """Test that sandbox spec survives TOML save/load cycle."""
+    def test_toml_roundtrip_sandbox_dict(self, tmp_path: object) -> None:
+        """Test that sandbox config in _extra survives TOML save/load cycle."""
         from pathlib import Path
 
         from blq.commands.core import RegisteredCommand, _load_commands_impl
@@ -398,17 +392,22 @@ class TestRegisteredCommandIntegration:
         lq_dir = Path(str(tmp_path))
         commands_path = lq_dir / "commands.toml"
 
-        cmd = RegisteredCommand(name="test", cmd="pytest tests/", sandbox=SandboxSpec.from_preset("test"))
-        data = {"commands": {"test": cmd.to_dict()}}
+        data = {
+            "commands": {
+                "test": {
+                    "cmd": "pytest tests/",
+                    "sandbox": {"network": "none", "filesystem": "readonly"},
+                }
+            }
+        }
         save_toml(commands_path, data)
 
         loaded = _load_commands_impl(lq_dir)
         assert "test" in loaded
-        assert loaded["test"].sandbox is not None
-        assert loaded["test"].sandbox == PRESETS["test"]
+        assert loaded["test"]._extra["sandbox"] == {"network": "none", "filesystem": "readonly"}
 
-    def test_toml_roundtrip_dict(self, tmp_path: object) -> None:
-        """Test custom sandbox spec survives TOML save/load."""
+    def test_toml_roundtrip_sandbox_string(self, tmp_path: object) -> None:
+        """Test that sandbox preset string in _extra survives TOML save/load."""
         from pathlib import Path
 
         from blq.commands.core import RegisteredCommand, _load_commands_impl
@@ -417,15 +416,16 @@ class TestRegisteredCommandIntegration:
         lq_dir = Path(str(tmp_path))
         commands_path = lq_dir / "commands.toml"
 
-        spec = SandboxSpec(network="none", filesystem="workspace_only", timeout=120, memory=parse_size("1g"))
-        cmd = RegisteredCommand(name="build", cmd="make", sandbox=spec)
-        data = {"commands": {"build": cmd.to_dict()}}
+        data = {
+            "commands": {
+                "test": {
+                    "cmd": "pytest tests/",
+                    "sandbox": "test",
+                }
+            }
+        }
         save_toml(commands_path, data)
 
         loaded = _load_commands_impl(lq_dir)
-        assert "build" in loaded
-        assert loaded["build"].sandbox is not None
-        assert loaded["build"].sandbox.network == "none"
-        assert loaded["build"].sandbox.filesystem == "workspace_only"
-        assert loaded["build"].sandbox.timeout == 120
-        assert loaded["build"].sandbox.memory == parse_size("1g")
+        assert "test" in loaded
+        assert loaded["test"]._extra["sandbox"] == "test"

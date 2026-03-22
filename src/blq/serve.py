@@ -2356,10 +2356,9 @@ def _command_to_dict(cmd: Any) -> dict[str, Any]:
         result["cmd"] = cmd.cmd
     if cmd.lines is not None:
         result["lines"] = cmd.lines
-    if cmd.sandbox is not None:
-        result["sandbox"] = cmd.sandbox.to_dict()
-        result["sandbox_grade"] = cmd.sandbox.grade_w
-        result["effects_ceiling"] = cmd.sandbox.effects_ceiling
+    sandbox_config = cmd._extra.get("sandbox")
+    if sandbox_config is not None:
+        result["sandbox"] = sandbox_config
     return result
 
 
@@ -2458,7 +2457,9 @@ def _register_command_impl(
             format = detect_format_from_command(command_str)
             format_detected = True
 
-        from blq.sandbox import resolve_sandbox
+        extra: dict[str, Any] = {}
+        if sandbox is not None:
+            extra["sandbox"] = sandbox
 
         new_command = RegisteredCommand(
             name=name,
@@ -2470,7 +2471,7 @@ def _register_command_impl(
             capture=capture,
             format=format or "auto",
             lines=lines,
-            sandbox=resolve_sandbox(sandbox),
+            _extra=extra,
         )
         commands[name] = new_command
         config.save_commands()
@@ -2542,10 +2543,9 @@ def _commands_impl() -> dict[str, Any]:
             entry["timeout"] = cmd.timeout
             entry["capture"] = cmd.capture
             entry["format"] = cmd.format
-            if cmd.sandbox is not None:
-                entry["sandbox"] = cmd.sandbox.to_dict()
-                entry["sandbox_grade"] = cmd.sandbox.grade_w
-                entry["effects_ceiling"] = cmd.sandbox.effects_ceiling
+            sandbox_config = cmd._extra.get("sandbox")
+            if sandbox_config is not None:
+                entry["sandbox"] = sandbox_config
             result.append(entry)
         return {"commands": result}
     except Exception as e:

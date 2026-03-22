@@ -1295,8 +1295,9 @@ def cmd_run(args: argparse.Namespace) -> None:
     sandbox_dict = None
     if cmd_name in registered_commands:
         reg = registered_commands[cmd_name]
-        if reg.sandbox is not None:
-            sandbox_dict = reg.sandbox.to_dict()
+        sandbox_config = reg._extra.get("sandbox")
+        if sandbox_config is not None:
+            sandbox_dict = sandbox_config if isinstance(sandbox_config, dict) else None
 
     # Execute command with capture
     result = _execute_command(

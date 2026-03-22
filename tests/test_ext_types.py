@@ -71,3 +71,55 @@ class TestExecutionResult:
         assert result.artifacts == {}
         assert result.signal is None
         assert result.timeout is False
+
+
+class TestConfigPassthrough:
+    def test_extra_sections_preserved_on_roundtrip(self, tmp_path) -> None:
+        from pathlib import Path
+
+        from blq.commands.core import RegisteredCommand, _load_commands_impl
+        from blq.config_format import save_toml
+
+        lq_dir = Path(str(tmp_path))
+        commands_path = lq_dir / "commands.toml"
+
+        data = {
+            "commands": {
+                "test": {
+                    "cmd": "pytest tests/",
+                    "description": "Run tests",
+                    "sandbox": {
+                        "network": "none",
+                        "filesystem": "readonly",
+                    },
+                    "env": {
+                        "venv": ".venv",
+                    },
+                }
+            }
+        }
+        save_toml(commands_path, data)
+
+        loaded = _load_commands_impl(lq_dir)
+        cmd = loaded["test"]
+        assert cmd._extra["sandbox"] == {"network": "none", "filesystem": "readonly"}
+        assert cmd._extra["env"] == {"venv": ".venv"}
+        assert cmd.cmd == "pytest tests/"
+
+    def test_extra_sections_survive_save(self, tmp_path) -> None:
+        from pathlib import Path
+
+        from blq.commands.core import RegisteredCommand, _load_commands_impl, _save_commands_impl
+
+        lq_dir = Path(str(tmp_path))
+
+        cmd = RegisteredCommand(
+            name="test",
+            cmd="pytest tests/",
+            _extra={"sandbox": {"network": "none"}, "env": {"venv": ".venv"}},
+        )
+        _save_commands_impl(lq_dir, {"test": cmd})
+
+        reloaded = _load_commands_impl(lq_dir)
+        assert reloaded["test"]._extra["sandbox"] == {"network": "none"}
+        assert reloaded["test"]._extra["env"] == {"venv": ".venv"}

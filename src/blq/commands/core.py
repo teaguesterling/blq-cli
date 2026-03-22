@@ -26,8 +26,6 @@ from blq.config_format import (
     load_toml,
     save_toml,
 )
-from blq.sandbox import SandboxSpec, resolve_sandbox
-
 # Git integration - re-exported for backward compatibility
 from blq.git import GitInfo, capture_git_info  # noqa: F401
 
@@ -1067,7 +1065,7 @@ class RegisteredCommand:
     capture_env: list[str] = field(default_factory=list)  # Additional env vars
     suppress: list[str] = field(default_factory=list)  # Fingerprints to suppress in reports
     lines: str | None = None  # Default line selection for run/exec output (e.g., "+20-")
-    sandbox: SandboxSpec | None = None  # Sandbox specification (Phase 1: declaration only)
+    _extra: dict[str, Any] = field(default_factory=dict)
 
     @property
     def is_template(self) -> bool:
@@ -1163,12 +1161,7 @@ class RegisteredCommand:
             d["suppress"] = self.suppress
         if self.lines is not None:
             d["lines"] = self.lines
-        if self.sandbox is not None:
-            preset = self.sandbox.matching_preset()
-            if preset is not None:
-                d["sandbox"] = preset
-            else:
-                d["sandbox"] = self.sandbox.to_dict()
+        d.update(self._extra)
         return d
 
 
@@ -1338,6 +1331,12 @@ def format_command_help(cmd: RegisteredCommand) -> str:
     return "\n".join(lines)
 
 
+_KNOWN_COMMAND_KEYS = {
+    "cmd", "tpl", "defaults", "description", "timeout",
+    "format", "capture", "capture_env", "suppress", "lines",
+}
+
+
 def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
     """Internal implementation of load_commands."""
     commands_path = lq_dir / COMMANDS_FILE
@@ -1367,8 +1366,8 @@ def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
             if not isinstance(suppress, list):
                 suppress = []
 
-            # Parse sandbox spec (string preset or dict)
-            sandbox = resolve_sandbox(config.get("sandbox"))
+            # Collect unknown keys into _extra for extension passthrough
+            extra = {k: v for k, v in config.items() if k not in _KNOWN_COMMAND_KEYS}
 
             commands[name] = RegisteredCommand(
                 name=name,
@@ -1382,7 +1381,7 @@ def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
                 capture_env=capture_env,
                 suppress=suppress,
                 lines=config.get("lines"),  # Default line selection for output
-                sandbox=sandbox,
+                _extra=extra,
             )
     return commands
 
