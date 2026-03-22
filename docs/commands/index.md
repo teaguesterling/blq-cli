@@ -20,7 +20,7 @@
 | `info <ref>` | `I` | Run details |
 | `status` | | Status summary |
 | `history` | `h` | Run history |
-| `diff <r1> <r2>` | | Compare runs |
+| `output <ref>` | `o` | View captured output |
 
 ## Querying
 
@@ -92,9 +92,9 @@ blq run test
 blq errors
 blq inspect build:3:1
 
-# Compare runs
+# View run history and output
 blq history
-blq diff 4 5
+blq output test:5
 
 # Query
 blq filter severity=error

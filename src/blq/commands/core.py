@@ -205,6 +205,19 @@ class EventSummary:
     log_line_start: int | None = None
     log_line_end: int | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dict, stripping null values."""
+        return {k: v for k, v in asdict(self).items() if v is not None}
+
+    def to_compact_dict(self) -> dict[str, Any]:
+        """Convert to compact dict with only ref and message."""
+        d: dict[str, Any] = {"ref": self.ref}
+        if self.message:
+            d["message"] = self.message
+        if self.error_code:
+            d["error_code"] = self.error_code
+        return d
+
     def location(self) -> str:
         """Format as file:line:col string."""
         if not self.ref_file:
@@ -231,13 +244,14 @@ class RunResult:
     summary: dict[str, int] = field(default_factory=dict)
     errors: list[EventSummary] = field(default_factory=list)
     warnings: list[EventSummary] = field(default_factory=list)
+    infos: list[EventSummary] = field(default_factory=list)
     parquet_path: str | None = None
     output_stats: dict[str, int | list[str]] = field(default_factory=dict)
     source_name: str | None = None  # Tag for run_ref (e.g., "build", "test", "pytest")
     status_reason: str | None = None  # Human-readable explanation for the status
     extension_data: dict[str, Any] | None = None  # Extension data (namespaced by extension)
 
-    def to_json(self, include_warnings: bool = False) -> str:
+    def to_json(self) -> str:
         """Convert to JSON string."""
         data = {
             "run_id": self.run_id,
@@ -248,14 +262,16 @@ class RunResult:
             "completed_at": self.completed_at,
             "duration_sec": round(self.duration_sec, 3),
             "summary": self.summary,
-            "errors": [asdict(e) for e in self.errors],
+            "errors": [e.to_dict() for e in self.errors],
         }
         if self.source_name:
             data["source_name"] = self.source_name
         if self.status_reason:
             data["status_reason"] = self.status_reason
-        if include_warnings:
-            data["warnings"] = [asdict(w) for w in self.warnings]
+        if self.warnings:
+            data["warnings"] = [w.to_dict() for w in self.warnings]
+        if self.infos:
+            data["infos"] = [i.to_compact_dict() for i in self.infos]
         if self.output_stats:
             data["output_stats"] = self.output_stats
         if self.extension_data:

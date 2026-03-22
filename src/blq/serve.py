@@ -303,14 +303,14 @@ def _build_preview(
     status: str,
     has_errors: bool,
 ) -> dict[str, Any]:
-    """Build preview and output_stats fields for a concise run/exec response.
+    """Build preview field for a concise run/exec response.
 
     Returns a dict of fields to merge into the concise response.
-    On failure, includes a ``preview`` showing the first and last few lines
-    of output (head + separator + tail) so agents see both the first error
-    and the summary line.
+    On failure or when errors are present, includes a ``preview`` showing
+    the first and last few lines of output (head + separator + tail) so
+    agents see both the first error and the summary line.
 
-    On success, no preview is included.
+    On clean success (no errors, OK status), no preview is included.
     """
     head = output_stats.get("head", [])
     tail = output_stats.get("tail", [])
@@ -319,7 +319,7 @@ def _build_preview(
 
     result: dict[str, Any] = {}
 
-    if status != "FAIL" or (not head and not tail):
+    if (status == "OK" and not has_errors) or (not head and not tail):
         return result
 
     if total_lines <= preview_n * 2 + 1:
@@ -332,12 +332,6 @@ def _build_preview(
             + [f"... ({total_lines - preview_n * 2} more lines, use output() to see full log)"]
             + tail[-preview_n:]
         )
-
-    if total_lines > max(len(head), len(tail)):
-        result["output_stats"] = {
-            "lines": total_lines,
-            "bytes": output_stats.get("bytes", 0),
-        }
 
     return result
 
@@ -435,12 +429,21 @@ def _run_impl(
                 status = full_result.get("status", "FAIL" if exit_code != 0 else "OK")
                 has_errors = exit_code != 0 or len(errors) > 0
 
+                output_stats = full_result.get("output_stats", {})
+                warnings = full_result.get("warnings", [])
+                infos = full_result.get("infos", [])
+
                 concise: dict[str, Any] = {
                     "run_ref": f"{source_name}:{run_id}" if run_id else None,
                     "cmd": full_result.get("command"),
                     "status": status,
                     "exit_code": exit_code,
+                    "duration_sec": round(full_result.get("duration_sec", 0), 1),
                     "summary": summary,
+                    "output_stats": {
+                        "lines": output_stats.get("lines", 0),
+                        "bytes": output_stats.get("bytes", 0),
+                    },
                 }
 
                 # Include status_reason when present
@@ -448,14 +451,17 @@ def _run_impl(
                 if status_reason:
                     concise["status_reason"] = status_reason
 
-                # Only include errors if there are any
+                # Include errors (capped at 10, summary has total count)
                 if errors:
-                    concise["errors"] = errors
+                    concise["errors"] = errors[:10]
 
-                # Include duration if > 5 seconds
-                duration = full_result.get("duration_sec", 0)
-                if duration > 5:
-                    concise["duration_sec"] = round(duration, 1)
+                # Include warnings (top 5)
+                if warnings:
+                    concise["warnings"] = warnings[:5]
+
+                # Include info/summary events
+                if infos:
+                    concise["infos"] = infos[:5]
 
                 # Include extension data if present
                 ext_data = full_result.get("extension_data")
@@ -468,9 +474,15 @@ def _run_impl(
                 if effective_lines:
                     _attach_output(concise, run_id, effective_lines)
                 else:
-                    # Include preview on failure (head + tail with separator)
-                    output_stats = full_result.get("output_stats", {})
-                    concise.update(_build_preview(output_stats, status, has_errors))
+                    # Include preview on failure/warn
+                    preview = _build_preview(output_stats, status, has_errors)
+                    concise.update(preview)
+
+                    # When no infos and no preview, fall back to output tail
+                    if not infos and "preview" not in preview:
+                        tail = output_stats.get("tail", [])
+                        if tail:
+                            concise["output_tail"] = tail[-3:]
 
                 return concise
             except json.JSONDecodeError:
@@ -660,12 +672,21 @@ def _exec_impl(
                 status = full_result.get("status", "FAIL" if exit_code != 0 else "OK")
                 has_errors = exit_code != 0 or len(errors) > 0
 
+                output_stats = full_result.get("output_stats", {})
+                warnings = full_result.get("warnings", [])
+                infos = full_result.get("infos", [])
+
                 concise: dict[str, Any] = {
                     "run_ref": f"{source_name}:{run_id}" if run_id else None,
                     "cmd": full_result.get("command"),
                     "status": status,
                     "exit_code": exit_code,
+                    "duration_sec": round(full_result.get("duration_sec", 0), 1),
                     "summary": summary,
+                    "output_stats": {
+                        "lines": output_stats.get("lines", 0),
+                        "bytes": output_stats.get("bytes", 0),
+                    },
                 }
 
                 # Include status_reason when present
@@ -673,21 +694,30 @@ def _exec_impl(
                 if status_reason:
                     concise["status_reason"] = status_reason
 
-                # Only include errors if there are any
+                # Include errors (capped at 10, summary has total count)
                 if errors:
-                    concise["errors"] = errors
+                    concise["errors"] = errors[:10]
 
-                # Include duration if > 5 seconds
-                duration = full_result.get("duration_sec", 0)
-                if duration > 5:
-                    concise["duration_sec"] = round(duration, 1)
+                # Include warnings (top 5)
+                if warnings:
+                    concise["warnings"] = warnings[:5]
+
+                # Include info/summary events
+                if infos:
+                    concise["infos"] = infos[:5]
 
                 if lines:
                     _attach_output(concise, run_id, lines)
                 else:
-                    # Include preview on failure (head + tail with separator)
-                    output_stats = full_result.get("output_stats", {})
-                    concise.update(_build_preview(output_stats, status, has_errors))
+                    # Include preview on failure/warn
+                    preview = _build_preview(output_stats, status, has_errors)
+                    concise.update(preview)
+
+                    # When no infos and no preview, fall back to output tail
+                    if not infos and "preview" not in preview:
+                        tail = output_stats.get("tail", [])
+                        if tail:
+                            concise["output_tail"] = tail[-3:]
 
                 # Recommend registration for repeated ad-hoc commands
                 recommendation = _build_registration_recommendation(full_cmd)

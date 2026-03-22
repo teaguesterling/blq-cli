@@ -647,6 +647,7 @@ def _execute_with_live_output(
         },
         errors=[_make_event_summary(run_id, e) for e in error_events[:error_limit]],
         warnings=[_make_event_summary(run_id, e) for e in warning_events[:error_limit]],
+        infos=[_make_event_summary(run_id, e) for e in info_events[:error_limit]],
         parquet_path=str(lq_dir / "blq.duckdb"),
         output_stats=output_stats,
         source_name=source_name,
@@ -980,6 +981,7 @@ def _execute_command(
         },
         errors=[_make_event_summary(run_id, e) for e in error_events[:error_limit]],
         warnings=[_make_event_summary(run_id, e) for e in warning_events[:error_limit]],
+        infos=[_make_event_summary(run_id, e) for e in info_events[:error_limit]],
         parquet_path=str(filepath),
         source_name=source_name,
         output_stats=output_stats,
@@ -1319,7 +1321,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     # Output based on format
     compact = getattr(args, "compact", "adaptive")
     if args.json:
-        print(result.to_json(include_warnings=args.include_warnings))
+        print(result.to_json())
     elif args.markdown:
         print(result.to_markdown(include_warnings=args.include_warnings))
     else:
@@ -1529,7 +1531,7 @@ def cmd_exec(args: argparse.Namespace) -> None:
     # Output based on format
     compact = getattr(args, "compact", "adaptive")
     if args.json:
-        print(result.to_json(include_warnings=args.include_warnings))
+        print(result.to_json())
     elif args.markdown:
         print(result.to_markdown(include_warnings=args.include_warnings))
     else:

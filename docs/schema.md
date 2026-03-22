@@ -217,6 +217,17 @@ Table-returning macros for common queries. Use with `SELECT * FROM macro_name()`
 | `blq_ref(run_id, event_id)` | Build reference string |
 | `blq_parse_ref(ref)` | Parse reference into components |
 | `blq_output(inv_id, stream := 'combined')` | Get output content |
+| `blq_location(ref_file, ref_line, ref_column)` | Format location string (file:line:col) |
+| `blq_blob_root()` | Get blob storage root path |
+| `blq_errors_json(n := 10)` | Recent errors as JSON (for MCP/agents) |
+| `blq_history_status(n := 20, status := NULL)` | Run history with optional status filter |
+
+### Line Selection (requires read_lines extension)
+
+| Macro | Description |
+|-------|-------------|
+| `blq_read_lines(content, lines_spec, marks := [])` | Read lines with optional markers for highlighting |
+| `blq_search_lines(content, pattern, ctx := 0, case_insensitive := true)` | Search lines with regex pattern and context |
 
 ## Example Queries
 

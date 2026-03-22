@@ -793,17 +793,16 @@ SELECT to_json(list(err)) AS json FROM (
 --   -- | 3           | line3 |      |
 --
 CREATE OR REPLACE MACRO blq_read_lines(content, lines_spec, marks := []) AS TABLE
+WITH mark_ranges AS (
+    SELECT unnest(marks::STRUCT(start INT, "end" INT, mark VARCHAR)[], recursive := true)
+)
 SELECT
     l.line_number,
     rtrim(l.content, chr(10) || chr(13)) AS line,
-    coalesce(
-        (SELECT m.m.mark
-         FROM (SELECT unnest(marks) AS m) m
-         WHERE l.line_number >= m.m.start AND l.line_number <= m.m."end"
-         LIMIT 1),
-        ''
-    ) AS mark
+    coalesce(first(mr.mark), '') AS mark
 FROM parse_lines(content, lines := lines_spec) l
+LEFT JOIN mark_ranges mr ON l.line_number >= mr.start AND l.line_number <= mr."end"
+GROUP BY l.line_number, l.content
 ORDER BY l.line_number;
 
 -- Search lines with regexp pattern and context.
