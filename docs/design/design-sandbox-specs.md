@@ -111,37 +111,83 @@ broad     ← sandbox.network=localhost, sandbox.filesystem=unrestricted
 open      ← sandbox.network=unrestricted, sandbox.filesystem=unrestricted
 ```
 
-### Computation level (D axis derivative)
+### Effects ceiling (D axis derivative)
 
-The computation level depends on what the command CAN do, which is bounded by the sandbox:
+The sandbox bounds *effects* — what the process can do to the world. It does NOT bound *computation* — what the process computes internally. A Turing-complete program running in a read-only sandbox with no network is still Turing-complete. It just can't *do* anything to the world beyond returning a result.
 
-| What the sandbox allows | Max reachable level | Why |
+The sandbox provides an **effects ceiling**: the maximum computation level that the sandbox's effect constraints allow. The actual computation level depends on two things:
+
+1. **The tool interface** — what computation level the tool operates at (a property of the tool's design)
+2. **The effects ceiling** — what consequences the sandbox permits (a property of the sandbox spec)
+
+The effective risk is the tool level bounded by the effects ceiling:
+
+```
+A level 1 tool in a level 7 sandbox: effective risk = level 1
+  (the tool doesn't use the sandbox's full allowance)
+
+A level 4 tool in a level 2 sandbox: effective risk = level 2
+  (the sandbox constrains the consequences — the computation is
+  Turing-complete but the effects are bounded to read + compute)
+```
+
+This is why structured tools AND sandboxing are complementary, not redundant. Structured tools constrain the *interface* (what the agent can ask for). Sandboxes constrain the *consequences* (what happens when the request executes). Neither alone is sufficient. The tool interface without a sandbox trusts the implementation. The sandbox without a structured interface trusts the input.
+
+#### Effects ceiling by sandbox configuration
+
+| Sandbox allows | Effects ceiling | Why |
 |---|---|---|
-| readonly, no network, pids.max=1 | Level 2 (read + compute) | Can read and process but can't mutate, spawn, or reach out |
-| readonly, no network | Level 2 (read + compute) | Can spawn children but they can't write either — effectively level 2 |
-| workspace write, no network, pids.max=1 | Level 4 (computation amplification) | Can write + execute, but no child processes |
-| workspace write, no network | Level 7 (subprocess spawning) | Can spawn persistent background processes within sandbox |
-| workspace write, localhost | Level 7+ (service interaction) | Can talk to local services, install packages |
-| unrestricted | Level 8 (controller modification) | Unbounded — can modify .mcp.json, reach external services |
+| readonly, no network, pids.max=1 | Level 2 | Can read and process but can't mutate, spawn, or reach out |
+| readonly, no network | Level 2 | Can spawn children but they can't write either — effectively level 2 |
+| workspace write, no network, pids.max=1 | Level 4 | Can write + execute, but no child processes |
+| workspace write, no network | Level 7 | Can spawn persistent background processes within sandbox |
+| workspace write, localhost | Level 7+ | Can talk to local services, install packages |
+| unrestricted | Level 8 | Unbounded |
+
+#### The level 3/4 gap
+
+The sandbox can't distinguish level 3 (writing data) from level 4 (writing executable code). Both look like "writes bytes to a file." The filesystem doesn't know whether those bytes are a configuration value or a Python program. This distinction lives in the *tool interface*, not the sandbox:
+
+- `file_edit(path, old_string, new_string)` — level 3. The tool writes a structured replacement. The content could be code, but the tool's interface is a string replacement, not an execution request.
+- `bash("cat > script.py << 'EOF' ... EOF && python script.py")` — level 4. The tool accepts an executable specification and runs it.
+
+The sandbox treats both as "writes to workspace." The computation level difference is in the tool, not the container.
 
 ### Grading our experiment conditions
 
-This is where it gets precise. Our experimental conditions, graded by their actual sandbox specs:
+Two components determine each condition's grade: the tool interfaces (what the agent interacts with) and the effects ceilings (what the sandbox allows).
 
 ```
 Condition I (file_edit + run_tests):
-  file_edit:  (scoped, level 3)     — structured mutation (writes to workspace,
-                                       future reads return different data)
-  run_tests:  (scoped-ro, level 2)  — executes code but read-only + no network
-                                       (Turing-complete computation, but effects
-                                       bounded by sandbox to read + compute)
-  Composite:  (scoped, level 3)     — the join (mutation via file_edit)
+  file_edit:
+    Tool interface: level 3 (structured mutation — one file, one replacement)
+    Effects ceiling: level 3 (writes one specified file, nothing more)
+    Effective level: 3
+
+  run_tests:
+    Tool interface: level 1 (structured query — test_file + verbose flag)
+    Internal execution: level 4 (pytest runs agent-written Python)
+    Effects ceiling: level 2 (readonly sandbox, no network, isolated PIDs)
+    Effective level: 2 (consequences bounded to read + compute)
+
+  Composite: level 3 (the join — mutation from file_edit)
+
+  Key structural property: the agent WRITES through file_edit (level 3,
+  logged, auditable) and EXECUTES through run_tests (level 1 interface,
+  level 2 effects ceiling). It cannot close the write-execute loop in
+  one tool call. The separation prevents level 4.
 
 Condition D (bash_sandboxed):
-  bash:       (scoped-rw, level 7)  — read-write workspace, no network,
-                                       but CAN spawn persistent subprocesses
-  With pids.max=1: (scoped-rw, level 4) — can write + execute, no subprocess spawning
-  With readonly:   (scoped-ro, level 2) — can read + compute only
+  bash:
+    Tool interface: level 4+ (arbitrary executable specification)
+    Effects ceiling: level 7 (writable, no network, can spawn processes)
+    Effective level: 7
+
+  The agent writes AND executes in one opaque tool call.
+  No separation. No audit point between intent and execution.
+
+  With pids.max=1:  effective level 4 (can write + execute, no spawning)
+  With readonly:    effective level 2 (can read + compute only)
 ```
 
 ### What level is D really?
@@ -270,15 +316,28 @@ class SandboxSpec:
         return "sealed"
 
     @property
-    def max_computation_level(self) -> int:
-        """Compute maximum reachable computation level from spec."""
+    def effects_ceiling(self) -> int:
+        """Maximum computation level the sandbox's effect constraints allow.
+
+        This is a ceiling, not the actual level. The actual risk depends on
+        the tool running inside:
+        - A level 1 tool in a level 7 sandbox: effective risk = 1
+          (the tool doesn't use the sandbox's full allowance)
+        - A level 4 tool in a level 2 sandbox: effective risk = 2
+          (the sandbox constrains the consequences)
+
+        The sandbox bounds effects (filesystem, network, processes).
+        It cannot bound semantics (is this write data or code?).
+        The level 3/4 distinction (data vs executable specification)
+        is a property of the tool interface, not the sandbox.
+        """
         if self.network != "none":
-            return 8  # can reach external services, modify controller
+            return 8  # can reach external services
         if self.processes == "visible" and self.filesystem not in ("readonly",):
             return 7  # can spawn persistent subprocesses + write
         if self.filesystem not in ("readonly",):
-            return 4  # can write + execute (computation amplification), no spawning
-        return 2      # read + compute only
+            return 4  # can write; sandbox can't distinguish data from code
+        return 2      # read + compute only (effects bounded)
 ```
 
 ### Phase 2: Enforcement via bwrap
@@ -358,7 +417,7 @@ Log sandbox spec and violations as structured events:
 ```sql
 -- What sandbox specs are in use?
 SELECT command, sandbox_network, sandbox_filesystem, sandbox_timeout,
-       grade_w, max_computation_level
+       grade_w, effects_ceiling
 FROM blq_commands
 WHERE sandbox IS NOT NULL;
 
@@ -368,11 +427,11 @@ FROM blq_sandbox_violations
 ORDER BY timestamp DESC;
 
 -- Grade distribution across all commands
-SELECT max_computation_level, count(*) as commands,
+SELECT effects_ceiling, count(*) as commands,
        count(*) FILTER (WHERE sandbox_network = 'none') as network_isolated
 FROM blq_commands
-GROUP BY max_computation_level
-ORDER BY max_computation_level;
+GROUP BY effects_ceiling
+ORDER BY effects_ceiling;
 ```
 
 ### Phase 5: MCP integration
@@ -390,7 +449,7 @@ def sandbox_info(command: str) -> str:
         "filesystem": spec.filesystem,
         "timeout": spec.timeout,
         "memory": spec.memory,
-        "grade": {"w": spec.grade_w, "max_level": spec.max_computation_level},
+        "grade": {"w": spec.grade_w, "max_level": spec.effects_ceiling},
     }
 ```
 
