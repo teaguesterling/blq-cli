@@ -499,12 +499,15 @@ def _run_impl(
             }
 
         # Fallback: construct basic result
-        return {
+        fallback: dict[str, Any] = {
             "run_ref": None,
             "status": "FAIL" if proc.returncode != 0 else "OK",
             "exit_code": proc.returncode,
             "summary": {"total_events": 0, "errors": 0, "warnings": 0},
         }
+        if proc.returncode != 0 and proc.stderr.strip():
+            fallback["error"] = proc.stderr.strip()
+        return fallback
     except subprocess.TimeoutExpired:
         return {
             "run_ref": None,
@@ -729,12 +732,15 @@ def _exec_impl(
                 pass
 
         # Fallback: construct basic result
-        return {
+        fallback_exec: dict[str, Any] = {
             "run_ref": None,
             "status": "FAIL" if proc.returncode != 0 else "OK",
             "exit_code": proc.returncode,
             "summary": {"total_events": 0, "errors": 0, "warnings": 0},
         }
+        if proc.returncode != 0 and proc.stderr.strip():
+            fallback_exec["error"] = proc.stderr.strip()
+        return fallback_exec
     except subprocess.TimeoutExpired:
         return {
             "run_ref": None,
@@ -2405,6 +2411,7 @@ def _register_command_impl(
     run_now: bool = False,
     lines: str | None = None,
     sandbox: str | dict[str, Any] | None = None,
+    lock: str | None = None,
 ) -> dict[str, Any]:
     """Implementation of register_command."""
     try:
@@ -2501,6 +2508,7 @@ def _register_command_impl(
             capture=capture,
             format=format or "auto",
             lines=lines,
+            lock=lock,
             _extra=extra,
         )
         commands[name] = new_command
@@ -3329,6 +3337,7 @@ def register_command(
     run_now: bool = False,
     lines: str | None = None,
     sandbox: str | dict[str, Any] | None = None,
+    lock: str | None = None,
 ) -> dict[str, Any]:
     """Register a new command.
 
@@ -3354,6 +3363,9 @@ def register_command(
         sandbox: Sandbox specification. Either a preset name ('test', 'build', 'readonly',
                  'integration', 'unrestricted', 'none') or a dict with individual fields
                  (network, filesystem, timeout, memory, cpu, processes, tmpfs).
+        lock: Lock name for resource contention. Commands sharing the same lock name
+              will not run concurrently. Use this when commands access shared resources
+              (e.g., lock='database' for commands that write to the same DB).
 
     Returns:
         Success status and registered command details. If run_now=True,
@@ -3362,7 +3374,7 @@ def register_command(
     _check_tool_enabled("register_command")
     return _register_command_impl(
         name, cmd, tpl, defaults, description, timeout, capture, force, format, run_now, lines,
-        sandbox,
+        sandbox, lock,
     )
 
 
