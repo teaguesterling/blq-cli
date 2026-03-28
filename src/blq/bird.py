@@ -912,6 +912,19 @@ class BirdStore:
             [pid, attempt_id],
         )
 
+    def update_attempt_extension_data(
+        self, attempt_id: str, extension_data: dict[str, Any]
+    ) -> None:
+        """Update the extension_data field for an attempt after execution.
+
+        Called in Window 2 to enrich the attempt with resolved sandbox specs,
+        grades, and collector metrics that weren't available at start time.
+        """
+        self._conn.execute(
+            "UPDATE attempts SET extension_data = ? WHERE id = ?",
+            [json.dumps(extension_data), attempt_id],
+        )
+
     # =========================================================================
     # Live Output Management
     # =========================================================================

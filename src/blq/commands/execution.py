@@ -488,6 +488,12 @@ def _execute_with_live_output(
             )
             store.write_invocation(invocation)
 
+            # Update attempt with enriched extension_data (grades, metrics)
+            if cmd_spec.extension_data:
+                store.update_attempt_extension_data(
+                    attempt_id, cmd_spec.extension_data
+                )
+
             # Write events
             store.write_events(
                 attempt_id,
