@@ -375,13 +375,24 @@ def _execute_with_live_output(
     # Run the pipeline: prepare -> execute -> collect
     exec_result = run_pipeline(cmd_spec, ordered, executor)
 
-    # Update PID in DB (brief lock, after execution)
+    # Update PID in live metadata (filesystem) and DB
     if exec_result.pid is not None:
+        # Write to live metadata first (filesystem fallback)
+        try:
+            meta_path = Path(live_dir) / "meta.json"
+            if meta_path.exists():
+                import json as json_mod
+                meta = json_mod.loads(meta_path.read_text())
+                meta["pid"] = exec_result.pid
+                meta_path.write_text(json_mod.dumps(meta))
+        except Exception:
+            pass  # Best-effort filesystem write
+        # Then update DB (brief lock)
         try:
             with BirdStore.open_with_retry(lq_dir, max_retries=3) as pid_store:
                 pid_store.update_attempt_pid(attempt_id, exec_result.pid)
         except Exception:
-            pass  # Non-critical
+            pass  # Non-critical — PID is also in live metadata
 
     # Extract results for the rest of the function
     exit_code = exec_result.exit_code

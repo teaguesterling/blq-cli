@@ -2387,7 +2387,8 @@ def _command_to_dict(cmd: Any) -> dict[str, Any]:
     if cmd.lines is not None:
         result["lines"] = cmd.lines
     if cmd._extra:
-        result["extensions"] = cmd._extra
+        for key, val in cmd._extra.items():
+            result[key] = val
     return result
 
 

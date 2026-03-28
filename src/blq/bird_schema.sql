@@ -449,6 +449,7 @@ SELECT
     i.git_branch,
     i.git_dirty,
     i.ci,
+    i.extension_data,
     i.tag,
     COUNT(e.id) AS event_count,
     COUNT(e.id) FILTER (WHERE e.severity = 'error') AS error_count,
@@ -461,7 +462,7 @@ FROM invocations i
 LEFT JOIN events e ON e.invocation_id = i.id
 GROUP BY i.id, i.source_name, i.source_type, i.cmd, i.timestamp, i.duration_ms,
          i.exit_code, i.cwd, i.executable, i.hostname, i.platform, i.arch,
-         i.git_commit, i.git_branch, i.git_dirty, i.ci, i.tag, i.date;
+         i.git_commit, i.git_branch, i.git_dirty, i.ci, i.extension_data, i.tag, i.date;
 
 -- ============================================================================
 -- ATTEMPTS/OUTCOMES MACROS (for long-running command support)
@@ -492,6 +493,7 @@ SELECT
     a.git_branch,
     a.git_dirty,
     a.ci,
+    a.extension_data,
     a.date,
     o.exit_code,
     o.duration_ms,
