@@ -2589,6 +2589,92 @@ def _commands_impl() -> dict[str, Any]:
         return {"commands": [], "error": str(e)}
 
 
+def _sandbox_info_impl(command: str | None = None) -> dict[str, Any]:
+    """Implementation for sandbox_info tool."""
+    try:
+        from blq.cli import BlqConfig
+
+        config = BlqConfig.find()
+    except Exception:
+        return {"error": "No blq project found"}
+
+    if config is None:
+        return {"error": "No blq project found"}
+
+    commands = config.commands
+    if command and command not in commands:
+        return {"error": f"Unknown command: {command}"}
+
+    # Lazy import to avoid hard dependency
+    from blq_sandbox.spec import resolve_sandbox
+
+    results = []
+    target_commands = {command: commands[command]} if command else commands
+
+    for name, cmd in sorted(target_commands.items()):
+        sandbox_raw = cmd._extra.get("sandbox")
+        entry: dict[str, Any] = {"command": name}
+
+        if sandbox_raw is None:
+            entry["sandbox"] = None
+            results.append(entry)
+            continue
+
+        try:
+            spec = resolve_sandbox(sandbox_raw)
+        except (ValueError, TypeError) as e:
+            entry["sandbox"] = None
+            entry["error"] = str(e)
+            results.append(entry)
+            continue
+
+        if spec is None:
+            entry["sandbox"] = None
+            results.append(entry)
+            continue
+
+        entry["spec"] = spec.to_dict()
+        entry["grade_w"] = spec.grade_w
+        entry["effects_ceiling"] = spec.effects_ceiling
+        entry["preset"] = spec.matching_preset()
+        entry["active_dimensions"] = sorted(spec.active_dimensions())
+
+        # Query recent metrics if available (best-effort)
+        try:
+            storage = _get_storage()
+            if storage.has_data():
+                metrics_result = storage.sql("""
+                    SELECT
+                        count(*) as run_count,
+                        max(json_extract(extension_data, '$.metrics.memory_peak_bytes')::BIGINT) as max_memory,
+                        max(json_extract(extension_data, '$.metrics.cpu_usage_usec')::BIGINT) as max_cpu_usec,
+                        avg(o.duration_ms)::INT as avg_duration_ms
+                    FROM invocations i
+                    LEFT JOIN outcomes o ON o.attempt_id = i.id
+                    WHERE i.source_name = ?
+                      AND i.extension_data IS NOT NULL
+                """, [name]).fetchone()
+
+                if metrics_result and metrics_result[0] > 0:
+                    entry["observed"] = {
+                        "run_count": metrics_result[0],
+                    }
+                    if metrics_result[1] is not None:
+                        entry["observed"]["max_memory_bytes"] = metrics_result[1]
+                    if metrics_result[2] is not None:
+                        entry["observed"]["max_cpu_usec"] = metrics_result[2]
+                    if metrics_result[3] is not None:
+                        entry["observed"]["avg_duration_ms"] = metrics_result[3]
+        except Exception:
+            pass  # Metrics are best-effort
+
+        results.append(entry)
+
+    if command:
+        return results[0] if results else {"error": "Not found"}
+    return {"commands": results}
+
+
 # ============================================================================
 # Tools (thin wrappers around implementations)
 # ============================================================================
@@ -3948,6 +4034,19 @@ def ci_generate(
         and metadata for each script.
     """
     return _ci_generate_impl(commands, shell)
+
+
+@mcp.tool()
+def sandbox_info(command: str | None = None) -> str:
+    """Get sandbox specification and grades for registered commands.
+
+    Shows sandbox spec, world coupling grade, effects ceiling,
+    and recent resource metrics (if monitoring is enabled).
+
+    Args:
+        command: Specific command name (omit for all commands)
+    """
+    return json.dumps(_sandbox_info_impl(command), indent=2, default=str)
 
 
 # ============================================================================
