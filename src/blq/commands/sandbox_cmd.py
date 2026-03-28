@@ -1,0 +1,200 @@
+"""Sandbox specification commands."""
+from __future__ import annotations
+
+import json
+import sys
+from typing import Any
+
+from blq.commands.core import BlqConfig
+from blq_sandbox.spec import PRESETS, SandboxSpec, resolve_sandbox
+
+
+def cmd_sandbox_list(args: Any) -> None:
+    """List sandbox specs for all registered commands."""
+    config = BlqConfig.ensure()
+    commands = config.commands
+
+    # Collect sandbox info
+    rows = []
+    for name, cmd in sorted(commands.items()):
+        sandbox_raw = cmd._extra.get("sandbox")
+        if sandbox_raw is None:
+            rows.append((name, "none", "-", "-", "-"))
+            continue
+
+        try:
+            spec = resolve_sandbox(sandbox_raw)
+        except (ValueError, TypeError):
+            rows.append((name, str(sandbox_raw), "?", "?", "?"))
+            continue
+
+        if spec is None:
+            rows.append((name, "none", "-", "-", "-"))
+            continue
+
+        preset = spec.matching_preset()
+        label = preset if preset else "custom"
+        rows.append((name, label, spec.grade_w, str(spec.effects_ceiling), spec.network))
+
+    if getattr(args, "json", False):
+        data = []
+        for name, label, grade_w, ceiling, network in rows:
+            data.append({
+                "command": name,
+                "sandbox": label,
+                "grade_w": grade_w,
+                "effects_ceiling": ceiling,
+                "network": network,
+            })
+        print(json.dumps(data, indent=2))
+        return
+
+    # Table output
+    print(f"{'Command':<20} {'Sandbox':<14} {'Grade W':<10} {'Ceiling':<10} {'Network':<14}")
+    print("-" * 68)
+    for name, label, grade_w, ceiling, network in rows:
+        print(f"{name:<20} {label:<14} {grade_w:<10} {ceiling:<10} {network:<14}")
+
+
+def cmd_sandbox_inspect(args: Any) -> None:
+    """Show full sandbox spec and grade for a command."""
+    config = BlqConfig.ensure()
+    cmd_name = args.command
+
+    if cmd_name not in config.commands:
+        print(f"Error: Unknown command '{cmd_name}'", file=sys.stderr)
+        sys.exit(1)
+
+    cmd = config.commands[cmd_name]
+    sandbox_raw = cmd._extra.get("sandbox")
+
+    if sandbox_raw is None:
+        print(f"Command '{cmd_name}' has no sandbox spec.")
+        return
+
+    try:
+        spec = resolve_sandbox(sandbox_raw)
+    except (ValueError, TypeError) as e:
+        print(f"Error resolving sandbox spec: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if spec is None:
+        print(f"Command '{cmd_name}' has no sandbox spec.")
+        return
+
+    if getattr(args, "json", False):
+        data = {
+            "command": cmd_name,
+            "spec": spec.to_dict(),
+            "grade_w": spec.grade_w,
+            "effects_ceiling": spec.effects_ceiling,
+            "preset": spec.matching_preset(),
+            "active_dimensions": sorted(spec.active_dimensions()),
+        }
+        print(json.dumps(data, indent=2))
+        return
+
+    preset = spec.matching_preset()
+    print(f"Command: {cmd_name}")
+    print(f"Sandbox: {preset or 'custom'}")
+    print(f"Grade W: {spec.grade_w}")
+    print(f"Effects Ceiling: {spec.effects_ceiling}")
+    print()
+    print("Dimensions:")
+    d = spec.to_dict()
+    if not d:
+        print("  (all unrestricted)")
+    for key, val in d.items():
+        print(f"  {key}: {val}")
+
+
+def cmd_sandbox_suggest(args: Any) -> None:
+    """Suggest a sandbox spec from observed resource metrics."""
+    config = BlqConfig.ensure()
+    cmd_name = args.command
+
+    if cmd_name not in config.commands:
+        print(f"Error: Unknown command '{cmd_name}'", file=sys.stderr)
+        sys.exit(1)
+
+    # Query observed metrics from BIRD
+    from blq.bird import BirdStore
+
+    try:
+        with BirdStore.open(config.lq_dir) as store:
+            result = store._conn.execute("""
+                SELECT
+                    count(*) as run_count,
+                    max(json_extract(extension_data, '$.metrics.memory_peak_bytes')::BIGINT) as max_memory,
+                    max(json_extract(extension_data, '$.metrics.cpu_usage_usec')::BIGINT) as max_cpu_usec,
+                    max(o.duration_ms) as max_duration_ms
+                FROM invocations i
+                LEFT JOIN outcomes o ON o.attempt_id = i.id
+                WHERE i.source_name = ?
+                  AND i.extension_data IS NOT NULL
+            """, [cmd_name]).fetchone()
+    except Exception as e:
+        print(f"Error querying metrics: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    run_count = result[0] if result else 0
+    if run_count == 0:
+        print(f"No runs found for '{cmd_name}'. Run it a few times first.")
+        return
+
+    max_memory = result[1]
+    max_cpu_usec = result[2]
+    max_duration_ms = result[3]
+
+    print(f"Based on {run_count} run(s) of '{cmd_name}':")
+    print()
+
+    # Suggest with 2x headroom
+    suggested: dict[str, Any] = {
+        "network": "none",
+        "filesystem": "readonly",
+        "processes": "isolated",
+    }
+
+    if max_memory is not None:
+        from blq_sandbox.spec import format_size
+
+        suggested_mem = max_memory * 2
+        print(f"  Observed peak memory: {format_size(max_memory)}")
+        print(f"  Suggested memory:     {format_size(suggested_mem)} (2x headroom)")
+        suggested["memory"] = format_size(suggested_mem)
+    else:
+        print("  No memory data (enable systemd engine for cgroup monitoring)")
+
+    if max_cpu_usec is not None:
+        from blq_sandbox.spec import format_duration
+
+        suggested_cpu_s = int(max_cpu_usec / 1_000_000 * 2)
+        print(f"  Observed peak CPU:    {format_duration(int(max_cpu_usec / 1_000_000))}")
+        print(f"  Suggested CPU:        {format_duration(max(suggested_cpu_s, 1))} (2x headroom)")
+        suggested["cpu"] = format_duration(max(suggested_cpu_s, 1))
+    else:
+        print("  No CPU data (enable systemd engine for cgroup monitoring)")
+
+    if max_duration_ms is not None:
+        from blq_sandbox.spec import format_duration
+
+        suggested_timeout_s = int(max_duration_ms / 1000 * 3)
+        print(f"  Observed max wall time: {format_duration(int(max_duration_ms / 1000))}")
+        print(f"  Suggested timeout:      {format_duration(max(suggested_timeout_s, 1))} (3x headroom)")
+        suggested["timeout"] = format_duration(max(suggested_timeout_s, 1))
+
+    print()
+    print("Suggested TOML config:")
+    print()
+    print(f"[commands.{cmd_name}.sandbox]")
+    for key, val in suggested.items():
+        if isinstance(val, list):
+            print(f'{key} = {json.dumps(val)}')
+        else:
+            print(f'{key} = "{val}"')
+
+
+def cmd_sandbox_help(args: Any) -> None:
+    """Default handler for 'blq sandbox' without subcommand."""
+    cmd_sandbox_list(args)

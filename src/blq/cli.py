@@ -1311,6 +1311,47 @@ def main() -> None:
     )
     p_report.set_defaults(func=cmd_report)
 
+    # =========================================================================
+    # Sandbox commands
+    # =========================================================================
+
+    from blq.commands.sandbox_cmd import (
+        cmd_sandbox_help,
+        cmd_sandbox_inspect,
+        cmd_sandbox_list,
+        cmd_sandbox_suggest,
+    )
+
+    p_sandbox = subparsers.add_parser(
+        "sandbox", help="Manage sandbox specifications"
+    )
+    sandbox_subparsers = p_sandbox.add_subparsers(
+        dest="sandbox_command", help="Sandbox subcommands"
+    )
+
+    # sandbox list (default)
+    p_sandbox_list = sandbox_subparsers.add_parser("list", help="List sandbox specs")
+    p_sandbox_list.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_sandbox_list.set_defaults(func=cmd_sandbox_list)
+
+    # sandbox inspect
+    p_sandbox_inspect = sandbox_subparsers.add_parser(
+        "inspect", help="Inspect sandbox spec for a command"
+    )
+    p_sandbox_inspect.add_argument("command", help="Command name")
+    p_sandbox_inspect.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_sandbox_inspect.set_defaults(func=cmd_sandbox_inspect)
+
+    # sandbox suggest
+    p_sandbox_suggest = sandbox_subparsers.add_parser(
+        "suggest", help="Suggest sandbox spec from observed metrics"
+    )
+    p_sandbox_suggest.add_argument("command", help="Command name")
+    p_sandbox_suggest.set_defaults(func=cmd_sandbox_suggest)
+
+    # Default handler
+    p_sandbox.set_defaults(func=cmd_sandbox_help)
+
     args = parser.parse_args()
 
     if not args.command:
