@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from blq.locks import CommandLock, LockHeld, acquire_lock, release_lock
+from blq.locks import CommandLock, LockHeldError, acquire_lock, release_lock
 
 
 class TestExecutionLockIntegration:
@@ -20,7 +20,7 @@ class TestExecutionLockIntegration:
 
     def test_lock_blocks_concurrent_same_lock(self, locks_dir: Path) -> None:
         acquire_lock(locks_dir, "build", os.getpid(), "attempt-1", "make")
-        with pytest.raises(LockHeld) as exc_info:
+        with pytest.raises(LockHeldError) as exc_info:
             acquire_lock(locks_dir, "build", os.getpid(), "attempt-2", "pytest")
         assert "build" in str(exc_info.value)
 
@@ -67,7 +67,7 @@ class TestExecutionLockIntegration:
 
     def test_lock_held_error_contains_holder_info(self, locks_dir: Path) -> None:
         acquire_lock(locks_dir, "build", os.getpid(), "attempt-1", "make")
-        with pytest.raises(LockHeld) as exc_info:
+        with pytest.raises(LockHeldError) as exc_info:
             acquire_lock(locks_dir, "build", os.getpid(), "attempt-2", "make")
         err = exc_info.value
         assert err.held_by.lock_name == "build"

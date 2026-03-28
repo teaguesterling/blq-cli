@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from blq.locks import CommandLock, LockHeld, acquire_lock, cleanup_stale_locks, read_lock, release_lock
+from blq.locks import CommandLock, LockHeldError, acquire_lock, cleanup_stale_locks, read_lock, release_lock
 
 DEAD_PID = 99999999
 
@@ -74,11 +74,11 @@ class TestCommandLock:
         assert result is None
 
 
-class TestLockHeld:
-    """Tests for LockHeld exception."""
+class TestLockHeldError:
+    """Tests for LockHeldError exception."""
 
     def test_attributes(self):
-        """LockHeld carries the holding CommandLock."""
+        """LockHeldError carries the holding CommandLock."""
         lock = CommandLock(
             lock_name="test",
             pid=12345,
@@ -86,11 +86,11 @@ class TestLockHeld:
             command="pytest",
             acquired_at=time.time() - 5.0,
         )
-        exc = LockHeld(lock)
+        exc = LockHeldError(lock)
         assert exc.held_by is lock
 
     def test_message_contains_info(self):
-        """LockHeld message includes lock name, PID, command, attempt_id, and age."""
+        """LockHeldError message includes lock name, PID, command, attempt_id, and age."""
         lock = CommandLock(
             lock_name="build",
             pid=12345,
@@ -98,7 +98,7 @@ class TestLockHeld:
             command="make build",
             acquired_at=time.time() - 10.0,
         )
-        exc = LockHeld(lock)
+        exc = LockHeldError(lock)
         msg = str(exc)
         assert "build" in msg
         assert "12345" in msg
@@ -129,13 +129,13 @@ class TestAcquireLock:
         assert (locks_dir / "test.lock").exists()
 
     def test_raises_when_held_by_live_pid(self, tmp_path):
-        """acquire_lock raises LockHeld when lock is held by a live PID."""
+        """acquire_lock raises LockHeldError when lock is held by a live PID."""
         locks_dir = tmp_path / "locks"
         live_pid = os.getpid()
         # Write a lock held by the current (live) PID
         acquire_lock(locks_dir, "build", live_pid, "first", "make build")
 
-        with pytest.raises(LockHeld) as exc_info:
+        with pytest.raises(LockHeldError) as exc_info:
             acquire_lock(locks_dir, "build", live_pid, "second", "make build")
 
         assert exc_info.value.held_by.attempt_id == "first"

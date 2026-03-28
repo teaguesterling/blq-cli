@@ -3373,8 +3373,19 @@ def register_command(
     """
     _check_tool_enabled("register_command")
     return _register_command_impl(
-        name, cmd, tpl, defaults, description, timeout, capture, force, format, run_now, lines,
-        sandbox, lock,
+        name,
+        cmd,
+        tpl,
+        defaults,
+        description,
+        timeout,
+        capture,
+        force,
+        format,
+        run_now,
+        lines,
+        sandbox,
+        lock,
     )
 
 

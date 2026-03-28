@@ -46,10 +46,10 @@ from blq.commands.core import (
     write_run_parquet,
 )
 from blq.ext import CommandSpec
-from blq.locks import LockHeld, acquire_lock, release_lock
 from blq.ext.discovery import load_extensions, order_extensions
 from blq.ext.local_executor import LocalExecutor
 from blq.ext.pipeline import run_pipeline
+from blq.locks import LockHeldError, acquire_lock, release_lock
 
 # Logger for lq status messages
 logger = logging.getLogger("blq-cli")
@@ -333,13 +333,17 @@ def _execute_with_live_output(
                     acquire_lock(locks_dir, lock_name, os.getpid(), attempt.id, command)
                     held_lock_name = lock_name
                     break
-                except LockHeld:
+                except LockHeldError:
                     if time.time() >= deadline:
                         raise
                     remaining = deadline - time.time()
                     wait_time = min(1.0, remaining)
                     if not quiet:
-                        logger.info(f"Lock '{lock_name}' held, waiting ({remaining:.0f}s remaining)...")
+                        logger.info(
+                            "Lock '%s' held, waiting (%.0fs remaining)...",
+                            lock_name,
+                            remaining,
+                        )
                     time.sleep(wait_time)
         else:
             acquire_lock(locks_dir, lock_name, os.getpid(), attempt.id, command)
@@ -411,6 +415,7 @@ def _execute_with_live_output(
                 meta_path = Path(live_dir) / "meta.json"
                 if meta_path.exists():
                     import json as json_mod
+
                     meta = json_mod.loads(meta_path.read_text())
                     meta["pid"] = exec_result.pid
                     meta_path.write_text(json_mod.dumps(meta))
@@ -1254,7 +1259,7 @@ def cmd_run(args: argparse.Namespace) -> None:
             no_lock=no_lock,
             wait_lock=wait_lock,
         )
-    except LockHeld as e:
+    except LockHeldError as e:
         print(f"Error: {e}", file=sys.stderr)
         print("Use --no-lock to bypass or --wait-lock SECONDS to wait.", file=sys.stderr)
         sys.exit(1)

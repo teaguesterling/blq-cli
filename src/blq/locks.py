@@ -65,7 +65,7 @@ class CommandLock:
             return None
 
 
-class LockHeld(Exception):
+class LockHeldError(Exception):
     """Raised when a lock is held by a live process."""
 
     def __init__(self, held_by: CommandLock) -> None:
@@ -100,7 +100,7 @@ def acquire_lock(
     """Acquire a named lock.
 
     Creates locks_dir if it does not exist.
-    If the lock is held by a live PID, raises LockHeld.
+    If the lock is held by a live PID, raises LockHeldError.
     If the lock is held by a dead PID, reclaims it and proceeds.
     Writes the lock file and returns the CommandLock.
     """
@@ -113,7 +113,7 @@ def acquire_lock(
         existing = CommandLock.from_json(lock_file.read_text())
         if existing is not None:
             if _is_pid_alive(existing.pid):
-                raise LockHeld(existing)
+                raise LockHeldError(existing)
             else:
                 logger.info(
                     "Reclaiming stale lock '%s' held by dead PID %d (attempt_id=%s)",

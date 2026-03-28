@@ -26,6 +26,7 @@ from blq.config_format import (
     load_toml,
     save_toml,
 )
+
 # Git integration - re-exported for backward compatibility
 from blq.git import GitInfo, capture_git_info  # noqa: F401
 
@@ -1351,8 +1352,18 @@ def format_command_help(cmd: RegisteredCommand) -> str:
 
 
 _KNOWN_COMMAND_KEYS = {
-    "name", "cmd", "tpl", "defaults", "description", "timeout",
-    "format", "capture", "capture_env", "suppress", "lines", "lock",
+    "name",
+    "cmd",
+    "tpl",
+    "defaults",
+    "description",
+    "timeout",
+    "format",
+    "capture",
+    "capture_env",
+    "suppress",
+    "lines",
+    "lock",
 }
 
 
