@@ -26,7 +26,6 @@ from blq.config_format import (
     load_toml,
     save_toml,
 )
-
 # Git integration - re-exported for backward compatibility
 from blq.git import GitInfo, capture_git_info  # noqa: F401
 
@@ -250,6 +249,7 @@ class RunResult:
     output_stats: dict[str, int | list[str]] = field(default_factory=dict)
     source_name: str | None = None  # Tag for run_ref (e.g., "build", "test", "pytest")
     status_reason: str | None = None  # Human-readable explanation for the status
+    extension_data: dict[str, Any] | None = None  # Extension data (namespaced by extension)
 
     def to_json(self) -> str:
         """Convert to JSON string."""
@@ -274,6 +274,8 @@ class RunResult:
             data["infos"] = [i.to_compact_dict() for i in self.infos]
         if self.output_stats:
             data["output_stats"] = self.output_stats
+        if self.extension_data:
+            data["extension_data"] = self.extension_data
         return json.dumps(data, indent=2)
 
     def to_markdown(self, include_warnings: bool = False) -> str:
@@ -1079,6 +1081,7 @@ class RegisteredCommand:
     capture_env: list[str] = field(default_factory=list)  # Additional env vars
     suppress: list[str] = field(default_factory=list)  # Fingerprints to suppress in reports
     lines: str | None = None  # Default line selection for run/exec output (e.g., "+20-")
+    _extra: dict[str, Any] = field(default_factory=dict)
 
     @property
     def is_template(self) -> bool:
@@ -1174,6 +1177,7 @@ class RegisteredCommand:
             d["suppress"] = self.suppress
         if self.lines is not None:
             d["lines"] = self.lines
+        d.update(self._extra)
         return d
 
 
@@ -1343,6 +1347,12 @@ def format_command_help(cmd: RegisteredCommand) -> str:
     return "\n".join(lines)
 
 
+_KNOWN_COMMAND_KEYS = {
+    "name", "cmd", "tpl", "defaults", "description", "timeout",
+    "format", "capture", "capture_env", "suppress", "lines",
+}
+
+
 def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
     """Internal implementation of load_commands."""
     commands_path = lq_dir / COMMANDS_FILE
@@ -1372,6 +1382,9 @@ def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
             if not isinstance(suppress, list):
                 suppress = []
 
+            # Collect unknown keys into _extra for extension passthrough
+            extra = {k: v for k, v in config.items() if k not in _KNOWN_COMMAND_KEYS}
+
             commands[name] = RegisteredCommand(
                 name=name,
                 cmd=config.get("cmd"),  # None if not present
@@ -1384,6 +1397,7 @@ def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
                 capture_env=capture_env,
                 suppress=suppress,
                 lines=config.get("lines"),  # Default line selection for output
+                _extra=extra,
             )
     return commands
 

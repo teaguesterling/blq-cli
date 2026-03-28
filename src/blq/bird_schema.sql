@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS blq_metadata (
 );
 
 -- Insert schema version (ignore if exists)
-INSERT OR IGNORE INTO blq_metadata VALUES ('schema_version', '2.2.0');
+INSERT OR IGNORE INTO blq_metadata VALUES ('schema_version', '2.4.0');
 INSERT OR IGNORE INTO blq_metadata VALUES ('storage_mode', 'duckdb');
 
 -- Base path for blob storage (set at runtime)
@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     git_branch        VARCHAR,                          -- Current branch
     git_dirty         BOOLEAN,                          -- Uncommitted changes
     ci                JSON,                             -- CI provider context
+    extension_data    JSON,                             -- Extension data (namespaced by extension)
 
     -- Partitioning
     date              DATE NOT NULL DEFAULT CURRENT_DATE
@@ -167,6 +168,7 @@ CREATE TABLE IF NOT EXISTS invocations (
     git_branch        VARCHAR,                          -- Current branch
     git_dirty         BOOLEAN,                          -- Uncommitted changes
     ci                JSON,                             -- CI provider context
+    extension_data    JSON,                             -- Extension data (namespaced by extension)
 
     -- Partitioning
     date              DATE NOT NULL DEFAULT CURRENT_DATE
@@ -447,6 +449,7 @@ SELECT
     i.git_branch,
     i.git_dirty,
     i.ci,
+    i.extension_data,
     i.tag,
     COUNT(e.id) AS event_count,
     COUNT(e.id) FILTER (WHERE e.severity = 'error') AS error_count,
@@ -459,7 +462,7 @@ FROM invocations i
 LEFT JOIN events e ON e.invocation_id = i.id
 GROUP BY i.id, i.source_name, i.source_type, i.cmd, i.timestamp, i.duration_ms,
          i.exit_code, i.cwd, i.executable, i.hostname, i.platform, i.arch,
-         i.git_commit, i.git_branch, i.git_dirty, i.ci, i.tag, i.date;
+         i.git_commit, i.git_branch, i.git_dirty, i.ci, i.extension_data, i.tag, i.date;
 
 -- ============================================================================
 -- ATTEMPTS/OUTCOMES MACROS (for long-running command support)
@@ -490,6 +493,7 @@ SELECT
     a.git_branch,
     a.git_dirty,
     a.ci,
+    a.extension_data,
     a.date,
     o.exit_code,
     o.duration_ms,
@@ -844,3 +848,41 @@ WHERE EXISTS (
     WHERE l.line_number BETWEEN mm.line_number - ctx AND mm.line_number + ctx
 )
 ORDER BY l.line_number;
+
+-- ============================================================================
+-- SANDBOX QUERIES
+-- ============================================================================
+
+-- Sandbox summary: distribution of sandbox specs across commands.
+-- Shows sandbox configuration and computed grades for each command.
+--
+-- Example:
+--   SELECT * FROM blq_sandbox_summary();
+--
+CREATE OR REPLACE MACRO blq_sandbox_summary() AS TABLE
+SELECT
+    source_name,
+    extension_data->'sandbox'->>'network' AS sandbox_network,
+    extension_data->'sandbox'->>'filesystem' AS sandbox_filesystem,
+    extension_data->'sandbox'->>'timeout' AS sandbox_timeout,
+    extension_data->'sandbox'->>'memory' AS sandbox_memory,
+    CASE
+        WHEN extension_data->'sandbox'->>'network' = 'unrestricted'
+             AND extension_data->'sandbox'->>'filesystem' = 'unrestricted' THEN 'open'
+        WHEN extension_data->'sandbox'->>'network' != 'none' THEN 'broad'
+        WHEN extension_data->'sandbox'->>'filesystem' IN ('workspace_only', 'scoped_write') THEN 'scoped'
+        WHEN extension_data->'sandbox'->>'filesystem' = 'readonly' THEN 'pinhole'
+        ELSE 'sealed'
+    END AS grade_w,
+    CASE
+        WHEN extension_data->'sandbox'->>'network' != 'none' THEN 8
+        WHEN extension_data->'sandbox'->>'processes' = 'visible'
+             AND extension_data->'sandbox'->>'filesystem' != 'readonly' THEN 7
+        WHEN extension_data->'sandbox'->>'filesystem' != 'readonly' THEN 4
+        ELSE 2
+    END AS effects_ceiling,
+    count(*) AS run_count
+FROM invocations
+WHERE extension_data IS NOT NULL
+  AND extension_data->'sandbox' IS NOT NULL
+GROUP BY ALL;

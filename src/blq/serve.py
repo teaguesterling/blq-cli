@@ -463,6 +463,11 @@ def _run_impl(
                 if infos:
                     concise["infos"] = infos[:5]
 
+                # Include extension data if present
+                ext_data = full_result.get("extension_data")
+                if ext_data:
+                    concise["extension_data"] = ext_data
+
                 # Resolve lines spec: explicit param > command config > None
                 effective_lines = _resolve_command_lines(command, lines)
 
@@ -1978,7 +1983,7 @@ def _info_impl(ref: str) -> dict[str, Any]:
             """).fetchall()
             outputs = [{"stream": r[0], "bytes": r[1]} for r in outputs_result]
 
-        return {
+        info = {
             "run_ref": run_ref,
             "run_serial": run_serial,
             "invocation_id": invocation_id,
@@ -2007,6 +2012,11 @@ def _info_impl(ref: str) -> dict[str, Any]:
             "git_dirty": bool(row.get("git_dirty")) if not pd.isna(row.get("git_dirty")) else None,
             "outputs": outputs,
         }
+        # Include extension data if present in the invocation record
+        ext_data = _to_json_safe(row.get("extension_data"))
+        if ext_data:
+            info["extension_data"] = ext_data
+        return info
     except FileNotFoundError:
         return {"error": "No lq repository found"}
     except Exception as e:
@@ -2376,6 +2386,9 @@ def _command_to_dict(cmd: Any) -> dict[str, Any]:
         result["cmd"] = cmd.cmd
     if cmd.lines is not None:
         result["lines"] = cmd.lines
+    if cmd._extra:
+        for key, val in cmd._extra.items():
+            result[key] = val
     return result
 
 
@@ -2391,6 +2404,7 @@ def _register_command_impl(
     format: str | None = None,
     run_now: bool = False,
     lines: str | None = None,
+    sandbox: str | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Implementation of register_command."""
     try:
@@ -2473,6 +2487,10 @@ def _register_command_impl(
             format = detect_format_from_command(command_str)
             format_detected = True
 
+        extra: dict[str, Any] = {}
+        if sandbox is not None:
+            extra["sandbox"] = sandbox
+
         new_command = RegisteredCommand(
             name=name,
             cmd=cmd,
@@ -2483,6 +2501,7 @@ def _register_command_impl(
             capture=capture,
             format=format or "auto",
             lines=lines,
+            _extra=extra,
         )
         commands[name] = new_command
         config.save_commands()
@@ -2554,6 +2573,8 @@ def _commands_impl() -> dict[str, Any]:
             entry["timeout"] = cmd.timeout
             entry["capture"] = cmd.capture
             entry["format"] = cmd.format
+            if cmd._extra:
+                entry["extensions"] = cmd._extra
             result.append(entry)
         return {"commands": result}
     except Exception as e:
@@ -3307,6 +3328,7 @@ def register_command(
     format: str | None = None,
     run_now: bool = False,
     lines: str | None = None,
+    sandbox: str | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Register a new command.
 
@@ -3329,6 +3351,9 @@ def register_command(
         run_now: Run the command immediately after registering (default: false)
         lines: Default line selection for output (e.g., '+20-' for last 20 lines).
                Saved in command config; used automatically on each run unless overridden.
+        sandbox: Sandbox specification. Either a preset name ('test', 'build', 'readonly',
+                 'integration', 'unrestricted', 'none') or a dict with individual fields
+                 (network, filesystem, timeout, memory, cpu, processes, tmpfs).
 
     Returns:
         Success status and registered command details. If run_now=True,
@@ -3336,7 +3361,8 @@ def register_command(
     """
     _check_tool_enabled("register_command")
     return _register_command_impl(
-        name, cmd, tpl, defaults, description, timeout, capture, force, format, run_now, lines
+        name, cmd, tpl, defaults, description, timeout, capture, force, format, run_now, lines,
+        sandbox,
     )
 
 

@@ -62,8 +62,14 @@ Homepage = "https://blq-cli.readthedocs.com/"
 Repository = "https://github.com/teaguesterling/blq-cli"
 Issues = "https://github.com/teaguesterling/blq-cli/issues"
 
+[project.entry-points."blq.extensions"]
+sandbox = "blq_sandbox:SandboxExtension"
+
+[project.entry-points."blq.sandbox.engines"]
+systemd = "blq_sandbox_systemd:SystemdEngine"
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/blq"]
+packages = ["src/blq", "src/blq_sandbox", "src/blq_sandbox_systemd"]
 
 [tool.ruff]
 target-version = "py310"

@@ -20,6 +20,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from types import FrameType
+from typing import Any
 
 from blq.bird import (
     AttemptRecord,
@@ -44,6 +45,10 @@ from blq.commands.core import (
     parse_log_content,
     write_run_parquet,
 )
+from blq.ext import CommandSpec
+from blq.ext.discovery import load_extensions, order_extensions
+from blq.ext.local_executor import LocalExecutor
+from blq.ext.pipeline import run_pipeline
 
 # Logger for lq status messages
 logger = logging.getLogger("blq-cli")
@@ -235,6 +240,7 @@ def _execute_with_live_output(
     session_id: str | None = None,
     capture_env_vars: list[str] | None = None,
     timeout: int | None = None,
+    extension_data: dict[str, Any] | None = None,
 ) -> RunResult:
     """Execute command with live output streaming (attempts/outcomes pattern).
 
@@ -308,6 +314,7 @@ def _execute_with_live_output(
         git_branch=git_info.branch,
         git_dirty=git_info.dirty,
         ci=ci_info,
+        extension_data=extension_data,
     )
 
     # =========================================================================
@@ -344,177 +351,61 @@ def _execute_with_live_output(
     logger.debug(f"Attempt ID: {attempt_id}")
     logger.debug(f"Run ID: {run_id}")
 
-    # Open live output file for writing
-    live_file = open(live_output_path, "w")  # noqa: SIM115
+    # Build CommandSpec for the extension pipeline
+    cmd_spec = CommandSpec(
+        command=command,
+        original_command=command,
+        command_name=source_name,
+        attempt_id=attempt_id,
+        workspace=config.lq_dir.parent,  # project root
+        cwd=Path(cwd),
+        live_dir=live_dir,
+        env=environment or {},
+        timeout=timeout,
+        extension_data=extension_data.copy() if extension_data else {},
+    )
 
-    # Track subprocess for signal handling
-    process: subprocess.Popen[str] | None = None
+    # Load and run extensions through the pipeline
+    extensions = load_extensions()
+    ordered = order_extensions(extensions)
 
-    def _cleanup_subprocess(signum: int, frame: FrameType | None) -> None:
-        """Signal handler that terminates subprocess before exiting."""
-        nonlocal process
-        if process is not None and process.poll() is None:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL)
-            except (ProcessLookupError, OSError):
-                pass
-        # Re-raise the signal
-        if signum == signal.SIGINT:
-            raise KeyboardInterrupt
-        else:
-            sys.exit(128 + signum)
+    # Create executor with live output path
+    executor = LocalExecutor(quiet=quiet, live_output_path=live_output_path)
 
-    # Helper to update PID in background (concurrent DB access)
-    def _update_pid_async(pid: int) -> None:
-        """Update attempt PID in a background thread to minimize lock time."""
+    # Run the pipeline: prepare -> execute -> collect
+    exec_result = run_pipeline(cmd_spec, ordered, executor)
+
+    # Update PID in live metadata (filesystem) and DB
+    if exec_result.pid is not None:
+        # Write to live metadata first (filesystem fallback)
         try:
-            # Use retry to handle lock contention with main execution
-            with BirdStore.open_with_retry(lq_dir, max_retries=3) as pid_store:
-                pid_store.update_attempt_pid(attempt_id, pid)
+            meta_path = Path(live_dir) / "meta.json"
+            if meta_path.exists():
+                import json as json_mod
+                meta = json_mod.loads(meta_path.read_text())
+                meta["pid"] = exec_result.pid
+                meta_path.write_text(json_mod.dumps(meta))
         except Exception:
-            # Non-critical - PID is also in live metadata
-            pass
+            pass  # Best-effort filesystem write
+        # Then update DB (brief lock)
+        try:
+            with BirdStore.open_with_retry(lq_dir, max_retries=3) as pid_store:
+                pid_store.update_attempt_pid(attempt_id, exec_result.pid)
+        except Exception:
+            pass  # Non-critical — PID is also in live metadata
 
-    # Register signal handlers to ensure subprocess cleanup
-    original_sigint = signal.signal(signal.SIGINT, _cleanup_subprocess)
-    original_sigterm = signal.signal(signal.SIGTERM, _cleanup_subprocess)
+    # Extract results for the rest of the function
+    exit_code = exec_result.exit_code
+    output = exec_result.output
+    output_lines = output.splitlines(keepends=True)
+    completed_at = exec_result.completed_at
+    duration_ms = exec_result.duration_ms
+    timed_out = exec_result.timeout
+    process_pid = exec_result.pid
 
-    try:
-        # Run command, streaming to live file
-        # Use start_new_session to create process group for clean termination
-        process = subprocess.Popen(
-            command,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            start_new_session=True,
-        )
-
-        # Update live metadata with subprocess PID (filesystem, no DB lock)
-        live_meta["pid"] = process.pid
-        meta_path = live_dir / "meta.json"
-        import json as json_module
-
-        meta_path.write_text(json_module.dumps(live_meta, default=str, indent=2))
-
-        # Update PID in DB concurrently (brief lock, doesn't block subprocess)
-        pid_thread = threading.Thread(target=_update_pid_async, args=(process.pid,), daemon=True)
-        pid_thread.start()
-
-        output_lines: list[str] = []
-        timed_out = False
-        assert process.stdout is not None
-
-        if timeout is None:
-            # No timeout - simple synchronous read
-            for line in process.stdout:
-                if not quiet:
-                    sys.stdout.write(line)
-                    sys.stdout.flush()
-                output_lines.append(line)
-                # Write to live file
-                live_file.write(line)
-                live_file.flush()
-            exit_code = process.wait()
-        else:
-            # Timeout enabled - use threading
-            output_queue: queue.Queue[str | None] = queue.Queue()
-
-            def read_output() -> None:
-                try:
-                    assert process.stdout is not None
-                    for line in process.stdout:
-                        output_queue.put(line)
-                finally:
-                    output_queue.put(None)
-
-            reader_thread = threading.Thread(target=read_output, daemon=True)
-            reader_thread.start()
-
-            deadline = time.monotonic() + timeout
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    timed_out = True
-                    break
-
-                try:
-                    queue_line = output_queue.get(timeout=min(remaining, 0.5))
-                    if queue_line is None:
-                        break
-                    if not quiet:
-                        sys.stdout.write(queue_line)
-                        sys.stdout.flush()
-                    output_lines.append(queue_line)
-                    # Write to live file
-                    live_file.write(queue_line)
-                    live_file.flush()
-                except queue.Empty:
-                    if process.poll() is not None:
-                        while True:
-                            try:
-                                drain_line = output_queue.get_nowait()
-                                if drain_line is None:
-                                    break
-                                if not quiet:
-                                    sys.stdout.write(drain_line)
-                                    sys.stdout.flush()
-                                output_lines.append(drain_line)
-                                live_file.write(drain_line)
-                                live_file.flush()
-                            except queue.Empty:
-                                break
-                        break
-
-            if timed_out:
-                # Kill entire process group (handles shell=True properly)
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except (ProcessLookupError, OSError):
-                    process.kill()  # Fallback
-                if not quiet:
-                    sys.stdout.write(f"\n[TIMEOUT after {timeout}s]\n")
-                    sys.stdout.flush()
-                live_file.write(f"\n[TIMEOUT after {timeout}s]\n")
-                reader_thread.join(timeout=1.0)
-                while True:
-                    try:
-                        timeout_line = output_queue.get_nowait()
-                        if timeout_line is None:
-                            break
-                        output_lines.append(timeout_line)
-                        live_file.write(timeout_line)
-                    except queue.Empty:
-                        break
-                exit_code = -1
-            else:
-                exit_code = process.wait()
-                reader_thread.join(timeout=1.0)
-
-    finally:
-        live_file.close()
-        # Restore original signal handlers
-        signal.signal(signal.SIGINT, original_sigint)
-        signal.signal(signal.SIGTERM, original_sigterm)
-        # Ensure subprocess is terminated if still running
-        if process is not None and process.poll() is None:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL)
-            except (ProcessLookupError, OSError):
-                pass
-
-    completed_at = datetime.now()
-    duration_ms = int((completed_at - started_at).total_seconds() * 1000)
-    output = "".join(output_lines)
+    # Merge collector metrics into extension_data for persistence
+    if exec_result.metrics:
+        cmd_spec.extension_data.setdefault("metrics", {}).update(exec_result.metrics)
 
     # Parse output for events (before opening DB connection)
     events = parse_log_content(output, format_hint)
@@ -548,7 +439,7 @@ def _execute_with_live_output(
             executable=executable_path,
             format_hint=format_hint if format_hint != "auto" else None,
             hostname=hostname,
-            pid=process.pid if process else None,
+            pid=process_pid,
             tag=source_name,
             source_name=source_name,
             source_type=source_type,
@@ -559,6 +450,7 @@ def _execute_with_live_output(
             git_branch=git_info.branch,
             git_dirty=git_info.dirty,
             ci=ci_info,
+            extension_data=cmd_spec.extension_data or None,
         )
         store.write_invocation(invocation)
 
@@ -650,6 +542,7 @@ def _execute_with_live_output(
         output_stats=output_stats,
         source_name=source_name,
         status_reason=status_reason,
+        extension_data=cmd_spec.extension_data or extension_data,
     )
 
 
@@ -665,6 +558,7 @@ def _execute_command(
     session_id: str | None = None,
     capture_env_vars: list[str] | None = None,
     timeout: int | None = None,
+    extension_data: dict[str, Any] | None = None,
 ) -> RunResult:
     """Execute a command and capture its output.
 
@@ -702,6 +596,7 @@ def _execute_command(
             session_id=session_id,
             capture_env_vars=capture_env_vars,
             timeout=timeout,
+            extension_data=extension_data,
         )
 
     # Legacy parquet mode - write everything at the end
@@ -981,6 +876,7 @@ def _execute_command(
         source_name=source_name,
         output_stats=output_stats,
         status_reason=status_reason,
+        extension_data=extension_data,
     )
 
 
@@ -1287,6 +1183,13 @@ def cmd_run(args: argparse.Namespace) -> None:
     # Determine keep_raw (user config default or explicit flag)
     keep_raw = args.keep_raw or structured_output or user_config.keep_raw
 
+    # Pass all extension config sections as extension_data
+    ext_data = None
+    if cmd_name in registered_commands:
+        reg = registered_commands[cmd_name]
+        if reg._extra:
+            ext_data = dict(reg._extra)
+
     # Execute command with capture
     result = _execute_command(
         command=command,
@@ -1299,6 +1202,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         error_limit=args.error_limit,
         capture_env_vars=capture_env_vars,
         timeout=timeout,
+        extension_data=ext_data,
     )
 
     # Output based on format
