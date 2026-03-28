@@ -32,6 +32,8 @@ For ad-hoc shell commands, use `blq exec` instead.
 | `--capture` | `-C` | Force log capture (override command config) |
 | `--no-capture` | `-N` | Skip log capture, just run command |
 | `--register` | | Register and run an unregistered command |
+| `--no-lock` | | Bypass command lock (run even if lock is held) |
+| `--wait-lock SECONDS` | | Wait up to SECONDS for lock to be released |
 
 ## Examples
 

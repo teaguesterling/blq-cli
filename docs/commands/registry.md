@@ -191,6 +191,33 @@ description = "Format code"
 capture = false
 ```
 
+### Command Locks
+
+Commands can share a named lock to prevent concurrent execution:
+
+```toml
+[commands.build]
+cmd = "make -j8"
+lock = "build"
+
+[commands.test]
+cmd = "pytest"
+lock = "build"  # Shares lock — can't run while build is running
+
+[commands.lint]
+cmd = "ruff check"
+# No lock — runs concurrently with anything
+```
+
+When a lock is held, `blq run` fails immediately with a clear error. Use `--no-lock` to bypass or `--wait-lock SECONDS` to wait:
+
+```bash
+blq run test --no-lock         # Bypass lock
+blq run test --wait-lock 30    # Wait up to 30s for lock
+```
+
+Stale locks (from crashed processes) are automatically reclaimed.
+
 You can edit this file directly for bulk changes or to add parameterized commands.
 
 ## Auto-Detection
