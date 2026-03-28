@@ -2643,17 +2643,22 @@ def _sandbox_info_impl(command: str | None = None) -> dict[str, Any]:
         try:
             storage = _get_storage()
             if storage.has_data():
-                metrics_result = storage.sql("""
+                metrics_result = storage.sql(
+                    """
                     SELECT
                         count(*) as run_count,
-                        max(json_extract(extension_data, '$.metrics.memory_peak_bytes')::BIGINT) as max_memory,
-                        max(json_extract(extension_data, '$.metrics.cpu_usage_usec')::BIGINT) as max_cpu_usec,
+                        max(json_extract(extension_data,
+                            '$.metrics.memory_peak_bytes')::BIGINT) as max_memory,
+                        max(json_extract(extension_data,
+                            '$.metrics.cpu_usage_usec')::BIGINT) as max_cpu_usec,
                         avg(o.duration_ms)::INT as avg_duration_ms
                     FROM invocations i
                     LEFT JOIN outcomes o ON o.attempt_id = i.id
                     WHERE i.source_name = ?
                       AND i.extension_data IS NOT NULL
-                """, [name]).fetchone()
+                """,
+                    [name],
+                ).fetchone()
 
                 if metrics_result and metrics_result[0] > 0:
                     entry["observed"] = {

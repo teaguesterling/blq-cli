@@ -1,4 +1,5 @@
 """Sandbox specification commands."""
+
 from __future__ import annotations
 
 import json
@@ -6,7 +7,7 @@ import sys
 from typing import Any
 
 from blq.commands.core import BlqConfig
-from blq_sandbox.spec import PRESETS, SandboxSpec, resolve_sandbox
+from blq_sandbox.spec import resolve_sandbox
 
 
 def cmd_sandbox_list(args: Any) -> None:
@@ -39,13 +40,15 @@ def cmd_sandbox_list(args: Any) -> None:
     if getattr(args, "json", False):
         data = []
         for name, label, grade_w, ceiling, network in rows:
-            data.append({
-                "command": name,
-                "sandbox": label,
-                "grade_w": grade_w,
-                "effects_ceiling": ceiling,
-                "network": network,
-            })
+            data.append(
+                {
+                    "command": name,
+                    "sandbox": label,
+                    "grade_w": grade_w,
+                    "effects_ceiling": ceiling,
+                    "network": network,
+                }
+            )
         print(json.dumps(data, indent=2))
         return
 
@@ -122,17 +125,22 @@ def cmd_sandbox_suggest(args: Any) -> None:
 
     try:
         with BirdStore.open(config.lq_dir) as store:
-            result = store._conn.execute("""
+            result = store._conn.execute(
+                """
                 SELECT
                     count(*) as run_count,
-                    max(json_extract(extension_data, '$.metrics.memory_peak_bytes')::BIGINT) as max_memory,
-                    max(json_extract(extension_data, '$.metrics.cpu_usage_usec')::BIGINT) as max_cpu_usec,
+                    max(json_extract(extension_data,
+                        '$.metrics.memory_peak_bytes')::BIGINT) as max_memory,
+                    max(json_extract(extension_data,
+                        '$.metrics.cpu_usage_usec')::BIGINT) as max_cpu_usec,
                     max(o.duration_ms) as max_duration_ms
                 FROM invocations i
                 LEFT JOIN outcomes o ON o.attempt_id = i.id
                 WHERE i.source_name = ?
                   AND i.extension_data IS NOT NULL
-            """, [cmd_name]).fetchone()
+            """,
+                [cmd_name],
+            ).fetchone()
     except Exception as e:
         print(f"Error querying metrics: {e}", file=sys.stderr)
         sys.exit(1)
@@ -181,7 +189,8 @@ def cmd_sandbox_suggest(args: Any) -> None:
 
         suggested_timeout_s = int(max_duration_ms / 1000 * 3)
         print(f"  Observed max wall time: {format_duration(int(max_duration_ms / 1000))}")
-        print(f"  Suggested timeout:      {format_duration(max(suggested_timeout_s, 1))} (3x headroom)")
+        suggested_t = format_duration(max(suggested_timeout_s, 1))
+        print(f"  Suggested timeout:      {suggested_t} (3x headroom)")
         suggested["timeout"] = format_duration(max(suggested_timeout_s, 1))
 
     print()
@@ -190,7 +199,7 @@ def cmd_sandbox_suggest(args: Any) -> None:
     print(f"[commands.{cmd_name}.sandbox]")
     for key, val in suggested.items():
         if isinstance(val, list):
-            print(f'{key} = {json.dumps(val)}')
+            print(f"{key} = {json.dumps(val)}")
         else:
             print(f'{key} = "{val}"')
 
