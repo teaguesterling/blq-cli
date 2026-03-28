@@ -118,3 +118,34 @@ class TestBwrapEngineIntegration:
         )
         assert result.returncode == 0
         assert "preset-ok" in result.stdout
+
+
+class TestBwrapEngineDiscovery:
+    """Verify bwrap engine is found by the extension system."""
+
+    def test_load_engines_finds_bwrap(self):
+        from blq_sandbox.engines import load_engines
+
+        engines = load_engines()
+        assert "bwrap" in engines
+        assert engines["bwrap"].name == "bwrap"
+
+    def test_select_engines_picks_bwrap_for_network(self):
+        from blq_sandbox.engines import load_engines, select_engines
+
+        spec = SandboxSpec(network="none", filesystem="readonly", processes="isolated")
+        engines = load_engines()
+        selected = select_engines(spec, engines)
+        engine_names = [e.name for e in selected]
+        assert "bwrap" in engine_names
+
+    def test_bwrap_covers_more_than_systemd(self):
+        from blq_sandbox.engines import load_engines
+
+        engines = load_engines()
+        if "bwrap" in engines and "systemd" in engines:
+            bwrap_caps = engines["bwrap"].capabilities
+            systemd_caps = engines["systemd"].capabilities
+            # bwrap covers network/filesystem/processes which systemd doesn't
+            assert "network" in bwrap_caps
+            assert "network" not in systemd_caps
