@@ -4,6 +4,7 @@ Uses FastMCP's in-memory transport for efficient testing.
 """
 
 import subprocess
+import sys
 
 import pytest
 
@@ -27,7 +28,7 @@ def mcp_server_with_data(initialized_project, sample_build_script):
     from blq.serve import mcp
 
     subprocess.run(
-        ["blq", "exec", "--quiet", str(sample_build_script)],
+        [sys.executable, "-m", "blq", "exec", "--quiet", str(sample_build_script)],
         capture_output=True,
     )
 
@@ -41,13 +42,13 @@ def mcp_server_with_commands(initialized_project, sample_build_script):
 
     # Register a command
     subprocess.run(
-        ["blq", "commands", "register", "build", str(sample_build_script)],
+        [sys.executable, "-m", "blq", "commands", "register", "build", str(sample_build_script)],
         capture_output=True,
     )
 
     # Run the command to generate data
     subprocess.run(
-        ["blq", "run", "--quiet", "build"],
+        [sys.executable, "-m", "blq", "run", "--quiet", "build"],
         capture_output=True,
     )
 

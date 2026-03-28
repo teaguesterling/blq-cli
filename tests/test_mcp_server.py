@@ -4,6 +4,8 @@ Uses FastMCP's in-memory transport for efficient testing without
 subprocess or network overhead.
 """
 
+import sys
+
 import pytest
 
 # Skip all tests if fastmcp not installed
@@ -31,7 +33,7 @@ def mcp_server(initialized_project, sample_build_script):
 
     # Use exec for ad-hoc command execution (run is for registered commands only)
     subprocess.run(
-        ["blq", "exec", "--quiet", str(sample_build_script)],
+        [sys.executable, "-m", "blq", "exec", "--quiet", str(sample_build_script)],
         capture_output=True,
     )
 
