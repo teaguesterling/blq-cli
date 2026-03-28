@@ -531,7 +531,7 @@ def _execute_with_live_output(
         output_stats=output_stats,
         source_name=source_name,
         status_reason=status_reason,
-        extension_data=extension_data,
+        extension_data=cmd_spec.extension_data or extension_data,
     )
 
 

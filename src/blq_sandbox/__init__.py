@@ -32,6 +32,10 @@ class SandboxExtension:
         spec.extension_data["sandbox_grade_w"] = sandbox_spec.grade_w
         spec.extension_data["sandbox_effects_ceiling"] = sandbox_spec.effects_ceiling
 
+        # Bridge sandbox timeout to CommandSpec if not already set
+        if sandbox_spec.timeout is not None and spec.timeout is None:
+            spec.timeout = sandbox_spec.timeout
+
         # Load and select engines
         engines = load_engines()
         preferred = config.get("engines") if isinstance(config, dict) else None

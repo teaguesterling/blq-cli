@@ -13,8 +13,8 @@ def _make_spec(command: str = "echo hello", **overrides) -> CommandSpec:
         original_command=command,
         command_name="test",
         attempt_id="local-test-001",
-        workspace=Path("/project"),
-        cwd=Path("/project"),
+        workspace=Path.cwd(),
+        cwd=Path.cwd(),
         live_dir=Path("/tmp/blq-test-live"),
         env={},
     )

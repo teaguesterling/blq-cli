@@ -567,6 +567,12 @@ class BirdStore:
                     ).fetchone()
                     if result:
                         conn.execute(f"ALTER TABLE {table} RENAME COLUMN sandbox TO extension_data")
+                        # Wrap existing sandbox data in {"sandbox": ...} envelope
+                        conn.execute(
+                            f"UPDATE {table} SET extension_data = "
+                            f"json_object('sandbox', extension_data) "
+                            f"WHERE extension_data IS NOT NULL"
+                        )
                         logger.info(f"Migration: Renamed sandbox to extension_data in {table}")
                         migrations_applied = True
                     else:

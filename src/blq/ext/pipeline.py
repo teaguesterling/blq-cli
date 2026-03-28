@@ -37,4 +37,10 @@ def run_pipeline(
                 f"Collector {type(collector).__name__} failed: {e}"
             )
 
+    # 4. Store (forward order) — deferred: extensions write their own artifacts
+    # to BIRD storage. Not yet implemented; store() is a no-op on all extensions.
+    # When implemented, pass an open BirdStore connection:
+    # for ext in active_extensions:
+    #     ext.store(spec, result, store)
+
     return result

@@ -77,6 +77,7 @@ class LocalExecutor:
             signal.signal(signal.SIGINT, _cleanup)
             signal.signal(signal.SIGTERM, _cleanup)
 
+            run_env = {**os.environ, **spec.env} if spec.env else None
             process = subprocess.Popen(
                 spec.command,
                 shell=True,
@@ -84,6 +85,8 @@ class LocalExecutor:
                 stderr=subprocess.STDOUT,
                 text=True,
                 start_new_session=True,
+                cwd=str(spec.cwd),
+                env=run_env,
             )
             process_pid = process.pid
 
