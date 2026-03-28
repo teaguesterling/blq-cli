@@ -285,9 +285,11 @@ Each step down the taxonomy removes specific capabilities. The sandbox spec make
 
 ## Implementation
 
-### Enforcement engine: nsjail
+### Enforcement engines
 
-The enforcement layer should use [nsjail](https://github.com/google/nsjail) rather than raw bwrap. nsjail is Google's process isolation tool, built for exactly this use case: declarative sandbox specs enforced via Linux namespaces, cgroups, and seccomp.
+**bwrap engine (implemented)**: The `blq_sandbox_bwrap` package translates `SandboxSpec` into bubblewrap CLI flags. Covers namespace isolation (network via `--unshare-net`, filesystem via `--ro-bind`/`--bind`, PID via `--unshare-pid`), tmpfs mounts, hidden paths, and safety flags (`--die-with-parent`, `--new-session`). Does NOT handle memory/CPU limits (those are cgroup-based — use the systemd engine alongside bwrap for resource limits).
+
+**nsjail engine (future)**: For full-stack enforcement including seccomp and cgroup management. The enforcement layer should use [nsjail](https://github.com/google/nsjail) rather than raw bwrap. nsjail is Google's process isolation tool, built for exactly this use case: declarative sandbox specs enforced via Linux namespaces, cgroups, and seccomp.
 
 **Why nsjail over bwrap:**
 

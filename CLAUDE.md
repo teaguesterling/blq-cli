@@ -77,6 +77,7 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **`--compact` output mode** for run/exec commands (adaptive event vs raw output)
 - **Template command support** in MCP `register_command` (`tpl` and `defaults` params)
 - **Command locks** (`lock` field in commands.toml) for resource contention prevention
+- **Bwrap sandbox engine** for namespace isolation (network, filesystem, PID, tmpfs)
 - Full mypy type checking compliance
 - 730+ unit tests
 - Comprehensive documentation (README, docs/)
