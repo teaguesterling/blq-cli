@@ -557,6 +557,7 @@ class BirdStore:
 
         # Migration: 2.3.0 -> 2.4.0 (rename sandbox to extension_data)
         if (major, minor) < (2, 4):
+            migration_ok = True
             for table in ("attempts", "invocations"):
                 try:
                     # Check if old column exists
@@ -580,8 +581,10 @@ class BirdStore:
                             migrations_applied = True
                 except duckdb.Error as e:
                     logger.warning(f"Migration warning: {e}")
+                    migration_ok = False
 
-            conn.execute("UPDATE blq_metadata SET value = '2.4.0' WHERE key = 'schema_version'")
+            if migration_ok:
+                conn.execute("UPDATE blq_metadata SET value = '2.4.0' WHERE key = 'schema_version'")
 
         # If migrations were applied, reload views/macros to pick up new columns
         if migrations_applied:

@@ -392,6 +392,10 @@ def _execute_with_live_output(
     timed_out = exec_result.timeout
     process_pid = exec_result.pid
 
+    # Merge collector metrics into extension_data for persistence
+    if exec_result.metrics:
+        cmd_spec.extension_data.setdefault("metrics", {}).update(exec_result.metrics)
+
     # Parse output for events (before opening DB connection)
     events = parse_log_content(output, format_hint)
 
@@ -435,6 +439,7 @@ def _execute_with_live_output(
             git_branch=git_info.branch,
             git_dirty=git_info.dirty,
             ci=ci_info,
+            extension_data=cmd_spec.extension_data or None,
         )
         store.write_invocation(invocation)
 

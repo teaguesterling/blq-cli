@@ -9,6 +9,7 @@ Phase 1: Declaration and logging only (no enforcement).
 
 from __future__ import annotations
 
+import copy
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -228,7 +229,7 @@ class SandboxSpec:
         if name not in PRESETS:
             valid = ", ".join(sorted(PRESETS.keys()))
             raise ValueError(f"Unknown sandbox preset: {name!r}. Valid presets: {valid}")
-        return PRESETS[name]
+        return copy.copy(PRESETS[name])
 
     def matching_preset(self) -> str | None:
         """Return the preset name if this spec matches one exactly, else None."""

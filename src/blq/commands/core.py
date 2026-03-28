@@ -1348,7 +1348,7 @@ def format_command_help(cmd: RegisteredCommand) -> str:
 
 
 _KNOWN_COMMAND_KEYS = {
-    "cmd", "tpl", "defaults", "description", "timeout",
+    "name", "cmd", "tpl", "defaults", "description", "timeout",
     "format", "capture", "capture_env", "suppress", "lines",
 }
 

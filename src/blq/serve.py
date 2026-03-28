@@ -2386,9 +2386,8 @@ def _command_to_dict(cmd: Any) -> dict[str, Any]:
         result["cmd"] = cmd.cmd
     if cmd.lines is not None:
         result["lines"] = cmd.lines
-    sandbox_config = cmd._extra.get("sandbox")
-    if sandbox_config is not None:
-        result["sandbox"] = sandbox_config
+    if cmd._extra:
+        result["extensions"] = cmd._extra
     return result
 
 
@@ -2573,9 +2572,8 @@ def _commands_impl() -> dict[str, Any]:
             entry["timeout"] = cmd.timeout
             entry["capture"] = cmd.capture
             entry["format"] = cmd.format
-            sandbox_config = cmd._extra.get("sandbox")
-            if sandbox_config is not None:
-                entry["sandbox"] = sandbox_config
+            if cmd._extra:
+                entry["extensions"] = cmd._extra
             result.append(entry)
         return {"commands": result}
     except Exception as e:
