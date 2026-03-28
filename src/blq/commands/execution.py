@@ -444,6 +444,33 @@ def _execute_with_live_output(
         # Parse output for events (before opening DB connection)
         events = parse_log_content(output, format_hint)
 
+        # Generate sandbox context event for failed sandboxed commands
+        if cmd_spec.extension_data.get("sandbox") and exit_code != 0:
+            import hashlib
+
+            sandbox = cmd_spec.extension_data["sandbox"]
+            grade_w = cmd_spec.extension_data.get("sandbox_grade_w", "unknown")
+            ceiling = cmd_spec.extension_data.get("sandbox_effects_ceiling", "unknown")
+
+            dims = []
+            for key in ("network", "filesystem", "processes"):
+                if key in sandbox:
+                    dims.append(f"{key}={sandbox[key]}")
+            spec_summary = ", ".join(dims) if dims else "custom"
+
+            events.append({
+                "severity": "info",
+                "message": (
+                    f"Command failed in sandbox ({spec_summary},"
+                    f" grade_w={grade_w}, effects_ceiling={ceiling})"
+                ),
+                "code": f"sandbox_exit_{exit_code}",
+                "fingerprint": hashlib.blake2b(
+                    f"sandbox:{grade_w}:{ceiling}:{exit_code}".encode(),
+                    digest_size=8,
+                ).hexdigest(),
+            })
+
         # =========================================================================
         # Window 2: Post-execution DB access (minimal lock time)
         # Uses retry to handle potential lock contention from concurrent commands
