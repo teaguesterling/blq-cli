@@ -338,6 +338,18 @@ def main() -> None:
         help="Output mode: never (always show events), always (show raw output), "
         "adaptive (show raw if shorter than events). Default: adaptive",
     )
+    p_run.add_argument(
+        "--no-lock",
+        action="store_true",
+        help="Bypass command lock (run even if lock is held)",
+    )
+    p_run.add_argument(
+        "--wait-lock",
+        type=int,
+        metavar="SECONDS",
+        default=None,
+        help="Wait up to SECONDS for lock to be released (default: fail immediately)",
+    )
     p_run.set_defaults(func=cmd_run)
     # Capture control: runtime flags override command config
     capture_group = p_run.add_mutually_exclusive_group()

@@ -26,6 +26,7 @@ from blq.config_format import (
     load_toml,
     save_toml,
 )
+
 # Git integration - re-exported for backward compatibility
 from blq.git import GitInfo, capture_git_info  # noqa: F401
 
@@ -1081,6 +1082,7 @@ class RegisteredCommand:
     capture_env: list[str] = field(default_factory=list)  # Additional env vars
     suppress: list[str] = field(default_factory=list)  # Fingerprints to suppress in reports
     lines: str | None = None  # Default line selection for run/exec output (e.g., "+20-")
+    lock: str | None = None  # Lock name for resource contention (shared across commands)
     _extra: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -1177,6 +1179,8 @@ class RegisteredCommand:
             d["suppress"] = self.suppress
         if self.lines is not None:
             d["lines"] = self.lines
+        if self.lock is not None:
+            d["lock"] = self.lock
         d.update(self._extra)
         return d
 
@@ -1348,8 +1352,18 @@ def format_command_help(cmd: RegisteredCommand) -> str:
 
 
 _KNOWN_COMMAND_KEYS = {
-    "name", "cmd", "tpl", "defaults", "description", "timeout",
-    "format", "capture", "capture_env", "suppress", "lines",
+    "name",
+    "cmd",
+    "tpl",
+    "defaults",
+    "description",
+    "timeout",
+    "format",
+    "capture",
+    "capture_env",
+    "suppress",
+    "lines",
+    "lock",
 }
 
 
@@ -1397,6 +1411,7 @@ def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
                 capture_env=capture_env,
                 suppress=suppress,
                 lines=config.get("lines"),  # Default line selection for output
+                lock=config.get("lock"),
                 _extra=extra,
             )
     return commands

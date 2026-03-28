@@ -49,6 +49,7 @@ from blq.ext import CommandSpec
 from blq.ext.discovery import load_extensions, order_extensions
 from blq.ext.local_executor import LocalExecutor
 from blq.ext.pipeline import run_pipeline
+from blq.locks import LockHeldError, acquire_lock, release_lock
 
 # Logger for lq status messages
 logger = logging.getLogger("blq-cli")
@@ -241,6 +242,9 @@ def _execute_with_live_output(
     capture_env_vars: list[str] | None = None,
     timeout: int | None = None,
     extension_data: dict[str, Any] | None = None,
+    lock_name: str | None = None,
+    no_lock: bool = False,
+    wait_lock: int | None = None,
 ) -> RunResult:
     """Execute command with live output streaming (attempts/outcomes pattern).
 
@@ -317,233 +321,266 @@ def _execute_with_live_output(
         extension_data=extension_data,
     )
 
-    # =========================================================================
-    # Window 1: Pre-execution DB access (minimal lock time)
-    # Uses retry to handle potential lock contention from concurrent commands
-    # =========================================================================
-    with BirdStore.open_with_retry(lq_dir) as store:
-        # Ensure session exists
-        store.ensure_session(
-            session_id=effective_session_id,
-            client_id=client_id,
-            invoker="blq",
-            invoker_type="cli",
-            cwd=cwd,
-        )
+    # Lock acquisition (before DB access)
+    locks_dir = config.lq_dir / "locks"
+    held_lock_name: str | None = None
 
-        # Write attempt - command is now visible as 'pending'
-        attempt_id = store.write_attempt(attempt)
-        run_id = store.get_next_run_number()
+    if lock_name and not no_lock:
+        if wait_lock is not None:
+            deadline = time.time() + wait_lock
+            while True:
+                try:
+                    acquire_lock(locks_dir, lock_name, os.getpid(), attempt.id, command)
+                    held_lock_name = lock_name
+                    break
+                except LockHeldError:
+                    if time.time() >= deadline:
+                        raise
+                    remaining = deadline - time.time()
+                    wait_time = min(1.0, remaining)
+                    if not quiet:
+                        logger.info(
+                            "Lock '%s' held, waiting (%.0fs remaining)...",
+                            lock_name,
+                            remaining,
+                        )
+                    time.sleep(wait_time)
+        else:
+            acquire_lock(locks_dir, lock_name, os.getpid(), attempt.id, command)
+            held_lock_name = lock_name
 
-        # Create live output directory
-        live_meta = {
-            "cmd": command,
-            "source_name": source_name,
-            "started_at": started_at.isoformat(),
-            "attempt_id": attempt_id,
-            "run_id": run_id,
-        }
-        live_dir = store.create_live_dir(attempt_id, live_meta)
-        live_output_path = store.get_live_output_path(attempt_id, "combined")
-    # Connection closed - DB unlocked during subprocess execution
+    try:
+        # =========================================================================
+        # Window 1: Pre-execution DB access (minimal lock time)
+        # Uses retry to handle potential lock contention from concurrent commands
+        # =========================================================================
+        with BirdStore.open_with_retry(lq_dir) as store:
+            # Ensure session exists
+            store.ensure_session(
+                session_id=effective_session_id,
+                client_id=client_id,
+                invoker="blq",
+                invoker_type="cli",
+                cwd=cwd,
+            )
 
-    logger.debug(f"Running: {command}")
-    logger.debug(f"Attempt ID: {attempt_id}")
-    logger.debug(f"Run ID: {run_id}")
+            # Write attempt - command is now visible as 'pending'
+            attempt_id = store.write_attempt(attempt)
+            run_id = store.get_next_run_number()
 
-    # Build CommandSpec for the extension pipeline
-    cmd_spec = CommandSpec(
-        command=command,
-        original_command=command,
-        command_name=source_name,
-        attempt_id=attempt_id,
-        workspace=config.lq_dir.parent,  # project root
-        cwd=Path(cwd),
-        live_dir=live_dir,
-        env=environment or {},
-        timeout=timeout,
-        extension_data=extension_data.copy() if extension_data else {},
-    )
+            # Create live output directory
+            live_meta = {
+                "cmd": command,
+                "source_name": source_name,
+                "started_at": started_at.isoformat(),
+                "attempt_id": attempt_id,
+                "run_id": run_id,
+            }
+            live_dir = store.create_live_dir(attempt_id, live_meta)
+            live_output_path = store.get_live_output_path(attempt_id, "combined")
+        # Connection closed - DB unlocked during subprocess execution
 
-    # Load and run extensions through the pipeline
-    extensions = load_extensions()
-    ordered = order_extensions(extensions)
+        logger.debug(f"Running: {command}")
+        logger.debug(f"Attempt ID: {attempt_id}")
+        logger.debug(f"Run ID: {run_id}")
 
-    # Create executor with live output path
-    executor = LocalExecutor(quiet=quiet, live_output_path=live_output_path)
-
-    # Run the pipeline: prepare -> execute -> collect
-    exec_result = run_pipeline(cmd_spec, ordered, executor)
-
-    # Update PID in live metadata (filesystem) and DB
-    if exec_result.pid is not None:
-        # Write to live metadata first (filesystem fallback)
-        try:
-            meta_path = Path(live_dir) / "meta.json"
-            if meta_path.exists():
-                import json as json_mod
-                meta = json_mod.loads(meta_path.read_text())
-                meta["pid"] = exec_result.pid
-                meta_path.write_text(json_mod.dumps(meta))
-        except Exception:
-            pass  # Best-effort filesystem write
-        # Then update DB (brief lock)
-        try:
-            with BirdStore.open_with_retry(lq_dir, max_retries=3) as pid_store:
-                pid_store.update_attempt_pid(attempt_id, exec_result.pid)
-        except Exception:
-            pass  # Non-critical — PID is also in live metadata
-
-    # Extract results for the rest of the function
-    exit_code = exec_result.exit_code
-    output = exec_result.output
-    output_lines = output.splitlines(keepends=True)
-    completed_at = exec_result.completed_at
-    duration_ms = exec_result.duration_ms
-    timed_out = exec_result.timeout
-    process_pid = exec_result.pid
-
-    # Merge collector metrics into extension_data for persistence
-    if exec_result.metrics:
-        cmd_spec.extension_data.setdefault("metrics", {}).update(exec_result.metrics)
-
-    # Parse output for events (before opening DB connection)
-    events = parse_log_content(output, format_hint)
-
-    # =========================================================================
-    # Window 2: Post-execution DB access (minimal lock time)
-    # Uses retry to handle potential lock contention from concurrent commands
-    # =========================================================================
-    with BirdStore.open_with_retry(lq_dir) as store:
-        # Write outcome - command is now 'completed'
-        outcome = OutcomeRecord(
+        # Build CommandSpec for the extension pipeline
+        cmd_spec = CommandSpec(
+            command=command,
+            original_command=command,
+            command_name=source_name,
             attempt_id=attempt_id,
-            completed_at=completed_at,
-            exit_code=exit_code if not timed_out else None,
-            duration_ms=duration_ms,
-            timeout=timed_out,
-        )
-        store.write_outcome(outcome)
-
-        # Also write to invocations table for backward compatibility
-        # (blq_events_flat joins events with invocations, not attempts)
-        invocation = InvocationRecord(
-            id=attempt_id,  # Same ID so events can join
-            session_id=effective_session_id,
-            cmd=command,
-            cwd=cwd,
-            client_id=client_id,
-            timestamp=started_at,
-            duration_ms=duration_ms,
-            exit_code=exit_code if not timed_out else -1,  # -1 indicates timeout
-            executable=executable_path,
-            format_hint=format_hint if format_hint != "auto" else None,
-            hostname=hostname,
-            pid=process_pid,
-            tag=source_name,
-            source_name=source_name,
-            source_type=source_type,
-            environment=environment or None,
-            platform=platform_name,
-            arch=arch,
-            git_commit=git_info.commit,
-            git_branch=git_info.branch,
-            git_dirty=git_info.dirty,
-            ci=ci_info,
-            extension_data=cmd_spec.extension_data or None,
-        )
-        store.write_invocation(invocation)
-
-        # Write events
-        store.write_events(
-            attempt_id,
-            events,
-            client_id=client_id,
-            format_used=format_hint if format_hint != "auto" else None,
-            hostname=hostname,
+            workspace=config.lq_dir.parent,  # project root
+            cwd=Path(cwd),
+            live_dir=live_dir,
+            env=environment or {},
+            timeout=timeout,
+            extension_data=extension_data.copy() if extension_data else {},
         )
 
-        # Finalize live output (move to blob storage) if keeping raw
+        # Load and run extensions through the pipeline
+        extensions = load_extensions()
+        ordered = order_extensions(extensions)
+
+        # Create executor with live output path
+        executor = LocalExecutor(quiet=quiet, live_output_path=live_output_path)
+
+        # Run the pipeline: prepare -> execute -> collect
+        exec_result = run_pipeline(cmd_spec, ordered, executor)
+
+        # Update PID in live metadata (filesystem) and DB
+        if exec_result.pid is not None:
+            # Write to live metadata first (filesystem fallback)
+            try:
+                meta_path = Path(live_dir) / "meta.json"
+                if meta_path.exists():
+                    import json as json_mod
+
+                    meta = json_mod.loads(meta_path.read_text())
+                    meta["pid"] = exec_result.pid
+                    meta_path.write_text(json_mod.dumps(meta))
+            except Exception:
+                pass  # Best-effort filesystem write
+            # Then update DB (brief lock)
+            try:
+                with BirdStore.open_with_retry(lq_dir, max_retries=3) as pid_store:
+                    pid_store.update_attempt_pid(attempt_id, exec_result.pid)
+            except Exception:
+                pass  # Non-critical — PID is also in live metadata
+
+        # Extract results for the rest of the function
+        exit_code = exec_result.exit_code
+        output = exec_result.output
+        output_lines = output.splitlines(keepends=True)
+        completed_at = exec_result.completed_at
+        duration_ms = exec_result.duration_ms
+        timed_out = exec_result.timeout
+        process_pid = exec_result.pid
+
+        # Merge collector metrics into extension_data for persistence
+        if exec_result.metrics:
+            cmd_spec.extension_data.setdefault("metrics", {}).update(exec_result.metrics)
+
+        # Parse output for events (before opening DB connection)
+        events = parse_log_content(output, format_hint)
+
+        # =========================================================================
+        # Window 2: Post-execution DB access (minimal lock time)
+        # Uses retry to handle potential lock contention from concurrent commands
+        # =========================================================================
+        with BirdStore.open_with_retry(lq_dir) as store:
+            # Write outcome - command is now 'completed'
+            outcome = OutcomeRecord(
+                attempt_id=attempt_id,
+                completed_at=completed_at,
+                exit_code=exit_code if not timed_out else None,
+                duration_ms=duration_ms,
+                timeout=timed_out,
+            )
+            store.write_outcome(outcome)
+
+            # Also write to invocations table for backward compatibility
+            # (blq_events_flat joins events with invocations, not attempts)
+            invocation = InvocationRecord(
+                id=attempt_id,  # Same ID so events can join
+                session_id=effective_session_id,
+                cmd=command,
+                cwd=cwd,
+                client_id=client_id,
+                timestamp=started_at,
+                duration_ms=duration_ms,
+                exit_code=exit_code if not timed_out else -1,  # -1 indicates timeout
+                executable=executable_path,
+                format_hint=format_hint if format_hint != "auto" else None,
+                hostname=hostname,
+                pid=process_pid,
+                tag=source_name,
+                source_name=source_name,
+                source_type=source_type,
+                environment=environment or None,
+                platform=platform_name,
+                arch=arch,
+                git_commit=git_info.commit,
+                git_branch=git_info.branch,
+                git_dirty=git_info.dirty,
+                ci=ci_info,
+                extension_data=cmd_spec.extension_data or None,
+            )
+            store.write_invocation(invocation)
+
+            # Write events
+            store.write_events(
+                attempt_id,
+                events,
+                client_id=client_id,
+                format_used=format_hint if format_hint != "auto" else None,
+                hostname=hostname,
+            )
+
+            # Finalize live output (move to blob storage) if keeping raw
+            if keep_raw:
+                store.finalize_live_output(attempt_id, "combined")
+
+            # Clean up live directory
+            store.cleanup_live_dir(attempt_id)
+        # Connection closed
+
+        # Save raw output to .lq/raw/ if requested (filesystem only, no DB)
         if keep_raw:
-            store.finalize_live_output(attempt_id, "combined")
+            raw_file = lq_dir / RAW_DIR / f"{run_id:03d}.log"
+            raw_file.parent.mkdir(parents=True, exist_ok=True)
+            raw_file.write_text(output)
 
-        # Clean up live directory
-        store.cleanup_live_dir(attempt_id)
-    # Connection closed
+        # Build structured result
+        error_events = [e for e in events if e.get("severity") == "error"]
+        warning_events = [e for e in events if e.get("severity") == "warning"]
 
-    # Save raw output to .lq/raw/ if requested (filesystem only, no DB)
-    if keep_raw:
-        raw_file = lq_dir / RAW_DIR / f"{run_id:03d}.log"
-        raw_file.parent.mkdir(parents=True, exist_ok=True)
-        raw_file.write_text(output)
+        if timed_out:
+            status = "TIMEOUT"
+        elif error_events:
+            status = "FAIL"
+        elif warning_events:
+            status = "WARN"
+        elif exit_code != 0:
+            status = "FAIL"
+        else:
+            status = "OK"
 
-    # Build structured result
-    error_events = [e for e in events if e.get("severity") == "error"]
-    warning_events = [e for e in events if e.get("severity") == "warning"]
+        # Compute status_reason and synthetic event for unexplained failures
+        status_reason = _compute_status_reason(
+            status, exit_code, len(error_events), len(warning_events), source_name, timed_out
+        )
+        if status == "FAIL" and not error_events and not warning_events and exit_code != 0:
+            synthetic = _make_synthetic_exit_event(source_name, exit_code, status_reason or "")
+            events.append(synthetic)
 
-    if timed_out:
-        status = "TIMEOUT"
-    elif error_events:
-        status = "FAIL"
-    elif warning_events:
-        status = "WARN"
-    elif exit_code != 0:
-        status = "FAIL"
-    else:
-        status = "OK"
+        # Build output stats
+        tail_lines = 5
+        max_line_length = 120
 
-    # Compute status_reason and synthetic event for unexplained failures
-    status_reason = _compute_status_reason(
-        status, exit_code, len(error_events), len(warning_events), source_name, timed_out
-    )
-    if status == "FAIL" and not error_events and not warning_events and exit_code != 0:
-        synthetic = _make_synthetic_exit_event(source_name, exit_code, status_reason or "")
-        events.append(synthetic)
+        def _truncate_line(ln: str) -> str:
+            stripped = ln.rstrip("\n\r")
+            if len(stripped) > max_line_length:
+                return stripped[:max_line_length] + "..."
+            return stripped
 
-    # Build output stats
-    tail_lines = 5
-    max_line_length = 120
+        output_stats: dict[str, int | list[str]] = {
+            "lines": len(output_lines),
+            "bytes": len(output),
+            "head": [_truncate_line(ln) for ln in output_lines[:tail_lines]],
+            "tail": [_truncate_line(ln) for ln in output_lines[-tail_lines:]],
+        }
 
-    def _truncate_line(ln: str) -> str:
-        stripped = ln.rstrip("\n\r")
-        if len(stripped) > max_line_length:
-            return stripped[:max_line_length] + "..."
-        return stripped
+        # Re-count after potential synthetic event
+        all_events = events
+        info_events = [e for e in all_events if e.get("severity") == "info"]
 
-    output_stats: dict[str, int | list[str]] = {
-        "lines": len(output_lines),
-        "bytes": len(output),
-        "head": [_truncate_line(ln) for ln in output_lines[:tail_lines]],
-        "tail": [_truncate_line(ln) for ln in output_lines[-tail_lines:]],
-    }
-
-    # Re-count after potential synthetic event
-    all_events = events
-    info_events = [e for e in all_events if e.get("severity") == "info"]
-
-    return RunResult(
-        run_id=run_id,
-        command=command,
-        status=status,
-        exit_code=exit_code,
-        started_at=started_at.isoformat(),
-        completed_at=completed_at.isoformat(),
-        duration_sec=duration_ms / 1000.0,
-        summary={
-            "total_events": len(all_events),
-            "errors": len(error_events),
-            "warnings": len(warning_events),
-            "info": len(info_events),
-        },
-        errors=[_make_event_summary(run_id, e) for e in error_events[:error_limit]],
-        warnings=[_make_event_summary(run_id, e) for e in warning_events[:error_limit]],
-        infos=[_make_event_summary(run_id, e) for e in info_events[:error_limit]],
-        parquet_path=str(lq_dir / "blq.duckdb"),
-        output_stats=output_stats,
-        source_name=source_name,
-        status_reason=status_reason,
-        extension_data=cmd_spec.extension_data or extension_data,
-    )
+        return RunResult(
+            run_id=run_id,
+            command=command,
+            status=status,
+            exit_code=exit_code,
+            started_at=started_at.isoformat(),
+            completed_at=completed_at.isoformat(),
+            duration_sec=duration_ms / 1000.0,
+            summary={
+                "total_events": len(all_events),
+                "errors": len(error_events),
+                "warnings": len(warning_events),
+                "info": len(info_events),
+            },
+            errors=[_make_event_summary(run_id, e) for e in error_events[:error_limit]],
+            warnings=[_make_event_summary(run_id, e) for e in warning_events[:error_limit]],
+            infos=[_make_event_summary(run_id, e) for e in info_events[:error_limit]],
+            parquet_path=str(lq_dir / "blq.duckdb"),
+            output_stats=output_stats,
+            source_name=source_name,
+            status_reason=status_reason,
+            extension_data=cmd_spec.extension_data or extension_data,
+        )
+    finally:
+        if held_lock_name:
+            release_lock(locks_dir, held_lock_name)
 
 
 def _execute_command(
@@ -559,6 +596,9 @@ def _execute_command(
     capture_env_vars: list[str] | None = None,
     timeout: int | None = None,
     extension_data: dict[str, Any] | None = None,
+    lock_name: str | None = None,
+    no_lock: bool = False,
+    wait_lock: int | None = None,
 ) -> RunResult:
     """Execute a command and capture its output.
 
@@ -578,6 +618,9 @@ def _execute_command(
         session_id: Optional session ID for grouping related runs (watch mode)
         capture_env_vars: Environment variables to capture (default: config.capture_env)
         timeout: Timeout in seconds. If None, no timeout is applied.
+        lock_name: Optional lock name for resource contention.
+        no_lock: If True, bypass lock even if lock_name is set.
+        wait_lock: If set, wait up to this many seconds for the lock.
 
     Returns:
         RunResult with execution details and parsed events
@@ -597,6 +640,9 @@ def _execute_command(
             capture_env_vars=capture_env_vars,
             timeout=timeout,
             extension_data=extension_data,
+            lock_name=lock_name,
+            no_lock=no_lock,
+            wait_lock=wait_lock,
         )
 
     # Legacy parquet mode - write everything at the end
@@ -1190,20 +1236,33 @@ def cmd_run(args: argparse.Namespace) -> None:
         if reg._extra:
             ext_data = dict(reg._extra)
 
+    # Extract lock parameters
+    lock_name = registered_commands[cmd_name].lock if cmd_name in registered_commands else None
+    no_lock = getattr(args, "no_lock", False)
+    wait_lock = getattr(args, "wait_lock", None)
+
     # Execute command with capture
-    result = _execute_command(
-        command=command,
-        source_name=source_name,
-        source_type="run",
-        config=config,
-        format_hint=format_hint,
-        quiet=quiet,
-        keep_raw=True if keep_raw else None,
-        error_limit=args.error_limit,
-        capture_env_vars=capture_env_vars,
-        timeout=timeout,
-        extension_data=ext_data,
-    )
+    try:
+        result = _execute_command(
+            command=command,
+            source_name=source_name,
+            source_type="run",
+            config=config,
+            format_hint=format_hint,
+            quiet=quiet,
+            keep_raw=True if keep_raw else None,
+            error_limit=args.error_limit,
+            capture_env_vars=capture_env_vars,
+            timeout=timeout,
+            extension_data=ext_data,
+            lock_name=lock_name,
+            no_lock=no_lock,
+            wait_lock=wait_lock,
+        )
+    except LockHeldError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        print("Use --no-lock to bypass or --wait-lock SECONDS to wait.", file=sys.stderr)
+        sys.exit(1)
 
     # Output based on format
     compact = getattr(args, "compact", "adaptive")

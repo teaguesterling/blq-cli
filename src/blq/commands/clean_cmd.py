@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from blq.commands.core import BlqConfig
+from blq.locks import cleanup_stale_locks
 
 
 def cmd_clean(args: argparse.Namespace) -> None:
@@ -201,6 +202,12 @@ def _clean_orphans(lq_dir: Path, min_age: int, dry_run: bool) -> None:
     store.close()
 
     print(f"\nMarked {len(orphaned)} run(s) as orphaned.")
+
+    # Clean up any stale lock files
+    locks_dir = lq_dir / "locks"
+    cleaned_locks = cleanup_stale_locks(locks_dir)
+    if cleaned_locks:
+        print(f"Cleaned {len(cleaned_locks)} stale lock(s): {', '.join(cleaned_locks)}")
 
 
 def _clean_schema(lq_dir: Path, confirm: bool) -> None:

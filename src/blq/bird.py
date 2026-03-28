@@ -24,6 +24,8 @@ from typing import Any, TypeVar
 
 import duckdb
 
+from blq.locks import cleanup_stale_locks
+
 # Logger for lock contention warnings
 logger = logging.getLogger("blq-bird")
 
@@ -1171,6 +1173,10 @@ class BirdStore:
             logger.info(
                 f"Marked stale attempt {attempt_id[:8]}... ({attempt['source_name']}) as orphaned"
             )
+
+        # Clean up any stale lock files left by orphaned processes
+        locks_dir = self.lq_dir / "locks"
+        cleanup_stale_locks(locks_dir)
 
         return orphaned_ids
 

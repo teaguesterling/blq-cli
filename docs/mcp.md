@@ -313,6 +313,7 @@ Register a command. Idempotent—returns existing if same command already regist
 {"name": "test", "cmd": "pytest -v", "run_now": true}
 {"name": "test", "cmd": "pytest -v", "force": true}  // overwrite
 {"name": "build", "cmd": "make {target}", "tpl": true, "defaults": {"target": "all"}}
+{"name": "test", "cmd": "pytest", "lock": "build"}  // shares lock with build
 ```
 
 Format is auto-detected from the command. Duplicate commands (same cmd, different name) return an error.

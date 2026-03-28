@@ -76,6 +76,7 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **`blq_search_lines` SQL macro** for regex search with context
 - **`--compact` output mode** for run/exec commands (adaptive event vs raw output)
 - **Template command support** in MCP `register_command` (`tpl` and `defaults` params)
+- **Command locks** (`lock` field in commands.toml) for resource contention prevention
 - Full mypy type checking compliance
 - 730+ unit tests
 - Comprehensive documentation (README, docs/)
@@ -97,6 +98,7 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 
 **Maintenance:**
 - [x] Configurable autoprune (periodic cleanup with predefined limits)
+- [x] Command locks for resource contention (`lock` field in commands.toml) - Issue #23
 
 ## Architecture
 
