@@ -1319,6 +1319,7 @@ def main() -> None:
         cmd_sandbox_help,
         cmd_sandbox_inspect,
         cmd_sandbox_list,
+        cmd_sandbox_profile,
         cmd_sandbox_suggest,
     )
 
@@ -1348,6 +1349,16 @@ def main() -> None:
     )
     p_sandbox_suggest.add_argument("command", help="Command name")
     p_sandbox_suggest.set_defaults(func=cmd_sandbox_suggest)
+
+    # sandbox profile
+    p_sandbox_profile = sandbox_subparsers.add_parser(
+        "profile", help="Profile command with strace"
+    )
+    p_sandbox_profile.add_argument("command", help="Command name to profile")
+    p_sandbox_profile.add_argument(
+        "--json", "-j", action="store_true", help="Output raw profile as JSON"
+    )
+    p_sandbox_profile.set_defaults(func=cmd_sandbox_profile)
 
     # Default handler
     p_sandbox.set_defaults(func=cmd_sandbox_help)

@@ -204,6 +204,77 @@ def cmd_sandbox_suggest(args: Any) -> None:
             print(f'{key} = "{val}"')
 
 
+def cmd_sandbox_profile(args: Any) -> None:
+    """Profile a command with strace to discover access patterns."""
+    import shutil
+
+    config = BlqConfig.ensure()
+    cmd_name = args.command
+
+    if not shutil.which("strace"):
+        print("Error: strace is not installed. Install with:", file=sys.stderr)
+        print("  sudo apt install strace", file=sys.stderr)
+        sys.exit(1)
+
+    if cmd_name not in config.commands:
+        print(f"Error: Unknown command '{cmd_name}'", file=sys.stderr)
+        sys.exit(1)
+
+    reg_cmd = config.commands[cmd_name]
+    command = reg_cmd.template
+
+    print(f"Profiling '{cmd_name}': {command}")
+    print("(This adds 2-10x overhead — one-time profiling step)")
+    print()
+
+    from blq_sandbox.profile import run_profile, suggest_spec_from_profile
+
+    workspace = config.lq_dir.parent
+    profile = run_profile(command, workspace=workspace, timeout=reg_cmd.timeout or 300)
+
+    if profile is None:
+        print("Error: Profiling failed", file=sys.stderr)
+        sys.exit(1)
+
+    if getattr(args, "json", False):
+        print(json.dumps(profile.to_dict(), indent=2))
+        return
+
+    # Summary
+    print(f"Files read:    {len(profile.files_read)}")
+    print(f"Files written: {len(profile.files_written)}")
+    print(f"Network:       {'yes' if profile.has_network else 'no'}")
+    print(f"Subprocesses:  {profile.process_spawns}")
+    print(f"Executables:   {', '.join(sorted(profile.executables))}")
+    print()
+
+    # Suggest spec
+    suggested = suggest_spec_from_profile(profile, workspace=workspace)
+    print("Suggested sandbox spec:")
+    print()
+    print(f"[commands.{cmd_name}.sandbox]")
+    for key, val in suggested.items():
+        if isinstance(val, list):
+            print(f"{key} = {json.dumps(val)}")
+        else:
+            print(f'{key} = "{val}"')
+
+    if profile.files_written:
+        print()
+        print("Write paths observed:")
+        for f in sorted(profile.files_written)[:20]:
+            print(f"  {f}")
+        if len(profile.files_written) > 20:
+            remaining = len(profile.files_written) - 20
+            print(f"  ... and {remaining} more")
+
+    if profile.network_connections:
+        print()
+        print("Network connections observed:")
+        for addr, port in sorted(profile.network_connections):
+            print(f"  {addr}:{port}")
+
+
 def cmd_sandbox_help(args: Any) -> None:
     """Default handler for 'blq sandbox' without subcommand."""
     cmd_sandbox_list(args)
