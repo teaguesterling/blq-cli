@@ -1,13 +1,16 @@
-"""Tests for the annotator system: Annotation dataclass and RunContext proxy."""
+"""Tests for the annotator system: Annotation, RunContext, and Annotator dispatch."""
 from __future__ import annotations
 
 import json
+import logging
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pytest
 
-from blq.ext.annotator import Annotation, RunContext
+from blq.ext.annotator import Annotation, RunContext, run_annotators
 
 
 class TestAnnotation:
@@ -183,3 +186,78 @@ class TestRunContext:
         evt2 = [e for e in events if e["id"] == "evt-2"][0]
         meta = json.loads(evt2["metadata"]) if isinstance(evt2["metadata"], str) else evt2["metadata"]
         assert len(meta["annotations"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# TestRunAnnotators — mock annotators
+# ---------------------------------------------------------------------------
+
+@dataclass
+class MockEagerAnnotator:
+    name: str = "eager-errors"
+    eager: bool = True
+    called: bool = False
+
+    def should_annotate(self, context: RunContext) -> bool:
+        return any(e["severity"] == "error" for e in context.events)
+
+    def annotate(self, context: RunContext) -> None:
+        self.called = True
+        for e in context.events:
+            if e["severity"] == "error":
+                ann = Annotation(annotator=self.name, type="diagnostic", display="inline", data={"enriched": True})
+                context.add_annotation(e["id"], ann)
+
+
+@dataclass
+class MockDeferredAnnotator:
+    name: str = "deferred"
+    eager: bool = False
+    called: bool = False
+
+    def should_annotate(self, context: RunContext) -> bool:
+        return True
+
+    def annotate(self, context: RunContext) -> None:
+        self.called = True
+
+
+@dataclass
+class MockFailingAnnotator:
+    name: str = "failing"
+    eager: bool = True
+
+    def should_annotate(self, context: RunContext) -> bool:
+        return True
+
+    def annotate(self, context: RunContext) -> None:
+        raise RuntimeError("boom")
+
+
+class TestRunAnnotators:
+    def test_eager_runs_with_eager_only(self, run_ctx):
+        eager = MockEagerAnnotator()
+        deferred = MockDeferredAnnotator()
+        run_annotators(run_ctx, [eager, deferred], eager_only=True)
+        assert eager.called
+
+    def test_deferred_skipped_with_eager_only(self, run_ctx):
+        eager = MockEagerAnnotator()
+        deferred = MockDeferredAnnotator()
+        run_annotators(run_ctx, [eager, deferred], eager_only=True)
+        assert not deferred.called
+
+    def test_all_run_without_eager_only(self, run_ctx):
+        eager = MockEagerAnnotator()
+        deferred = MockDeferredAnnotator()
+        run_annotators(run_ctx, [eager, deferred], eager_only=False)
+        assert eager.called
+        assert deferred.called
+
+    def test_failing_annotator_does_not_block_others(self, run_ctx, caplog):
+        failing = MockFailingAnnotator()
+        deferred = MockDeferredAnnotator()
+        with caplog.at_level(logging.WARNING, logger="blq-ext"):
+            run_annotators(run_ctx, [failing, deferred], eager_only=False)
+        assert deferred.called
+        assert "failing" in caplog.text

@@ -3,15 +3,20 @@
 Provides:
 - Annotation: typed data attached to events
 - RunContext: lazy, DB-backed access to a stored run
+- Annotator protocol + dispatch: plugin discovery and execution
 """
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
+from importlib.metadata import entry_points
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import duckdb
+
+logger = logging.getLogger("blq-ext")
 
 VALID_DISPLAYS = ("inline", "detail", "hidden")
 
@@ -168,3 +173,54 @@ class RunContext:
 
         # Invalidate cached events
         self._events = None
+
+
+# ---------------------------------------------------------------------------
+# Component 3: Annotator protocol + dispatch
+# ---------------------------------------------------------------------------
+
+
+class Annotator(Protocol):
+    """Protocol for annotator plugins."""
+
+    name: str
+    eager: bool
+
+    def should_annotate(self, context: RunContext) -> bool: ...
+    def annotate(self, context: RunContext) -> None: ...
+
+
+def load_annotators() -> list[Annotator]:
+    """Discover annotators via entry_points(group='blq.annotators')."""
+    annotators: list[Annotator] = []
+    for ep in entry_points(group="blq.annotators"):
+        try:
+            factory = ep.load()
+            annotator = factory()
+            annotators.append(annotator)
+        except Exception as e:
+            logger.warning(f"Failed to load annotator {ep.name}: {e}")
+    return annotators
+
+
+def run_annotators(
+    context: RunContext,
+    annotators: list[Annotator],
+    eager_only: bool = False,
+) -> None:
+    """Run matching annotators against a run context.
+
+    When eager_only is True, only annotators with eager=True are executed.
+    Failures are logged but do not prevent other annotators from running.
+    """
+    for annotator in annotators:
+        if eager_only and not annotator.eager:
+            continue
+        try:
+            if annotator.should_annotate(context):
+                annotator.annotate(context)
+        except Exception as e:
+            logger.warning(
+                f"Annotator {annotator.name} failed: {e}",
+                exc_info=True,
+            )
