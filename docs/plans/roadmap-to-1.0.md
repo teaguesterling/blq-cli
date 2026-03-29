@@ -13,16 +13,24 @@
 
 ### 0.10.x — Sandbox Hardening (current)
 
-What we have: bwrap enforcement, strace profiling, sandbox CLI, auto-detect presets.
+**Done:**
+- [x] Bwrap enforcement engine (network, filesystem, PID, tmpfs)
+- [x] Strace profiling (`blq sandbox profile`)
+- [x] Sandbox CLI (list, inspect, suggest, profile)
+- [x] Auto-detect presets on init
+- [x] `--sandbox` flag on register
+- [x] Sandbox violation events
+- [x] MCP sandbox_info tool
+- [x] Annotator plugin system (RunContext, eager/deferred dispatch)
+- [x] Spec tightening (`blq sandbox tighten`)
 
 **Remaining:**
-- [ ] nsjail engine for full-stack enforcement (seccomp + cgroup + namespaces)
-  - Spack package for nsjail installation (see `docs/plans/explore-nsjail-spack-package.md`)
-  - Python wrapper for nsjail config (see `docs/plans/explore-nsjail-python-wrapper.md`)
-- [ ] Phase 0 Tier 3: seccomp learning mode (requires nsjail)
-- [ ] Phase 3: spec tightening from observed usage (the ratchet)
-  - `blq sandbox tighten <cmd>` — auto-narrow spec based on N runs of profiling data
-- [ ] Sandbox violation events with specificity (not just "failed in sandbox" but "write blocked to /etc/foo")
+- [ ] Specific violation events — detect permission-denied patterns (#29)
+- [ ] First annotator plugin — source context lookup (#30)
+
+**Deferred to post-1.0:**
+- nsjail engine (#42) — requires building from source
+- seccomp learning mode (#43) — requires nsjail
 
 ### 0.11.x — Unified Service Layer
 
@@ -30,12 +38,8 @@ The biggest architectural debt. Currently MCP shells out to `blq run --json` and
 
 **Goal:** Single implementation for each operation, called by both CLI and MCP.
 
-- [ ] Extract command execution into a service module (not tied to argparse or MCP)
-- [ ] Extract query operations (events, status, history, info, inspect) into service module
-- [ ] CLI becomes a thin argparse → service adapter
-- [ ] MCP becomes a thin tool → service adapter
-- [ ] Remove subprocess calls from MCP server (`_run_impl` currently runs `python -m blq run`)
-- [ ] Shared error handling and output formatting
+- [ ] Extract execution service (#31)
+- [ ] Extract query services (#32)
 
 **Why before 1.0:** Every new feature currently needs parallel implementation in CLI and MCP. The duplication makes the API surface unreliable — MCP and CLI can diverge silently. A service layer means one source of truth.
 
@@ -43,11 +47,8 @@ The biggest architectural debt. Currently MCP shells out to `blq run --json` and
 
 Fetch and query logs from CI systems. This is the last major feature gap.
 
-- [ ] Design finalization (see `docs/design/design-sync.md`)
-- [ ] CI log fetching (GitHub Actions, GitLab CI)
-- [ ] Central store for cross-project aggregation
-- [ ] `blq sync pull` / `blq sync push` commands
-- [ ] MCP sync tools
+- [ ] CI log fetching — GitHub Actions, GitLab CI (#33)
+- [ ] Central store for cross-project aggregation (#34)
 
 **Why before 1.0:** Users expect to query CI logs the same way they query local logs. Without sync, blq is local-only, which limits its value for teams.
 
@@ -55,22 +56,18 @@ Fetch and query logs from CI systems. This is the last major feature gap.
 
 Settle the storage format before committing to API stability.
 
-- [ ] Migrate `.lq/` → `.bird/` directory (or decide to keep `.lq/`)
-- [ ] Finalize BIRD schema version (currently 2.4.0)
-- [ ] Running process tracking in BIRD spec
-- [ ] Migration path from 0.x → 1.0 schema
-- [ ] Document storage format guarantees
+- [ ] `.lq/` vs `.bird/` directory decision and migration (#35)
+- [ ] Finalize schema version, document storage guarantees (#36)
 
 **Why before 1.0:** Changing the storage directory or schema after 1.0 would be a breaking change. Lock it down now.
 
 ### 0.14.x — Polish & Stability
 
-- [ ] Plugin system for third-party extensions (commands, fields, engines)
-- [ ] Comprehensive error messages (every failure path should explain what to do)
-- [ ] Performance audit (startup time, query latency, large log handling)
-- [ ] Integration test suite covering CLI → MCP → DuckDB round-trips
-- [ ] API documentation (Python API reference, MCP tool schemas)
-- [ ] duckdb_mcp integration exploration (ATTACH/DETACH workflow)
+- [ ] Plugin system documentation and API stability (#37)
+- [ ] Performance audit (#38)
+- [ ] Comprehensive error messages (#39)
+- [ ] Integration test suite — CLI → MCP → DuckDB round-trips (#40)
+- [ ] API documentation — Python reference, MCP schemas (#41)
 
 ### 1.0.0 — Stable Release
 
@@ -87,10 +84,17 @@ Settle the storage format before committing to API stability.
 - Extension engine protocol (may add methods)
 - Internal module structure (imports may change)
 
+## Post-1.0
+
+- [ ] nsjail sandbox engine (#42)
+- [ ] seccomp learning mode (#43)
+- [ ] duckdb_mcp integration (ATTACH/DETACH workflow)
+- [ ] Windows support exploration
+
 ## Sequencing
 
 ```
-0.10.x  Sandbox hardening (nsjail, spec tightening)
+0.10.x  Sandbox hardening — finish remaining items
   ↓
 0.11.x  Unified service layer (architecture cleanup)
   ↓
@@ -116,3 +120,16 @@ The order matters:
 - Real-time streaming (blq is batch-oriented)
 - Multi-tenant / hosted service
 - Backward compatibility with pre-0.10 storage formats (migration tools provided, but no runtime support)
+
+## Issue Tracker
+
+All roadmap items are tracked as GitHub issues with milestone labels:
+
+| Label | Issues |
+|-------|--------|
+| `milestone:0.10.x` | #29, #30 |
+| `milestone:0.11.x` | #31, #32 |
+| `milestone:0.12.x` | #21, #33, #34 |
+| `milestone:0.13.x` | #35, #36 |
+| `milestone:0.14.x` | #37, #38, #39, #40, #41 |
+| `post-1.0` | #42, #43 |
