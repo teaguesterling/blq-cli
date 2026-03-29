@@ -146,7 +146,28 @@ blq run test
 
 If the command fails due to sandbox restrictions, blq generates a structured info event with the sandbox context, queryable via `blq events`.
 
-### 5. Query
+### 5. Tighten
+
+After accumulating runs, auto-narrow the spec based on observed resource usage:
+
+```bash
+blq sandbox tighten test
+# Tightening sandbox spec for 'test' (from 15 runs):
+#   memory: 512m -> 256m
+#   timeout: 1m -> 30s
+#   cpu: 30s -> 15s
+# Updated commands.toml
+```
+
+Use `--dry-run` to preview changes without writing:
+
+```bash
+blq sandbox tighten test --dry-run
+```
+
+Tightening only reduces bounds — it never loosens them. It applies headroom (2x memory, 2x CPU, 3x timeout) to observed maximums. Requires at least 3 runs for reliable data.
+
+### 6. Query
 
 Check sandbox status across all commands:
 
@@ -185,6 +206,19 @@ AI agents can query and manage sandbox specs:
 ```
 
 The `sandbox_info` tool returns the spec, grades, and observed resource metrics (memory peak, CPU usage, average duration) when monitoring data is available.
+
+## Annotators
+
+Annotators are plugins that enrich stored events with additional context. They run after events are written to the database and add structured annotations to the `metadata` JSON column.
+
+Each annotation has:
+- **type** — what kind of enrichment (source, provenance, diagnostic)
+- **display** — when to show it: `inline` (always), `detail` (inspect only), `hidden` (queryable only)
+- **data** — annotator-specific payload
+
+Annotators declare whether they're **eager** (run during `blq run`) or **deferred** (run on demand). Eager annotators execute in Window 2 alongside event storage. Deferred annotators run when explicitly requested.
+
+Annotators are discovered via Python entry points (`blq.annotators` group).
 
 ## Requirements
 

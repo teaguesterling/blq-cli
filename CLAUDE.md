@@ -81,6 +81,8 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **Strace profiling** (`blq sandbox profile`) for sandbox spec discovery (Phase 0 Tier 2)
 - **Sandbox observability** (violation events, `blq sandbox` CLI, `sandbox_info` MCP tool)
 - **Sandbox registration** (`--sandbox` flag on register, auto-detect presets on init)
+- **Annotator plugin system** for enriching run events (RunContext proxy, eager/deferred dispatch)
+- **Sandbox spec tightening** (`blq sandbox tighten`) — auto-narrow from observed data
 - Full mypy type checking compliance
 - 730+ unit tests
 - Comprehensive documentation (README, docs/)
