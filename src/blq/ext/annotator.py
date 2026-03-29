@@ -2,11 +2,16 @@
 
 Provides:
 - Annotation: typed data attached to events
+- RunContext: lazy, DB-backed access to a stored run
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+import duckdb
 
 VALID_DISPLAYS = ("inline", "detail", "hidden")
 
@@ -42,3 +47,124 @@ class Annotation:
             display=d["display"],
             data=d["data"],
         )
+
+
+class RunContext:
+    """Lazy, DB-backed access to a stored run."""
+
+    def __init__(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        invocation_id: str,
+        source_root: Path,
+    ) -> None:
+        self._conn = conn
+        self._invocation_id = invocation_id
+        self._source_root = source_root
+        self._events: list[dict[str, Any]] | None = None
+        self._metadata: dict[str, Any] | None = None
+        self._exit_code: int | None = None
+        self._duration_ms: int | None = None
+        self._outcome_loaded = False
+
+    @property
+    def conn(self) -> duckdb.DuckDBPyConnection:
+        return self._conn
+
+    @property
+    def invocation_id(self) -> str:
+        return self._invocation_id
+
+    @property
+    def source_root(self) -> Path:
+        return self._source_root
+
+    @property
+    def events(self) -> list[dict[str, Any]]:
+        if self._events is None:
+            rows = self._conn.execute(
+                "SELECT * FROM events WHERE invocation_id = ? ORDER BY event_index",
+                [self._invocation_id],
+            ).fetchall()
+            columns = [
+                desc[0]
+                for desc in self._conn.execute(
+                    "SELECT * FROM events LIMIT 0"
+                ).description
+            ]
+            self._events = [dict(zip(columns, row)) for row in rows]
+        return self._events
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        if self._metadata is None:
+            row = self._conn.execute(
+                "SELECT source_name, cmd, cwd, extension_data, timestamp "
+                "FROM invocations WHERE id = ?",
+                [self._invocation_id],
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"No invocation found: {self._invocation_id}")
+            ext_data = row[3]
+            if isinstance(ext_data, str):
+                ext_data = json.loads(ext_data)
+            self._metadata = {
+                "source_name": row[0],
+                "cmd": row[1],
+                "cwd": row[2],
+                "extension_data": ext_data,
+                "timestamp": row[4],
+            }
+        return self._metadata
+
+    @property
+    def extension_data(self) -> dict[str, Any]:
+        return self.metadata["extension_data"]
+
+    def _load_outcome(self) -> None:
+        if not self._outcome_loaded:
+            row = self._conn.execute(
+                "SELECT exit_code, duration_ms FROM outcomes WHERE attempt_id = ?",
+                [self._invocation_id],
+            ).fetchone()
+            if row is not None:
+                self._exit_code = row[0]
+                self._duration_ms = row[1]
+            self._outcome_loaded = True
+
+    @property
+    def exit_code(self) -> int | None:
+        self._load_outcome()
+        return self._exit_code
+
+    @property
+    def duration_ms(self) -> int | None:
+        self._load_outcome()
+        return self._duration_ms
+
+    def add_annotation(self, event_id: str, annotation: Annotation) -> None:
+        """Append an annotation to an event's metadata JSON."""
+        row = self._conn.execute(
+            "SELECT metadata FROM events WHERE id = ?",
+            [event_id],
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"No event found: {event_id}")
+
+        meta = row[0]
+        if isinstance(meta, str):
+            meta = json.loads(meta)
+        if meta is None:
+            meta = {}
+
+        annotations = meta.get("annotations", [])
+        annotations.append(annotation.to_dict())
+        meta["annotations"] = annotations
+
+        self._conn.execute(
+            "UPDATE events SET metadata = ? WHERE id = ?",
+            [json.dumps(meta), event_id],
+        )
+
+        # Invalidate cached events
+        self._events = None
