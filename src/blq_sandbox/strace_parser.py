@@ -34,7 +34,7 @@ _RE_CONNECT_INET = re.compile(
     re.DOTALL,
 )
 
-# connect(..., {sa_family=AF_INET6, sin6_port=htons(PORT), ..., inet_pton(AF_INET6, "ADDR"), ...}) = N
+# connect(..., {sa_family=AF_INET6, sin6_port=htons(PORT), ...}) = N
 _RE_CONNECT_INET6 = re.compile(
     r'connect\([^,]+,\s*\{sa_family=AF_INET6,'
     r'.*?sin6_port=htons\((\d+)\),'
