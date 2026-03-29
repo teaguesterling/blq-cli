@@ -530,6 +530,18 @@ def _execute_with_live_output(
                 hostname=hostname,
             )
 
+            # Run eager annotators on stored events
+            from blq.ext.annotator import RunContext, load_annotators, run_annotators
+
+            annotators = load_annotators()
+            if annotators:
+                run_context = RunContext(
+                    conn=store._conn,
+                    invocation_id=attempt_id,
+                    source_root=config.lq_dir.parent,
+                )
+                run_annotators(run_context, annotators, eager_only=True)
+
             # Finalize live output (move to blob storage) if keeping raw
             if keep_raw:
                 store.finalize_live_output(attempt_id, "combined")
