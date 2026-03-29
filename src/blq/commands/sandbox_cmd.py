@@ -275,6 +275,118 @@ def cmd_sandbox_profile(args: Any) -> None:
             print(f"  {addr}:{port}")
 
 
+def cmd_sandbox_tighten(args: Any) -> None:
+    """Tighten sandbox spec from observed resource data."""
+    config = BlqConfig.ensure()
+    cmd_name = args.command
+
+    if cmd_name not in config.commands:
+        print(f"Error: Unknown command '{cmd_name}'", file=sys.stderr)
+        sys.exit(1)
+
+    reg_cmd = config.commands[cmd_name]
+    sandbox_raw = reg_cmd._extra.get("sandbox")
+
+    if sandbox_raw is None:
+        print(f"Error: Command '{cmd_name}' has no sandbox spec.", file=sys.stderr)
+        print("Use 'blq sandbox suggest' to generate one first.", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        current = resolve_sandbox(sandbox_raw)
+    except (ValueError, TypeError) as e:
+        print(f"Error resolving sandbox spec: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if current is None:
+        print(f"Error: Command '{cmd_name}' has no sandbox spec.", file=sys.stderr)
+        sys.exit(1)
+
+    # Query observed metrics from BIRD
+    from blq.bird import BirdStore
+
+    try:
+        with BirdStore.open(config.lq_dir) as store:
+            result = store._conn.execute(
+                """
+                SELECT
+                    count(*) as run_count,
+                    max(json_extract(extension_data,
+                        '$.metrics.memory_peak_bytes')::BIGINT) as max_memory,
+                    max(json_extract(extension_data,
+                        '$.metrics.cpu_usage_usec')::BIGINT) as max_cpu_usec,
+                    max(o.duration_ms) as max_duration_ms
+                FROM invocations i
+                LEFT JOIN outcomes o ON o.attempt_id = i.id
+                WHERE i.source_name = ?
+                  AND i.extension_data IS NOT NULL
+            """,
+                [cmd_name],
+            ).fetchone()
+    except Exception as e:
+        print(f"Error querying metrics: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    run_count = result[0] if result else 0
+    if run_count < 3:
+        print(
+            f"Insufficient data: only {run_count} run(s) found for '{cmd_name}'. "
+            "At least 3 runs are required for reliable tightening.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    max_memory = result[1]
+    max_cpu_usec = result[2]
+    max_duration_ms = result[3]
+
+    observed: dict[str, Any] = {}
+    if max_memory is not None:
+        observed["max_memory_bytes"] = max_memory
+    if max_cpu_usec is not None:
+        observed["max_cpu_usec"] = max_cpu_usec
+    if max_duration_ms is not None:
+        observed["max_duration_ms"] = max_duration_ms
+
+    from blq_sandbox.tighten import compute_tighter_spec
+
+    tighter = compute_tighter_spec(current, observed)
+
+    if tighter == current:
+        print("No changes: spec is already as tight as data allows.")
+        return
+
+    # Show diff
+    from blq_sandbox.spec import format_size, format_duration
+
+    print(f"Tightening sandbox spec for '{cmd_name}' (based on {run_count} runs):")
+    print()
+
+    def _fmt_memory(v: int | None) -> str:
+        return format_size(v) if v is not None else "unlimited"
+
+    def _fmt_duration(v: int | None) -> str:
+        return format_duration(v) if v is not None else "unlimited"
+
+    if tighter.memory != current.memory:
+        print(f"  memory:  {_fmt_memory(current.memory)} → {_fmt_memory(tighter.memory)}")
+    if tighter.cpu != current.cpu:
+        print(f"  cpu:     {_fmt_duration(current.cpu)} → {_fmt_duration(tighter.cpu)}")
+    if tighter.timeout != current.timeout:
+        print(f"  timeout: {_fmt_duration(current.timeout)} → {_fmt_duration(tighter.timeout)}")
+
+    if getattr(args, "dry_run", False):
+        print()
+        print("(dry-run: no changes written)")
+        return
+
+    # Write updated spec to commands.toml
+    reg_cmd._extra["sandbox"] = tighter.to_dict()
+    config.save_commands()
+    print()
+    print("Spec updated in commands.toml.")
+
+
 def cmd_sandbox_help(args: Any) -> None:
     """Default handler for 'blq sandbox' without subcommand."""
     cmd_sandbox_list(args)

@@ -1327,6 +1327,7 @@ def main() -> None:
         cmd_sandbox_list,
         cmd_sandbox_profile,
         cmd_sandbox_suggest,
+        cmd_sandbox_tighten,
     )
 
     p_sandbox = subparsers.add_parser(
@@ -1365,6 +1366,16 @@ def main() -> None:
         "--json", "-j", action="store_true", help="Output raw profile as JSON"
     )
     p_sandbox_profile.set_defaults(func=cmd_sandbox_profile)
+
+    # sandbox tighten
+    p_sandbox_tighten = sandbox_subparsers.add_parser(
+        "tighten", help="Tighten sandbox spec from observed data"
+    )
+    p_sandbox_tighten.add_argument("command", help="Command name")
+    p_sandbox_tighten.add_argument(
+        "--dry-run", action="store_true", help="Show changes without writing"
+    )
+    p_sandbox_tighten.set_defaults(func=cmd_sandbox_tighten)
 
     # Default handler
     p_sandbox.set_defaults(func=cmd_sandbox_help)
