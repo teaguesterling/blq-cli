@@ -740,6 +740,12 @@ def main() -> None:
         metavar="KEY=VALUE",
         help="Default value for template parameter (can repeat)",
     )
+    p_commands_register.add_argument(
+        "--sandbox",
+        "-S",
+        default=None,
+        help="Sandbox preset or 'custom' (e.g., test, build, readonly, none)",
+    )
     p_commands_register.set_defaults(func=cmd_register)
 
     # commands unregister

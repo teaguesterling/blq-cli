@@ -47,6 +47,15 @@ GITIGNORE_PATTERN = """# blq
 !.lq/config.toml
 !.lq/commands.toml"""
 
+# Default sandbox presets for detected command types
+_DEFAULT_SANDBOX_PRESETS: dict[str, str] = {
+    "test": "test",  # readonly, no network, 60s, 512m
+    "build": "build",  # workspace_only, no network, 5m, 2g
+    "lint": "readonly",  # readonly, no network, 30s, 256m
+    "clean": "build",  # workspace_only (needs to delete files)
+    "format": "build",  # workspace_only (modifies files)
+}
+
 # Build system detection rules
 # Each entry: (file_to_check, [(command_name, command, description), ...])
 BUILD_SYSTEM_DETECTORS: list[tuple[str, list[tuple[str, str, str]]]] = [
@@ -655,11 +664,16 @@ def _detect_and_register_commands(lq_dir: Path, auto_yes: bool, mode: str = DETE
     if auto_yes:
         # Auto-register all
         for name, cmd, desc in new_commands:
-            existing[name] = RegisteredCommand(
+            reg_cmd = RegisteredCommand(
                 name=name,
                 cmd=cmd,
                 description=desc,
             )
+            # Add default sandbox preset based on command type
+            preset = _DEFAULT_SANDBOX_PRESETS.get(name)
+            if preset:
+                reg_cmd._extra["sandbox"] = preset
+            existing[name] = reg_cmd
         config.save_commands()
         print(f"  Registered {len(new_commands)} command(s).")
     else:
@@ -668,11 +682,16 @@ def _detect_and_register_commands(lq_dir: Path, auto_yes: bool, mode: str = DETE
             response = input("\n  Register these commands? [Y/n] ").strip().lower()
             if response in ("", "y", "yes"):
                 for name, cmd, desc in new_commands:
-                    existing[name] = RegisteredCommand(
+                    reg_cmd = RegisteredCommand(
                         name=name,
                         cmd=cmd,
                         description=desc,
                     )
+                    # Add default sandbox preset based on command type
+                    preset = _DEFAULT_SANDBOX_PRESETS.get(name)
+                    if preset:
+                        reg_cmd._extra["sandbox"] = preset
+                    existing[name] = reg_cmd
                 config.save_commands()
                 print(f"  Registered {len(new_commands)} command(s).")
             else:

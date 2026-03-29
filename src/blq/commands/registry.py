@@ -243,7 +243,8 @@ def cmd_register(args: argparse.Namespace) -> None:
         )
         defaults_note = f" (defaults: {defaults})" if defaults else ""
         format_note = f" [format: {format_hint}]" if format_detected else ""
-        print(f"Registered template '{name}': {cmd_str}{defaults_note}{format_note}")
+        sandbox_note = f" [sandbox: {getattr(args, 'sandbox', None)}]" if getattr(args, "sandbox", None) else ""
+        print(f"Registered template '{name}': {cmd_str}{defaults_note}{format_note}{sandbox_note}")
     else:
         # Simple command
         commands[name] = RegisteredCommand(
@@ -256,7 +257,13 @@ def cmd_register(args: argparse.Namespace) -> None:
         )
         capture_note = " (no capture)" if not capture else ""
         format_note = f" [format: {format_hint}]" if format_detected else ""
-        print(f"Registered command '{name}': {cmd_str}{capture_note}{format_note}")
+        sandbox_note = f" [sandbox: {getattr(args, 'sandbox', None)}]" if getattr(args, "sandbox", None) else ""
+        print(f"Registered command '{name}': {cmd_str}{capture_note}{format_note}{sandbox_note}")
+
+    # Store sandbox in _extra if specified
+    sandbox = getattr(args, "sandbox", None)
+    if sandbox:
+        commands[name]._extra["sandbox"] = sandbox
 
     # Save commands to disk
     config.save_commands()
