@@ -28,6 +28,7 @@ blq inspect build:3:1
 | [Getting Started](getting-started.md) | Installation, setup, core workflows |
 | [Query Guide](query-guide.md) | Filtering, SQL, output formats |
 | [MCP Guide](mcp.md) | AI agent integration |
+| [Sandbox Guide](sandbox.md) | Execution isolation, presets, profiling |
 | [Integration](integration.md) | CI/CD, shell completions, hooks |
 | [Python API](python-api.md) | Programmatic access |
 
