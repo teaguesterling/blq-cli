@@ -218,6 +218,29 @@ blq run test --wait-lock 30    # Wait up to 30s for lock
 
 Stale locks (from crashed processes) are automatically reclaimed.
 
+### Sandbox Profiling
+
+Discover what resources a command actually uses to inform sandbox spec creation:
+
+```bash
+blq sandbox profile test
+```
+
+This wraps the command in `strace` (2-10x overhead) and reports:
+- Files read and written
+- Network connections attempted
+- Subprocesses spawned
+- Suggested sandbox spec based on observed patterns
+
+Use the output to create a data-driven sandbox spec:
+
+```bash
+blq sandbox profile test     # discover access patterns
+blq sandbox suggest test     # combine with resource metrics
+```
+
+Requires `strace` to be installed (`sudo apt install strace`).
+
 You can edit this file directly for bulk changes or to add parameterized commands.
 
 ## Auto-Detection
