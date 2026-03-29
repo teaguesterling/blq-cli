@@ -174,12 +174,17 @@ Commands without a matching type (e.g., `docker-build`, `configure`) get no sand
 AI agents can query and manage sandbox specs:
 
 ```json
-// Query sandbox info
+// Query sandbox info for one command
 {"tool": "sandbox_info", "command": "test"}
 
-// Register with sandbox
+// Query all commands
+{"tool": "sandbox_info"}
+
+// Register with sandbox preset
 {"tool": "register_command", "name": "test", "cmd": "pytest", "sandbox": "test"}
 ```
+
+The `sandbox_info` tool returns the spec, grades, and observed resource metrics (memory peak, CPU usage, average duration) when monitoring data is available.
 
 ## Requirements
 

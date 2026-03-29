@@ -69,6 +69,12 @@ The typical agent workflow:
 | `diff` | Compare errors between runs |
 | `query` | SQL or filter expressions |
 
+### Sandbox
+
+| Tool | Description |
+|------|-------------|
+| `sandbox_info` | Get sandbox specs, grades, and resource metrics |
+
 ### Maintenance
 
 | Tool | Description |
@@ -314,6 +320,7 @@ Register a command. Idempotent—returns existing if same command already regist
 {"name": "test", "cmd": "pytest -v", "force": true}  // overwrite
 {"name": "build", "cmd": "make {target}", "tpl": true, "defaults": {"target": "all"}}
 {"name": "test", "cmd": "pytest", "lock": "build"}  // shares lock with build
+{"name": "lint", "cmd": "ruff check .", "sandbox": "readonly"}  // sandbox preset
 ```
 
 Format is auto-detected from the command. Duplicate commands (same cmd, different name) return an error.
@@ -395,6 +402,36 @@ Generate standalone CI shell scripts from registered commands.
 ```json
 {}
 {"commands": ["test", "lint"]}
+```
+
+---
+
+### sandbox_info
+
+Get sandbox specifications, grades, and observed resource metrics.
+
+```json
+{"command": "test"}           // specific command
+{}                            // all commands
+```
+
+**Returns:**
+
+```json
+{
+  "command": "test",
+  "spec": {"network": "none", "filesystem": "readonly", "timeout": "1m", "memory": "512m"},
+  "grade_w": "pinhole",
+  "effects_ceiling": 2,
+  "preset": "test",
+  "active_dimensions": ["filesystem", "memory", "network", "processes", "timeout"],
+  "observed": {
+    "run_count": 15,
+    "max_memory_bytes": 445644800,
+    "max_cpu_usec": 12500000,
+    "avg_duration_ms": 8500
+  }
+}
 ```
 
 ---

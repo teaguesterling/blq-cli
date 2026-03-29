@@ -71,6 +71,15 @@
 | `hooks remove` | Remove hooks |
 | `hooks status` | Show hook status |
 
+## Sandbox
+
+| Command | Description |
+|---------|-------------|
+| `sandbox list` | Show sandbox specs for all commands |
+| `sandbox inspect <cmd>` | Show spec + grade for a command |
+| `sandbox suggest <cmd>` | Suggest spec from observed metrics |
+| `sandbox profile <cmd>` | Profile with strace to discover access patterns |
+
 ## Utilities
 
 | Command | Description |

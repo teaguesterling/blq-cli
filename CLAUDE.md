@@ -79,6 +79,8 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - **Command locks** (`lock` field in commands.toml) for resource contention prevention
 - **Bwrap sandbox engine** for namespace isolation (network, filesystem, PID, tmpfs)
 - **Strace profiling** (`blq sandbox profile`) for sandbox spec discovery (Phase 0 Tier 2)
+- **Sandbox observability** (violation events, `blq sandbox` CLI, `sandbox_info` MCP tool)
+- **Sandbox registration** (`--sandbox` flag on register, auto-detect presets on init)
 - Full mypy type checking compliance
 - 730+ unit tests
 - Comprehensive documentation (README, docs/)

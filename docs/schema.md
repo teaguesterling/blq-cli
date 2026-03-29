@@ -45,6 +45,7 @@ Written when a command **starts**. Commands without a matching `outcomes` row ar
 | `git_branch` | VARCHAR | Current branch |
 | `git_dirty` | BOOLEAN | Uncommitted changes present |
 | `ci` | JSON | CI provider context |
+| `extension_data` | JSON | Extension data (sandbox spec, grades, metrics) |
 | `date` | DATE | Partition date |
 
 ### outcomes
@@ -221,6 +222,12 @@ Table-returning macros for common queries. Use with `SELECT * FROM macro_name()`
 | `blq_blob_root()` | Get blob storage root path |
 | `blq_errors_json(n := 10)` | Recent errors as JSON (for MCP/agents) |
 | `blq_history_status(n := 20, status := NULL)` | Run history with optional status filter |
+
+### Sandbox
+
+| Macro | Description |
+|-------|-------------|
+| `blq_sandbox_summary()` | Sandbox specs and grades per command (from extension_data) |
 
 ### Line Selection (requires read_lines extension)
 

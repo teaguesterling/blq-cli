@@ -53,6 +53,7 @@ blq register format "black ." --no-capture
 | `--timeout SECONDS` | `-t` | Timeout in seconds (default: 300) |
 | `--format FORMAT` | `-f` | Log format hint for parsing |
 | `--no-capture` | `-N` | Don't capture logs by default |
+| `--sandbox PRESET` | `-S` | Sandbox preset (test, build, readonly, none) |
 | `--force` | | Overwrite existing command |
 
 ### Examples
