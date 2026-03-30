@@ -1653,48 +1653,12 @@ def _status_impl() -> dict[str, Any]:
         # Check for orphaned processes (PIDs that are no longer running)
         # This runs automatically on status to keep the state clean
         orphaned = _check_and_cleanup_orphans(storage)
-
-        # Get status for each source (includes pending/running via blq_load_source_status)
-        runs_df = storage.sql("""
-            SELECT * FROM blq_load_source_status()
-            ORDER BY started_at DESC
-        """).df()
-        sources = []
         orphaned_count = len(orphaned)
 
-        for _, row in runs_df.iterrows():
-            error_count = _safe_int(row.get("error_count")) or 0
-            warning_count = _safe_int(row.get("warning_count")) or 0
-            run_status = _to_json_safe(row.get("status"))
+        # Query status via service layer
+        from blq.services.query import query_status
 
-            if run_status == "pending":
-                status_str = "RUNNING"
-            elif error_count > 0:
-                status_str = "FAIL"
-            elif warning_count > 0:
-                status_str = "WARN"
-            else:
-                status_str = "OK"
-
-            # Build run_ref from tag and run_id (serial number from blq_load_runs)
-            tag = _to_json_safe(row.get("tag"))
-            run_serial = _safe_int(row.get("run_id")) or 0
-            if tag:
-                run_ref = f"{tag}:{run_serial}"
-            else:
-                run_ref = str(run_serial)
-
-            sources.append(
-                {
-                    "name": _to_json_safe(row.get("source_name")) or "unknown",
-                    "status": status_str,
-                    "error_count": error_count,
-                    "warning_count": warning_count,
-                    "last_run": str(_to_json_safe(row.get("started_at")) or ""),
-                    "run_ref": run_ref,
-                    "run_serial": run_serial,
-                }
-            )
+        sources = query_status(storage)
 
         result: dict[str, Any] = {"sources": sources}
         if orphaned_count > 0:
