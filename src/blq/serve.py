@@ -1246,105 +1246,36 @@ def _inspect_impl(
         config = BlqConfig.find()
         ref_root = config.ref_root if config else None
 
-        # Source context
+        # Source context, git context, fingerprint history via service layer
+        from pathlib import Path
+        from blq.services.inspect import (
+            get_source_context,
+            get_git_context,
+            get_fingerprint_history,
+        )
+
+        source_root = Path(ref_root) if ref_root else Path.cwd()
+
         if include_source:
-            source_context = None
-            ref_file = event_data.get("ref_file")
-            ref_line_val = event_data.get("ref_line")
-            if ref_file and ref_line_val:
-                source_context = read_source_context(
-                    ref_file,
-                    ref_line_val,
-                    ref_root=ref_root,
-                    context=lines,
-                )
-            response["source_context"] = source_context
+            response["source_context"] = get_source_context(
+                ref_file=event_data.get("ref_file"),
+                ref_line=event_data.get("ref_line"),
+                source_root=source_root,
+                context_lines=lines,
+            )
 
-        # Git context
         if include_git:
-            git_context = None
-            ref_file = event_data.get("ref_file")
-            ref_line_val = event_data.get("ref_line")
-            if ref_file:
-                try:
-                    from pathlib import Path
+            response["git_context"] = get_git_context(
+                ref_file=event_data.get("ref_file"),
+                ref_line=event_data.get("ref_line"),
+                source_root=source_root,
+            )
 
-                    file_path = str(Path(ref_root) / ref_file) if ref_root else ref_file
-                    ctx = get_file_context(file_path, line=ref_line_val, history_limit=2)
-
-                    git_context = {"file": ref_file, "line": ref_line_val}
-
-                    if ctx.last_author:
-                        git_context["blame"] = {
-                            "author": ctx.last_author,
-                            "commit": ctx.last_commit,
-                            "modified": (
-                                ctx.last_modified.isoformat() if ctx.last_modified else None
-                            ),
-                        }
-
-                    if ctx.recent_commits:
-                        git_context["recent_commits"] = [
-                            {
-                                "hash": c.short_hash,
-                                "author": c.author,
-                                "time": c.time.isoformat(),
-                                "message": c.message,
-                            }
-                            for c in ctx.recent_commits
-                        ]
-                except Exception:
-                    pass
-
-            response["git_context"] = git_context
-
-        # Fingerprint history
         if include_fingerprint:
-            fp_history = None
-            fingerprint = event_data.get("fingerprint")
-            if fingerprint:
-                try:
-                    # Use parameterized query for safety
-                    fp_result = storage.sql(
-                        """
-                        SELECT run_serial, run_ref, timestamp, tag
-                        FROM blq_load_events()
-                        WHERE fingerprint = ?
-                        ORDER BY timestamp ASC
-                        """,
-                        [fingerprint],
-                    ).fetchall()
-
-                    if fp_result:
-                        first = fp_result[0]
-                        last = fp_result[-1]
-
-                        # Detect regression
-                        is_regression = False
-                        if len(fp_result) >= 2:
-                            run_serials = [r[0] for r in fp_result]
-                            for i in range(1, len(run_serials)):
-                                if run_serials[i] - run_serials[i - 1] > 1:
-                                    is_regression = True
-                                    break
-
-                        fp_history = {
-                            "fingerprint": (
-                                fingerprint[:16] + "..." if len(fingerprint) > 16 else fingerprint
-                            ),
-                            "first_seen": {
-                                "run_ref": first[1],
-                                "timestamp": first[2].isoformat() if first[2] else None,
-                            },
-                            "last_seen": {
-                                "run_ref": last[1],
-                                "timestamp": last[2].isoformat() if last[2] else None,
-                            },
-                            "occurrences": len(fp_result),
-                            "is_regression": is_regression,
-                        }
-                except Exception:
-                    pass
+            fp_history = get_fingerprint_history(
+                storage=storage,
+                fingerprint=event_data.get("fingerprint"),
+            )
 
             response["fingerprint_history"] = fp_history
 
