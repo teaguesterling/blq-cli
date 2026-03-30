@@ -243,69 +243,53 @@ def _get_suppress_condition(include_suppressed: bool = False) -> str | None:
 def _parse_ref(ref: str, storage: Any = None) -> tuple[str | None, int, int]:
     """Parse event reference into (tag, run_serial, event_id).
 
-    Supports relative references like +1:2 (event 2 in most recent run) or
-    test:+1:3 (event 3 in most recent test run).
-
-    Formats:
-    - "tag:serial:event" -> (tag, serial, event)
-    - "serial:event" -> (None, serial, event)
-    - "+N:event" -> relative: event in Nth most recent run
-    - "tag:+N:event" -> relative: event in Nth most recent run of tag
-
-    Args:
-        ref: Reference string to parse
-        storage: Optional storage backend for resolving relative refs
-
-    Returns:
-        Tuple of (tag or None, run_serial, event_id)
+    Delegates to services.refs.parse_ref for parsing and EventRef for
+    relative resolution (which needs DB access).
     """
-    parsed = EventRef.parse(ref)
+    from blq.services.refs import parse_ref
 
-    # Resolve relative references if storage provided
+    parsed = parse_ref(ref)
+
+    # Handle relative refs via legacy resolver (needs DB)
     if parsed.is_relative:
+        legacy = EventRef.parse(ref)
         if storage is None:
             storage = _get_storage()
-        parsed = resolve_ref(parsed, storage)
+        legacy = resolve_ref(legacy, storage)
+        return legacy.tag, legacy.run_id, legacy.event_id  # type: ignore[return-value]
 
     if parsed.event_id is None:
         raise ValueError(f"Invalid ref format: {ref}. Expected event reference with event_id")
-    if parsed.run_id is None:
+    if parsed.run_serial is None:
         raise ValueError(f"Invalid ref format: {ref}. Could not determine run_id")
 
-    return parsed.tag, parsed.run_id, parsed.event_id
+    return parsed.tag, parsed.run_serial, parsed.event_id
 
 
 def _parse_run_ref(ref: str, storage: Any = None) -> tuple[str | None, int]:
     """Parse run reference into (tag, run_serial).
 
-    Supports relative references like +1 (most recent run) or
-    test:+1 (most recent test run).
-
-    Formats:
-    - "tag:serial" -> (tag, serial)
-    - "serial" -> (None, serial)
-    - "+N" -> relative: Nth most recent run
-    - "tag:+N" -> relative: Nth most recent run of tag
-
-    Args:
-        ref: Reference string to parse
-        storage: Optional storage backend for resolving relative refs
-
-    Returns:
-        Tuple of (tag or None, run_serial)
+    Delegates to services.refs.parse_ref for parsing and EventRef for
+    relative resolution (which needs DB access).
     """
-    parsed = EventRef.parse(ref)
+    from blq.services.refs import parse_ref
 
-    # Resolve relative references if storage provided
+    parsed = parse_ref(ref)
+
+    # Handle relative refs via legacy resolver (needs DB)
     if parsed.is_relative:
+        legacy = EventRef.parse(ref)
         if storage is None:
             storage = _get_storage()
-        parsed = resolve_ref(parsed, storage)
+        legacy = resolve_ref(legacy, storage)
+        if legacy.run_id is None:
+            raise ValueError(f"Invalid ref format: {ref}. Could not determine run_id")
+        return legacy.tag, legacy.run_id
 
-    if parsed.run_id is None:
+    if parsed.run_serial is None:
         raise ValueError(f"Invalid ref format: {ref}. Could not determine run_id")
 
-    return parsed.tag, parsed.run_id
+    return parsed.tag, parsed.run_serial
 
 
 # ============================================================================
