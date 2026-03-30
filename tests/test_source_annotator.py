@@ -44,7 +44,7 @@ class TestFindEnclosingDefinition:
         defn = find_enclosing_definition(src, 3)  # inside __init__
         assert defn is not None
         # Should find __init__ (innermost) or MyService
-        assert defn.name in ("__init__", "MyService")
+        assert defn.name in ("MyService.__init__", "__init__", "MyService")
 
     def test_finds_python_method(self, tmp_path: Path):
         src = tmp_path / "baz.py"
@@ -55,7 +55,7 @@ class TestFindEnclosingDefinition:
         )
         defn = find_enclosing_definition(src, 3)  # inside bar
         assert defn is not None
-        assert defn.name == "bar"
+        assert defn.name == "Foo.bar"
 
     def test_finds_c_function(self, tmp_path: Path):
         src = tmp_path / "main.c"

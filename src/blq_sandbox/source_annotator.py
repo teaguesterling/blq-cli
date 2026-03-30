@@ -8,7 +8,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from blq.ext.annotator import Annotation, RunContext
 
@@ -79,7 +78,6 @@ def _find_python_definition(
 
     # Track whether the innermost def is inside a class (-> method)
     found_def: Definition | None = None
-    enclosing_class: str | None = None
 
     for idx in range(line_number - 1, -1, -1):
         raw = lines[idx]
@@ -111,8 +109,8 @@ def _find_python_definition(
             cls_name = m_cls.group(2)
             if found_def is not None and indent < found_def.line:
                 # The def we already found is inside this class -> method
-                enclosing_class = cls_name
                 found_def.kind = "method"
+                found_def.name = f"{cls_name}.{found_def.name}"
                 return found_def
             elif found_def is None:
                 return Definition(

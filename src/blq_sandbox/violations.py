@@ -18,8 +18,10 @@ class SandboxViolation:
 # Patterns: (compiled_regex, dimension, description)
 VIOLATION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     # Filesystem
-    (re.compile(r"Read-only file system", re.IGNORECASE), "filesystem", "write to read-only filesystem"),
-    (re.compile(r"cannot (?:touch|create|open)\b.*(?:Permission denied|Read-only)", re.IGNORECASE), "filesystem", "write blocked"),
+    (re.compile(r"Read-only file system", re.IGNORECASE),
+     "filesystem", "write to read-only filesystem"),
+    (re.compile(r"cannot (?:touch|create|open)\b.*(?:Permission denied|Read-only)",
+                re.IGNORECASE), "filesystem", "write blocked"),
     (re.compile(r"Permission denied", re.IGNORECASE), "filesystem", "permission denied"),
     # Network
     (re.compile(r"Network is unreachable", re.IGNORECASE), "network", "network unreachable"),
