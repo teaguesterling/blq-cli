@@ -233,20 +233,25 @@ def query_events(
     source: str | None = None,
     file_pattern: str | None = None,
     limit: int = 20,
+    default_to_latest: bool = False,
+    suppressed_fingerprints: list[str] | None = None,
+    all_runs: bool = False,
 ) -> dict[str, Any]:
     """Query events with optional filters.
 
     Args:
         storage: BlqStorage instance
-        severity: Filter by severity ('error', 'warning', 'info', 'note')
+        severity: Filter by severity ('error', 'warning', or comma-separated)
         run_id: Filter by run serial number
         source: Filter by source_name
         file_pattern: Filter by ref_file (LIKE pattern, e.g. '%main%')
         limit: Maximum number of events to return
+        default_to_latest: If True and no run_id/source given, show only latest run
+        suppressed_fingerprints: Fingerprints to exclude from results
+        all_runs: If True, show events from all runs (overrides default_to_latest)
 
     Returns a dict with:
-        events: list of dicts with keys ref, run_ref, severity, ref_file,
-                ref_line, message, fingerprint, code
+        events: list of event dicts
         total_count: int — total matching events before limit
 
     Returns {events: [], total_count: 0} on error.
@@ -254,49 +259,57 @@ def query_events(
     _empty: dict[str, Any] = {"events": [], "total_count": 0}
 
     try:
+        if not storage.has_data():
+            return _empty
+
         conn = storage.connection
 
         where_parts: list[str] = []
-        params: list[Any] = []
 
+        # Severity filter (supports comma-separated)
         if severity is not None:
-            where_parts.append("severity = ?")
-            params.append(severity)
+            if "," in severity:
+                severities = [s.strip() for s in severity.split(",")]
+                placeholders = ", ".join(f"'{s}'" for s in severities)
+                where_parts.append(f"severity IN ({placeholders})")
+            else:
+                where_parts.append(f"severity = '{severity}'")
 
         if run_id is not None:
-            where_parts.append("run_id = ?")
-            params.append(run_id)
-
-        if source is not None:
-            where_parts.append("source_name = ?")
-            params.append(source)
+            where_parts.append(f"run_serial = {int(run_id)}")
+        elif source:
+            where_parts.append(f"source_name = '{source}'")
+        elif default_to_latest and not all_runs:
+            last_run = conn.execute(
+                "SELECT MAX(run_serial) FROM blq_load_events()"
+            ).fetchone()
+            if last_run and last_run[0]:
+                where_parts.append(f"run_serial = {last_run[0]}")
 
         if file_pattern is not None:
-            where_parts.append("ref_file LIKE ?")
-            params.append(file_pattern)
+            where_parts.append(f"ref_file LIKE '{file_pattern}'")
+
+        # Suppression filter
+        if suppressed_fingerprints:
+            fp_list = ", ".join(f"'{fp}'" for fp in suppressed_fingerprints)
+            where_parts.append(
+                f"(fingerprint IS NULL OR fingerprint NOT IN ({fp_list}))"
+            )
 
         where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
         count_sql = f"SELECT COUNT(*) FROM blq_load_events() {where_clause}"
-        total_count_result = conn.execute(count_sql, params).fetchone()
+        total_count_result = conn.execute(count_sql).fetchone()
         total_count: int = int(total_count_result[0]) if total_count_result else 0
 
         events_sql = f"""
-            SELECT
-                ref,
-                run_ref,
-                severity,
-                ref_file,
-                ref_line,
-                message,
-                fingerprint,
-                code
+            SELECT *
             FROM blq_load_events()
             {where_clause}
-            ORDER BY started_at DESC, event_id
+            ORDER BY run_serial DESC, event_id
             LIMIT {int(limit)}
         """
-        result = conn.execute(events_sql, params)
+        result = conn.execute(events_sql)
         columns = [d[0] for d in result.description]
         rows = result.fetchall()
 

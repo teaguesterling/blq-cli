@@ -194,6 +194,22 @@ def _get_storage() -> BlqStorage:
     return BlqStorage.open()
 
 
+def _get_suppressed_list(include_suppressed: bool = False) -> list[str] | None:
+    """Get list of suppressed fingerprints, or None if no filtering."""
+    if include_suppressed:
+        return None
+    try:
+        from blq.cli import BlqConfig
+
+        config = BlqConfig.find()
+        if config is None:
+            return None
+        suppressed = get_all_suppressed_fingerprints(config)
+        return list(suppressed) if suppressed else None
+    except Exception:
+        return None
+
+
 def _get_suppress_condition(include_suppressed: bool = False) -> str | None:
     """Get SQL condition to exclude suppressed fingerprints.
 
@@ -775,62 +791,21 @@ def _errors_impl(
     """Implementation of errors command."""
     try:
         storage = _get_storage()
-        if not storage.has_data():
-            return {"errors": [], "total_count": 0}
+        from blq.services.query import query_events
 
-        # Build WHERE conditions
-        conditions = ["severity = 'error'"]
-
-        # Default to last run unless all_runs=True or specific run/source provided
-        if run_id is not None:
-            conditions.append(f"run_serial = {run_id}")
-        elif source:
-            conditions.append(f"source_name = '{source}'")
-        elif not all_runs:
-            # Default: only show errors from the most recent run
-            last_run = storage.sql("SELECT MAX(run_serial) FROM blq_load_events()").fetchone()
-            if last_run and last_run[0]:
-                conditions.append(f"run_serial = {last_run[0]}")
-        if file_pattern:
-            conditions.append(f"ref_file LIKE '{file_pattern}'")
-
-        # Apply suppression filter
-        suppress_condition = _get_suppress_condition(include_suppressed)
-        if suppress_condition:
-            conditions.append(suppress_condition)
-
-        where = " AND ".join(conditions)
-
-        # Get total count
-        count_result = storage.sql(
-            f"SELECT COUNT(*) FROM blq_load_events() WHERE {where}"
-        ).fetchone()
-        total_count = count_result[0] if count_result else 0
-
-        # Get errors - use ref column from view
-        df = storage.sql(f"""
-            SELECT * FROM blq_load_events()
-            WHERE {where}
-            ORDER BY run_serial DESC, event_id
-            LIMIT {limit}
-        """).df()
-
-        error_list = []
-        for _, row in df.iterrows():
-            error_list.append(
-                {
-                    "ref": _to_json_safe(row.get("ref")),
-                    "run_ref": _to_json_safe(row.get("run_ref")),
-                    "ref_file": _to_json_safe(row.get("ref_file")),
-                    "ref_line": _safe_int(row.get("ref_line")),
-                    "ref_column": _safe_int(row.get("ref_column")),
-                    "message": _to_json_safe(row.get("message")),
-                    "tool_name": _to_json_safe(row.get("tool_name")),
-                    "category": _to_json_safe(row.get("category")),
-                }
-            )
-
-        return {"errors": error_list, "total_count": total_count}
+        suppressed = _get_suppressed_list(include_suppressed)
+        result = query_events(
+            storage,
+            severity="error",
+            run_id=run_id,
+            source=source,
+            file_pattern=file_pattern,
+            limit=limit,
+            default_to_latest=not all_runs,
+            suppressed_fingerprints=suppressed,
+            all_runs=all_runs,
+        )
+        return {"errors": result["events"], "total_count": result["total_count"]}
     except FileNotFoundError:
         return {"errors": [], "total_count": 0}
 
@@ -845,60 +820,20 @@ def _warnings_impl(
     """Implementation of warnings command."""
     try:
         storage = _get_storage()
-        if not storage.has_data():
-            return {"warnings": [], "total_count": 0}
+        from blq.services.query import query_events
 
-        # Build WHERE conditions
-        conditions = ["severity = 'warning'"]
-
-        # Default to last run unless all_runs=True or specific run/source provided
-        if run_id is not None:
-            conditions.append(f"run_serial = {run_id}")
-        elif source:
-            conditions.append(f"source_name = '{source}'")
-        elif not all_runs:
-            # Default: only show warnings from the most recent run
-            last_run = storage.sql("SELECT MAX(run_serial) FROM blq_load_events()").fetchone()
-            if last_run and last_run[0]:
-                conditions.append(f"run_serial = {last_run[0]}")
-
-        # Apply suppression filter
-        suppress_condition = _get_suppress_condition(include_suppressed)
-        if suppress_condition:
-            conditions.append(suppress_condition)
-
-        where = " AND ".join(conditions)
-
-        # Get total count
-        count_result = storage.sql(
-            f"SELECT COUNT(*) FROM blq_load_events() WHERE {where}"
-        ).fetchone()
-        total_count = count_result[0] if count_result else 0
-
-        # Get warnings - use ref column from view
-        df = storage.sql(f"""
-            SELECT * FROM blq_load_events()
-            WHERE {where}
-            ORDER BY run_serial DESC, event_id
-            LIMIT {limit}
-        """).df()
-
-        warning_list = []
-        for _, row in df.iterrows():
-            warning_list.append(
-                {
-                    "ref": _to_json_safe(row.get("ref")),
-                    "run_ref": _to_json_safe(row.get("run_ref")),
-                    "ref_file": _to_json_safe(row.get("ref_file")),
-                    "ref_line": _safe_int(row.get("ref_line")),
-                    "ref_column": _safe_int(row.get("ref_column")),
-                    "message": _to_json_safe(row.get("message")),
-                    "tool_name": _to_json_safe(row.get("tool_name")),
-                    "category": _to_json_safe(row.get("category")),
-                }
-            )
-
-        return {"warnings": warning_list, "total_count": total_count}
+        suppressed = _get_suppressed_list(include_suppressed)
+        result = query_events(
+            storage,
+            severity="warning",
+            run_id=run_id,
+            source=source,
+            limit=limit,
+            default_to_latest=not all_runs,
+            suppressed_fingerprints=suppressed,
+            all_runs=all_runs,
+        )
+        return {"warnings": result["events"], "total_count": result["total_count"]}
     except FileNotFoundError:
         return {"warnings": [], "total_count": 0}
 
@@ -1067,74 +1002,21 @@ def _events_impl(
         if live_events is not None:
             return live_events
 
-        # Build WHERE conditions for completed runs
-        conditions: list[str] = []
+        # Delegate to service layer for completed-run queries
+        from blq.services.query import query_events
 
-        # Default to last run unless all_runs=True or specific run/source provided
-        if run_id is not None:
-            conditions.append(f"run_serial = {run_id}")
-        elif source:
-            conditions.append(f"source_name = '{source}'")
-        elif not all_runs:
-            # Default: only show events from the most recent run
-            last_run = storage.sql("SELECT MAX(run_serial) FROM blq_load_events()").fetchone()
-            if last_run and last_run[0]:
-                conditions.append(f"run_serial = {last_run[0]}")
-        if file_pattern:
-            conditions.append(f"ref_file LIKE '{file_pattern}'")
-
-        # Severity filter (can be single value or comma-separated list)
-        if severity:
-            if "," in severity:
-                severities = [s.strip() for s in severity.split(",")]
-                severity_list = ", ".join(f"'{s}'" for s in severities)
-                conditions.append(f"severity IN ({severity_list})")
-            else:
-                conditions.append(f"severity = '{severity}'")
-
-        # Apply suppression filter
-        suppress_condition = _get_suppress_condition(include_suppressed)
-        if suppress_condition:
-            conditions.append(suppress_condition)
-
-        where = " AND ".join(conditions) if conditions else "1=1"
-
-        # Get total count
-        count_result = storage.sql(
-            f"SELECT COUNT(*) FROM blq_load_events() WHERE {where}"
-        ).fetchone()
-        total_count = count_result[0] if count_result else 0
-
-        # Get events - use ref column from view
-        df = storage.sql(f"""
-            SELECT * FROM blq_load_events()
-            WHERE {where}
-            ORDER BY run_serial DESC, event_id
-            LIMIT {limit}
-        """).df()
-
-        event_list = []
-        for _, row in df.iterrows():
-            event = {
-                "ref": _to_json_safe(row.get("ref")),
-                "run_ref": _to_json_safe(row.get("run_ref")),
-                "severity": _to_json_safe(row.get("severity")),
-                "ref_file": _to_json_safe(row.get("ref_file")),
-                "ref_line": _safe_int(row.get("ref_line")),
-                "ref_column": _safe_int(row.get("ref_column")),
-                "message": _to_json_safe(row.get("message")),
-                "tool_name": _to_json_safe(row.get("tool_name")),
-                "category": _to_json_safe(row.get("category")),
-                "fingerprint": _to_json_safe(row.get("fingerprint")),
-                "log_line": _safe_int(row.get("log_line_start")),
-            }
-            # Include test_name if present (for test frameworks)
-            test_name = _to_json_safe(row.get("test_name"))
-            if test_name:
-                event["test_name"] = test_name
-            event_list.append(event)
-
-        return {"events": event_list, "total_count": total_count}
+        suppressed = _get_suppressed_list(include_suppressed)
+        return query_events(
+            storage,
+            severity=severity,
+            run_id=run_id,
+            source=source,
+            file_pattern=file_pattern,
+            limit=limit,
+            default_to_latest=not all_runs,
+            suppressed_fingerprints=suppressed,
+            all_runs=all_runs,
+        )
     except FileNotFoundError:
         return {"events": [], "total_count": 0}
 
