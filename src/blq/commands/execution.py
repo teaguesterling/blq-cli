@@ -471,6 +471,25 @@ def _execute_with_live_output(
                 ).hexdigest(),
             })
 
+        # Detect specific sandbox violations in output
+        if cmd_spec.extension_data.get("sandbox") and exit_code != 0 and output:
+            from blq_sandbox.violations import detect_violations
+
+            sandbox = cmd_spec.extension_data["sandbox"]
+            violations = detect_violations(output, sandbox)
+            for v in violations:
+                events.append({
+                    "severity": "info",
+                    "message": f"Sandbox {v.dimension} violation: {v.pattern}",
+                    "code": f"sandbox_violation_{v.dimension}",
+                    "fingerprint": hashlib.blake2b(
+                        f"sandbox_violation:{v.dimension}:{v.pattern}".encode(),
+                        digest_size=8,
+                    ).hexdigest(),
+                    "log_line_start": v.line_number,
+                    "log_line_end": v.line_number,
+                })
+
         # =========================================================================
         # Window 2: Post-execution DB access (minimal lock time)
         # Uses retry to handle potential lock contention from concurrent commands
