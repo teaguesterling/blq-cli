@@ -1947,102 +1947,10 @@ def _history_impl(
     """
     try:
         storage = _get_storage()
-        if not storage.has_data():
-            return {"runs": []}
 
-        # Map user-friendly status names to database values
-        status_map = {"running": "pending", "completed": "completed", "orphaned": "orphaned"}
-        db_status = status_map.get(status) if status else None
+        from blq.services.query import query_history
 
-        # Use blq_history_status() for status filtering (includes pending attempts)
-        if db_status:
-            status_sql = f"'{db_status}'"
-            if source:
-                runs_df = storage.sql(f"""
-                    SELECT * FROM blq_history_status({status_sql}, {limit})
-                    WHERE source_name = '{source}'
-                """).df()
-            else:
-                runs_df = storage.sql(f"""
-                    SELECT * FROM blq_history_status({status_sql}, {limit})
-                """).df()
-        else:
-            # Include pending/running by using blq_load_attempts with event counts
-            source_filter = (
-                f"WHERE (tag = '{source}' OR source_name = '{source}')" if source else ""
-            )
-            runs_df = storage.sql(f"""
-                SELECT
-                    a.*,
-                    COALESCE(e.error_count, 0) AS error_count,
-                    COALESCE(e.warning_count, 0) AS warning_count
-                FROM blq_load_attempts() a
-                LEFT JOIN (
-                    SELECT
-                        invocation_id,
-                        COUNT(*) FILTER (WHERE severity = 'error') AS error_count,
-                        COUNT(*) FILTER (WHERE severity = 'warning') AS warning_count
-                    FROM events
-                    GROUP BY invocation_id
-                ) e ON a.attempt_id = e.invocation_id
-                {source_filter}
-                ORDER BY a.started_at DESC
-                LIMIT {limit}
-            """).df()
-
-        runs = []
-
-        for _, row in runs_df.iterrows():
-            # Get counts (may be None for status-filtered results from blq_history_status)
-            error_count = _safe_int(row.get("error_count")) or 0
-            warning_count = _safe_int(row.get("warning_count")) or 0
-
-            # For status-filtered results, use the status from the query
-            run_status = _to_json_safe(row.get("status"))
-
-            if run_status == "pending":
-                status_str = "RUNNING"
-            elif run_status == "orphaned":
-                status_str = "ORPHANED"
-            else:
-                # For completed runs, derive from error/warning counts
-                if error_count > 0:
-                    status_str = "FAIL"
-                elif warning_count > 0:
-                    status_str = "WARN"
-                else:
-                    status_str = "OK"
-
-            # Build run_ref from tag and run_id (serial number from blq_load_runs)
-            tag = _to_json_safe(row.get("tag"))
-            run_serial = _safe_int(row.get("run_id")) or 0
-            if tag:
-                run_ref = f"{tag}:{run_serial}"
-            else:
-                run_ref = str(run_serial)
-
-            runs.append(
-                {
-                    "run_ref": run_ref,
-                    "run_serial": run_serial,
-                    "source_name": _to_json_safe(row.get("source_name")) or "unknown",
-                    "status": status_str,
-                    "error_count": error_count,
-                    "warning_count": warning_count,
-                    "started_at": str(_to_json_safe(row.get("started_at")) or ""),
-                    "exit_code": _safe_int(row.get("exit_code")),
-                    "command": _to_json_safe(row.get("command")),
-                    "cwd": _to_json_safe(row.get("cwd")),
-                    "executable_path": _to_json_safe(row.get("executable_path")),
-                    "hostname": _to_json_safe(row.get("hostname")),
-                    "platform": _to_json_safe(row.get("platform")),
-                    "arch": _to_json_safe(row.get("arch")),
-                    "git_commit": _to_json_safe(row.get("git_commit")),
-                    "git_branch": _to_json_safe(row.get("git_branch")),
-                    "git_dirty": _to_json_safe(row.get("git_dirty")),
-                    "ci": _to_json_safe(row.get("ci")),
-                }
-            )
+        runs = query_history(storage, limit=limit, source=source, status=status)
         return {"runs": runs}
     except FileNotFoundError:
         return {"runs": []}

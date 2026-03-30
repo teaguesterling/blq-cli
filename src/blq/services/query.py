@@ -138,6 +138,9 @@ def query_history(
     }
 
     try:
+        if not storage.has_data():
+            return []
+
         conn = storage.connection
 
         # Build WHERE clauses dynamically; use ? placeholders for user values
