@@ -65,6 +65,9 @@ Issues = "https://github.com/teaguesterling/blq-cli/issues"
 [project.entry-points."blq.extensions"]
 sandbox = "blq_sandbox:SandboxExtension"
 
+[project.entry-points."blq.annotators"]
+source_context = "blq_sandbox.source_annotator:SourceContextAnnotator"
+
 [project.entry-points."blq.sandbox.engines"]
 systemd = "blq_sandbox_systemd:SystemdEngine"
 bwrap = "blq_sandbox_bwrap:BwrapEngine"
