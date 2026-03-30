@@ -125,6 +125,19 @@ blq (Python CLI)
     └── Optionally uses duck_hunt extension for 60+ format parsing
 ```
 
+### Service Layer
+
+Shared business logic in `src/blq/services/`, called by both CLI and MCP:
+
+| Module | Functions | Purpose |
+|--------|-----------|---------|
+| `refs.py` | `parse_ref()`, `resolve_run_ref()` | Canonical ref parsing and resolution |
+| `query.py` | `query_status()`, `query_history()`, `query_events()`, `query_diff()` | Database queries |
+| `inspect.py` | `get_source_context()`, `get_log_context()`, `get_git_context()`, `get_fingerprint_history()` | Event context enrichment |
+| `execution.py` | `run_result_to_concise()` | RunResult → concise dict conversion |
+
+Services take `BlqStorage` and return structured data. No argparse or MCP coupling.
+
 ### Storage Modes
 
 BIRD is the default storage mode. Legacy parquet mode is still supported:
