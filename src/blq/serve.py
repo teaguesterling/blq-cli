@@ -420,50 +420,21 @@ def _run_impl(
         if proc.stdout.strip():
             try:
                 full_result = json.loads(proc.stdout)
-                # Build concise response with essential fields
-                run_id = full_result.get("run_id")
+                # Build concise response via service layer
+                from blq.services.execution import run_result_to_concise
+
                 source_name = full_result.get("source_name") or command
+                run_id = full_result.get("run_id")
                 exit_code = full_result.get("exit_code", 0)
-                summary = full_result.get("summary", {})
                 errors = full_result.get("errors", [])
                 status = full_result.get("status", "FAIL" if exit_code != 0 else "OK")
                 has_errors = exit_code != 0 or len(errors) > 0
-
                 output_stats = full_result.get("output_stats", {})
-                warnings = full_result.get("warnings", [])
                 infos = full_result.get("infos", [])
 
-                concise: dict[str, Any] = {
-                    "run_ref": f"{source_name}:{run_id}" if run_id else None,
-                    "cmd": full_result.get("command"),
-                    "status": status,
-                    "exit_code": exit_code,
-                    "duration_sec": round(full_result.get("duration_sec", 0), 1),
-                    "summary": summary,
-                    "output_stats": {
-                        "lines": output_stats.get("lines", 0),
-                        "bytes": output_stats.get("bytes", 0),
-                    },
-                }
+                concise = run_result_to_concise(full_result, source_name)
 
-                # Include status_reason when present
-                status_reason = full_result.get("status_reason")
-                if status_reason:
-                    concise["status_reason"] = status_reason
-
-                # Include errors (capped at 10, summary has total count)
-                if errors:
-                    concise["errors"] = errors[:10]
-
-                # Include warnings (top 5)
-                if warnings:
-                    concise["warnings"] = warnings[:5]
-
-                # Include info/summary events
-                if infos:
-                    concise["infos"] = infos[:5]
-
-                # Include extension data if present
+                # MCP-specific additions
                 ext_data = full_result.get("extension_data")
                 if ext_data:
                     concise["extension_data"] = ext_data
@@ -666,48 +637,19 @@ def _exec_impl(
         if proc.stdout.strip():
             try:
                 full_result = json.loads(proc.stdout)
-                # Build concise response with essential fields
-                run_id = full_result.get("run_id")
+                # Build concise response via service layer
+                from blq.services.execution import run_result_to_concise
+
                 source_name = full_result.get("source_name") or "exec"
+                run_id = full_result.get("run_id")
                 exit_code = full_result.get("exit_code", 0)
-                summary = full_result.get("summary", {})
                 errors = full_result.get("errors", [])
                 status = full_result.get("status", "FAIL" if exit_code != 0 else "OK")
                 has_errors = exit_code != 0 or len(errors) > 0
-
                 output_stats = full_result.get("output_stats", {})
-                warnings = full_result.get("warnings", [])
                 infos = full_result.get("infos", [])
 
-                concise: dict[str, Any] = {
-                    "run_ref": f"{source_name}:{run_id}" if run_id else None,
-                    "cmd": full_result.get("command"),
-                    "status": status,
-                    "exit_code": exit_code,
-                    "duration_sec": round(full_result.get("duration_sec", 0), 1),
-                    "summary": summary,
-                    "output_stats": {
-                        "lines": output_stats.get("lines", 0),
-                        "bytes": output_stats.get("bytes", 0),
-                    },
-                }
-
-                # Include status_reason when present
-                status_reason = full_result.get("status_reason")
-                if status_reason:
-                    concise["status_reason"] = status_reason
-
-                # Include errors (capped at 10, summary has total count)
-                if errors:
-                    concise["errors"] = errors[:10]
-
-                # Include warnings (top 5)
-                if warnings:
-                    concise["warnings"] = warnings[:5]
-
-                # Include info/summary events
-                if infos:
-                    concise["infos"] = infos[:5]
+                concise = run_result_to_concise(full_result, source_name)
 
                 if lines:
                     _attach_output(concise, run_id, lines)
