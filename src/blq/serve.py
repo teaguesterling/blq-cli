@@ -1966,69 +1966,9 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
     try:
         storage = _get_storage()
 
-        # Get errors from each run using run_serial
-        errors1 = storage.sql(f"""
-            SELECT * FROM blq_load_events()
-            WHERE severity = 'error' AND run_serial = {run1}
-            LIMIT 1000
-        """).df()
-        errors2 = storage.sql(f"""
-            SELECT * FROM blq_load_events()
-            WHERE severity = 'error' AND run_serial = {run2}
-            LIMIT 1000
-        """).df()
+        from blq.services.query import query_diff
 
-        # Use fingerprints for comparison if available, else use file+line+message
-        def get_error_key(row):
-            fp = _to_json_safe(row.get("fingerprint"))
-            if fp:
-                return fp
-            ref = _to_json_safe(row.get("ref_file"))
-            line = _to_json_safe(row.get("ref_line"))
-            msg = (_to_json_safe(row.get("message")) or "")[:50]
-            return f"{ref}:{line}:{msg}"
-
-        keys1 = set(get_error_key(row) for _, row in errors1.iterrows())
-        keys2 = set(get_error_key(row) for _, row in errors2.iterrows())
-
-        fixed_keys = keys1 - keys2
-        new_keys = keys2 - keys1
-        unchanged_keys = keys1 & keys2
-
-        # Build fixed and new error lists
-        fixed = []
-        for _, row in errors1.iterrows():
-            if get_error_key(row) in fixed_keys:
-                fixed.append(
-                    {
-                        "ref_file": _to_json_safe(row.get("ref_file")),
-                        "message": _to_json_safe(row.get("message")),
-                    }
-                )
-
-        new_errors = []
-        for _, row in errors2.iterrows():
-            if get_error_key(row) in new_keys:
-                new_errors.append(
-                    {
-                        "ref": _to_json_safe(row.get("ref")),
-                        "ref_file": _to_json_safe(row.get("ref_file")),
-                        "ref_line": _safe_int(row.get("ref_line")),
-                        "message": _to_json_safe(row.get("message")),
-                    }
-                )
-
-        return {
-            "summary": {
-                "run1_errors": len(errors1),
-                "run2_errors": len(errors2),
-                "fixed": len(fixed_keys),
-                "new": len(new_keys),
-                "unchanged": len(unchanged_keys),
-            },
-            "fixed": fixed,
-            "new": new_errors,
-        }
+        return query_diff(storage, run1, run2)
     except FileNotFoundError:
         return {
             "summary": {"run1_errors": 0, "run2_errors": 0, "fixed": 0, "new": 0, "unchanged": 0},
