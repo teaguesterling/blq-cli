@@ -31,6 +31,7 @@ blq inspect build:3:1
 | [Sandbox Guide](sandbox.md) | Execution isolation, presets, profiling |
 | [Integration](integration.md) | CI/CD, shell completions, hooks |
 | [Python API](python-api.md) | Programmatic access |
+| [Plugin Guide](plugin-guide.md) | Writing extensions, engines, and annotators |
 | [Schema Stability](schema-stability.md) | What's stable, migration paths |
 
 ## Commands
