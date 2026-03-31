@@ -20,6 +20,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run {{ cmd.name }}
-        run: .lq/hooks/{{ cmd.name }}.sh --via=standalone --metadata=footer
+        run: .bird/hooks/{{ cmd.name }}.sh --via=standalone --metadata=footer
 
 {% endfor %}

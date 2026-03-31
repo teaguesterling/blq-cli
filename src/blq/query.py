@@ -535,13 +535,13 @@ class LogQueryGrouped:
 
 
 class LogStore:
-    """Manages the .lq log repository.
+    """Manages the .bird log repository.
 
     Provides access to stored events and metadata about runs.
 
     Example:
-        store = LogStore.open()  # Find .lq in current/parent dirs
-        store = LogStore("/path/to/.lq")  # Explicit path
+        store = LogStore.open()  # Find .bird in current/parent dirs
+        store = LogStore("/path/to/.bird")  # Explicit path
 
         # Query events
         errors = store.events().filter(severity="error").df()
@@ -559,7 +559,7 @@ class LogStore:
         """Initialize LogStore.
 
         Args:
-            lq_dir: Path to .lq directory
+            lq_dir: Path to .bird directory
             conn: Optional existing connection (overrides blq.duckdb)
         """
         self._lq_dir = Path(lq_dir)
@@ -591,16 +591,16 @@ class LogStore:
 
     @classmethod
     def open(cls, path: Path | str | None = None) -> LogStore:
-        """Open a LogStore, finding .lq directory if not specified.
+        """Open a LogStore, finding .bird directory if not specified.
 
         Args:
-            path: Optional path to .lq directory
+            path: Optional path to .bird directory
 
         Returns:
             LogStore instance
 
         Raises:
-            FileNotFoundError: If .lq directory not found
+            FileNotFoundError: If .bird directory not found
         """
         if path is not None:
             lq_dir = Path(path)
@@ -608,7 +608,7 @@ class LogStore:
             lq_dir = cls._find_lq_dir()
 
         if not lq_dir.exists():
-            raise FileNotFoundError(f".lq directory not found: {lq_dir}")
+            raise FileNotFoundError(f".bird directory not found: {lq_dir}")
 
         return cls(lq_dir)
 
@@ -617,7 +617,7 @@ class LogStore:
         """Create a LogStore from a raw parquet directory with hive partitioning.
 
         Use this for querying global synced projects or custom parquet directories
-        that don't have the full .lq structure (no schema.sql).
+        that don't have the full .bird structure (no schema.sql).
 
         The directory should contain hive-partitioned parquet files:
             path/hostname=X/namespace=Y/project=Z/date=D/source=S/*.parquet
@@ -640,7 +640,7 @@ class LogStore:
         # Use explicit hive partition pattern - DuckDB's ** glob doesn't follow symlinks,
         # but explicit patterns like hostname=*/... do work through symlinks
         parquet_glob = str(
-            parquet_root  # Either .lq, ~/.lq/projects, etc.
+            parquet_root  # Either .bird, ~/.bird/projects, etc.
             / "hostname=*"
             / "namespace=*"
             / "project=*"  # This allows us to traverse symlinks
@@ -668,7 +668,7 @@ class LogStore:
 
     @classmethod
     def _find_lq_dir(cls) -> Path:
-        """Find .lq directory in current or parent directories."""
+        """Find .bird directory in current or parent directories."""
         cwd = Path.cwd()
         for p in [cwd, *list(cwd.parents)]:
             lq_path = p / LQ_DIR
@@ -717,7 +717,7 @@ class LogStore:
 
     @property
     def path(self) -> Path:
-        """Path to .lq directory."""
+        """Path to .bird directory."""
         return self._lq_dir
 
     @property

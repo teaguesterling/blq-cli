@@ -75,7 +75,7 @@ def query_source(
         select: Columns to select (comma-separated) or None for all
         where: SQL WHERE clause (without WHERE keyword)
         order: SQL ORDER BY clause (without ORDER BY keyword)
-        lq_dir: Path to .lq directory (for stored data queries)
+        lq_dir: Path to .bird directory (for stored data queries)
         log_format: Log format hint for duck_hunt (default: auto)
 
     Returns:

@@ -1,7 +1,7 @@
 """
 File-based command lock module for resource contention.
 
-Locks are stored as JSON files in a locks directory (typically .lq/locks/).
+Locks are stored as JSON files in a locks directory (typically .bird/locks/).
 PID liveness checks are used to detect and reclaim stale locks.
 """
 

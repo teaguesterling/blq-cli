@@ -28,7 +28,7 @@ def cmd_clean(args: argparse.Namespace) -> None:
         print("  prune   Remove data older than N days", file=sys.stderr)
         print("  orphans Mark stale pending runs as orphaned", file=sys.stderr)
         print("  schema  Recreate database schema", file=sys.stderr)
-        print("  full    Delete and recreate .lq directory", file=sys.stderr)
+        print("  full    Delete and recreate .bird directory", file=sys.stderr)
         sys.exit(1)
 
     config = BlqConfig.ensure()
@@ -240,9 +240,9 @@ def _clean_schema(lq_dir: Path, confirm: bool) -> None:
 
 
 def _clean_full(lq_dir: Path, confirm: bool) -> None:
-    """Delete and recreate .lq directory."""
+    """Delete and recreate .bird directory."""
     if not confirm:
-        print("This will delete the entire .lq directory and reinitialize.", file=sys.stderr)
+        print("This will delete the entire .bird directory and reinitialize.", file=sys.stderr)
         print("ALL data including config and commands will be lost.", file=sys.stderr)
         print("", file=sys.stderr)
         print("Run with --confirm to proceed.", file=sys.stderr)
@@ -259,7 +259,7 @@ def _clean_full(lq_dir: Path, confirm: bool) -> None:
     )
 
     if result.returncode == 0:
-        print("Fully reinitialized .lq directory.")
+        print("Fully reinitialized .bird directory.")
     else:
         print(f"Init failed: {result.stderr}", file=sys.stderr)
         sys.exit(1)

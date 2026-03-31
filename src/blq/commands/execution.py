@@ -569,7 +569,7 @@ def _execute_with_live_output(
             store.cleanup_live_dir(attempt_id)
         # Connection closed
 
-        # Save raw output to .lq/raw/ if requested (filesystem only, no DB)
+        # Save raw output to .bird/raw/ if requested (filesystem only, no DB)
         if keep_raw:
             raw_file = lq_dir / RAW_DIR / f"{run_id:03d}.log"
             raw_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1350,7 +1350,7 @@ def cmd_run(args: argparse.Namespace) -> None:
 def _resolve_prune_config(config: BlqConfig, user_config) -> dict:
     """Merge user config with project-level storage overrides.
 
-    Project-level .lq/config.toml [storage] keys override user defaults.
+    Project-level .bird/config.toml [storage] keys override user defaults.
 
     Returns:
         Dict with auto_prune, prune_days, max_runs, max_size_mb, prune_interval_minutes
@@ -1383,7 +1383,7 @@ def _should_prune(lq_dir: Path, interval_minutes: int) -> bool:
     """Check if enough time has passed since last auto-prune.
 
     Args:
-        lq_dir: Path to .lq directory
+        lq_dir: Path to .bird directory
         interval_minutes: Minimum minutes between prunes
 
     Returns:
@@ -1403,7 +1403,7 @@ def _should_prune(lq_dir: Path, interval_minutes: int) -> bool:
 
 
 def _mark_pruned(lq_dir: Path) -> None:
-    """Write current timestamp to .lq/.last_prune."""
+    """Write current timestamp to .bird/.last_prune."""
     stamp_file = lq_dir / ".last_prune"
     try:
         stamp_file.write_text(datetime.now().isoformat())

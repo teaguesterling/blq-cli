@@ -38,14 +38,15 @@ DETECT_AUTO = "auto"
 
 MCP_CONFIG_FILE = ".mcp.json"
 GITIGNORE_FILE = ".gitignore"
-GITIGNORE_ENTRY = ".lq/"  # Legacy single-line entry
+GITIGNORE_ENTRY = ".bird/"  # Single-line entry
+LEGACY_GITIGNORE_ENTRY = ".lq/"  # Legacy single-line entry
 
 # New multi-line gitignore pattern that tracks hooks and config
 GITIGNORE_PATTERN = """# blq
-.lq/*
-!.lq/hooks/
-!.lq/config.toml
-!.lq/commands.toml"""
+.bird/*
+!.bird/hooks/
+!.bird/config.toml
+!.bird/commands.toml"""
 
 # Default sandbox presets for detected command types
 _DEFAULT_SANDBOX_PRESETS: dict[str, str] = {
@@ -483,12 +484,12 @@ def _write_claude_md(cwd: Path) -> None:
 
 
 def _add_to_gitignore(cwd: Path) -> bool:
-    """Add .lq/ pattern to .gitignore if not already present.
+    """Add .bird/ pattern to .gitignore if not already present.
 
-    The pattern ignores .lq/* but tracks:
-    - .lq/hooks/ (portable hook scripts)
-    - .lq/config.toml (project configuration)
-    - .lq/commands.toml (registered commands)
+    The pattern ignores .bird/* but tracks:
+    - .bird/hooks/ (portable hook scripts)
+    - .bird/config.toml (project configuration)
+    - .bird/commands.toml (registered commands)
 
     Args:
         cwd: Current working directory
@@ -498,18 +499,21 @@ def _add_to_gitignore(cwd: Path) -> bool:
     """
     gitignore_path = cwd / GITIGNORE_FILE
 
-    # Check if .gitignore exists and already has .lq
+    # Check if .gitignore exists and already has .bird (or legacy .lq)
     if gitignore_path.exists():
         content = gitignore_path.read_text()
         lines = content.splitlines()
 
-        # Check for existing .lq entry (legacy or new pattern)
+        # Check for existing .bird or legacy .lq entry
         for line in lines:
             stripped = line.strip()
-            if stripped in (".lq", ".lq/", "/.lq", "/.lq/", ".lq/*"):
-                # Already has some form of .lq ignore
+            if stripped in (
+                ".bird", ".bird/", "/.bird", "/.bird/", ".bird/*",
+                ".lq", ".lq/", "/.lq", "/.lq/", ".lq/*",
+            ):
+                # Already has some form of ignore entry
                 # Check if it's the new pattern with exceptions
-                if "!.lq/hooks/" in content:
+                if "!.bird/hooks/" in content or "!.lq/hooks/" in content:
                     return False  # Already has new pattern
                 # Has legacy pattern - could upgrade, but leave as-is for now
                 return False
@@ -519,12 +523,12 @@ def _add_to_gitignore(cwd: Path) -> bool:
             content += "\n"
         content += f"\n{GITIGNORE_PATTERN}\n"
         gitignore_path.write_text(content)
-        print(f"  Added .lq/ pattern to {GITIGNORE_FILE}")
+        print(f"  Added .bird/ pattern to {GITIGNORE_FILE}")
         return True
     else:
         # Create new .gitignore with pattern
         gitignore_path.write_text(f"{GITIGNORE_PATTERN}\n")
-        print(f"  Created {GITIGNORE_FILE} with .lq/ pattern")
+        print(f"  Created {GITIGNORE_FILE} with .bird/ pattern")
         return True
 
 
@@ -618,7 +622,7 @@ def _detect_and_register_commands(lq_dir: Path, auto_yes: bool, mode: str = DETE
     """Detect and optionally register build/test commands.
 
     Args:
-        lq_dir: Path to .lq directory
+        lq_dir: Path to .bird directory
         auto_yes: If True, register without prompting
         mode: Detection mode (none, simple, inspect, auto)
     """
@@ -805,7 +809,7 @@ def _create_database(lq_dir: Path, use_bird: bool = False, force: bool = False) 
     all macros can be created even when no data exists yet.
 
     Args:
-        lq_dir: Path to .lq directory
+        lq_dir: Path to .bird directory
         use_bird: If True, create BIRD schema instead of parquet schema
         force: If True, reload schema even if it exists (for reinit)
 
@@ -892,7 +896,7 @@ def _reinit_config_files(lq_dir: Path, args: argparse.Namespace) -> None:
 
 
 def cmd_init(args: argparse.Namespace) -> None:
-    """Initialize .lq directory and install required extensions."""
+    """Initialize .bird directory and install required extensions."""
     from blq.user_config import UserConfig
 
     # Load user config for defaults
@@ -931,10 +935,10 @@ def cmd_init(args: argparse.Namespace) -> None:
 
     if lq_dir.exists():
         if force_reinit:
-            print(f"Reinitializing .lq at {lq_dir}")
+            print(f"Reinitializing .bird at {lq_dir}")
             _reinit_config_files(lq_dir, args)
         else:
-            print(f".lq already exists at {lq_dir}")
+            print(f".bird already exists at {lq_dir}")
             print("  Use --force to reinitialize config files")
 
         # Always ensure commands.toml exists
@@ -1003,7 +1007,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     # Create empty commands.toml
     _ensure_commands_file(lq_dir)
 
-    print(f"Initialized .lq at {lq_dir}")
+    print(f"Initialized .bird at {lq_dir}")
     if use_bird:
         print("  blobs/        - Content-addressed blob storage")
         print("  blq.duckdb    - BIRD database (invocations, events)")
@@ -1023,7 +1027,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     # Install required extensions
     _install_extensions()
 
-    # Add .lq/ to .gitignore (default behavior)
+    # Add .bird/ to .gitignore (default behavior)
     if add_gitignore:
         _add_to_gitignore(cwd)
 

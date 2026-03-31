@@ -12,5 +12,5 @@ steps:
   - name: {{ cmd.name }}
     image: alpine
     commands:
-      - .lq/hooks/{{ cmd.name }}.sh --via=standalone --metadata=footer
+      - .bird/hooks/{{ cmd.name }}.sh --via=standalone --metadata=footer
 {% endfor %}

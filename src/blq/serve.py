@@ -14,7 +14,7 @@ Security:
         blq mcp serve --safe-mode    # Disables exec, clean, register_command, unregister_command
         blq mcp serve -D exec,clean  # Disable specific tools
 
-    Or via .lq/config.toml:
+    Or via .bird/config.toml:
         mcp:
           disabled_tools:
             - exec
@@ -98,7 +98,7 @@ def _init_disabled_tools(
     if env_disabled:
         disabled.update(t.strip() for t in env_disabled.split(",") if t.strip())
 
-    # Check .lq/config.toml
+    # Check .bird/config.toml
     try:
         from blq.cli import BlqConfig
 
@@ -134,7 +134,7 @@ def _check_tool_enabled(tool_name: str) -> None:
     if tool_name in disabled:
         raise PermissionError(
             f"Tool '{tool_name}' is disabled. "
-            f"Enable it by removing from mcp.disabled_tools in .lq/config.toml "
+            f"Enable it by removing from mcp.disabled_tools in .bird/config.toml "
             f"or BLQ_MCP_DISABLED_TOOLS environment variable."
         )
 
@@ -3086,7 +3086,7 @@ def _clean_impl(
         desc = {
             "data": "Clear run data but keep config and commands",
             "schema": "Recreate database schema (clears data, keeps config)",
-            "full": "Delete and recreate entire .lq directory",
+            "full": "Delete and recreate entire .bird directory",
         }
         if mode == "prune":
             parts = []
@@ -3237,7 +3237,7 @@ def _clean_impl(
             if init_proc.returncode == 0:
                 return {
                     "success": True,
-                    "message": "Fully reinitialized .lq directory.",
+                    "message": "Fully reinitialized .bird directory.",
                     "mode": mode,
                 }
             else:
@@ -3273,7 +3273,7 @@ def clean(
             - "prune": Remove data by age, run count, or size. Requires at least
               one of: days, max_runs, max_size_mb
             - "schema": Recreate database schema (clears data, keeps config files)
-            - "full": Delete and recreate entire .lq directory
+            - "full": Delete and recreate entire .bird directory
         confirm: Must be true to proceed (safety check)
         days: For prune mode, remove data older than this many days
         max_runs: For prune mode, keep at most N runs per source

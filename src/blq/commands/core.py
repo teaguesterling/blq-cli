@@ -554,7 +554,7 @@ class WatchConfig:
             "**/__pycache__/**",
             "**/*.pyc",
             "**/.git/**",
-            ".lq/**",
+            ".bird/**",
             "**/*.egg-info/**",
             "**/node_modules/**",
             "**/.venv/**",
@@ -626,32 +626,32 @@ class BlqConfig:
     # Computed paths
     @property
     def logs_dir(self) -> Path:
-        """Path to logs directory (.lq/logs)."""
+        """Path to logs directory (.bird/logs)."""
         return self.lq_dir / LOGS_DIR
 
     @property
     def raw_dir(self) -> Path:
-        """Path to raw logs directory (.lq/raw)."""
+        """Path to raw logs directory (.bird/raw)."""
         return self.lq_dir / RAW_DIR
 
     @property
     def schema_path(self) -> Path:
-        """Path to schema file (.lq/schema.sql)."""
+        """Path to schema file (.bird/schema.sql)."""
         return self.lq_dir / SCHEMA_FILE
 
     @property
     def db_path(self) -> Path:
-        """Path to database file (.lq/blq.duckdb)."""
+        """Path to database file (.bird/blq.duckdb)."""
         return self.lq_dir / DB_FILE
 
     @property
     def config_path(self) -> Path:
-        """Path to config file (.lq/config.toml)."""
+        """Path to config file (.bird/config.toml)."""
         return self.lq_dir / CONFIG_FILE
 
     @property
     def commands_path(self) -> Path:
-        """Path to commands file (.lq/commands.toml)."""
+        """Path to commands file (.bird/commands.toml)."""
         return self.lq_dir / COMMANDS_FILE
 
     @property
@@ -711,7 +711,7 @@ class BlqConfig:
                             "**/__pycache__/**",
                             "**/*.pyc",
                             "**/.git/**",
-                            ".lq/**",
+                            ".bird/**",
                             "**/*.egg-info/**",
                             "**/node_modules/**",
                             "**/.venv/**",
@@ -775,7 +775,7 @@ class BlqConfig:
     def storage_config(self) -> dict[str, Any]:
         """Get project-level [storage] config as a raw dict.
 
-        This exposes .lq/config.toml's [storage] section for merging
+        This exposes .bird/config.toml's [storage] section for merging
         with user config during autoprune.
 
         Returns:
@@ -849,13 +849,13 @@ class BlqConfig:
 
     @classmethod
     def load(cls, lq_dir: Path) -> BlqConfig:
-        """Load configuration from an existing .lq directory.
+        """Load configuration from an existing .bird directory.
 
         Merges user-level defaults (from ~/.config/blq/config.toml) with
-        project-level config (from .lq/config.toml).
+        project-level config (from .bird/config.toml).
 
         Args:
-            lq_dir: Path to the .lq directory
+            lq_dir: Path to the .bird directory
 
         Returns:
             BlqConfig loaded from config.toml (or defaults)
@@ -917,25 +917,25 @@ class BlqConfig:
 
         Args:
             start_dir: Directory to start searching from (default: cwd)
-            lq_dir: Explicit .lq directory to use (overrides discovery)
+            lq_dir: Explicit .bird directory to use (overrides discovery)
 
         Returns:
             BlqConfig if found
 
         Raises:
-            SystemExit: If .lq directory not found
+            SystemExit: If .bird directory not found
         """
         # If explicit lq_dir is provided, use it directly
         if lq_dir is not None:
             lq_path = Path(lq_dir).expanduser()
             if not lq_path.exists():
-                print(f"Error: .lq directory does not exist: {lq_path}", file=sys.stderr)
+                print(f"Error: .bird directory does not exist: {lq_path}", file=sys.stderr)
                 sys.exit(1)
             return cls.load(lq_path)
 
         config = cls.find(start_dir)
         if config is None:
-            print("Error: .lq not initialized. Run 'blq init' first.", file=sys.stderr)
+            print("Error: .bird not initialized. Run 'blq init' first.", file=sys.stderr)
             sys.exit(1)
         return config
 
@@ -1626,7 +1626,7 @@ class ConnectionFactory:
         """Create a properly initialized DuckDB connection.
 
         Args:
-            lq_dir: Path to .lq directory (for schema loading)
+            lq_dir: Path to .bird directory (for schema loading)
             load_schema: Whether to load the schema (for stored data queries)
             require_duck_hunt: If True, raise error if duck_hunt unavailable
             install_duck_hunt: If True, attempt to install duck_hunt if missing
@@ -1734,7 +1734,7 @@ def get_connection(lq_dir: Path | None = None) -> duckdb.DuckDBPyConnection:
 
 
 def get_lq_dir_from_args(args) -> Path | None:
-    """Get the .lq directory path from parsed arguments.
+    """Get the .bird directory path from parsed arguments.
 
     Handles the --lq-dir flag.
 
@@ -1742,7 +1742,7 @@ def get_lq_dir_from_args(args) -> Path | None:
         args: Parsed arguments with optional 'lq_dir' attribute
 
     Returns:
-        Path to .lq directory if --lq-dir was specified, None otherwise
+        Path to .bird directory if --lq-dir was specified, None otherwise
     """
     lq_dir = getattr(args, "lq_dir", None)
     if lq_dir:
@@ -1758,14 +1758,14 @@ def get_data_root(args) -> tuple[Path | None, bool]:
 
     Returns:
         Tuple of (path, is_raw_parquet):
-        - path: Path to data root, or None for local .lq
+        - path: Path to data root, or None for local .bird
         - is_raw_parquet: True if path is a raw parquet directory (no schema.sql)
     """
     # Check for --database flag first (explicit path)
     database = getattr(args, "database", None)
     if database:
         db_path = Path(database).expanduser()
-        # Raw parquet directory (no .lq structure)
+        # Raw parquet directory (no .bird structure)
         return db_path, True
 
     # Check for --global flag
@@ -1773,7 +1773,7 @@ def get_data_root(args) -> tuple[Path | None, bool]:
     if use_global:
         return GLOBAL_PROJECTS_PATH, True
 
-    # Default: local .lq directory
+    # Default: local .bird directory
     return None, False
 
 
@@ -1790,12 +1790,12 @@ def get_store_for_args(args):
     """
     from blq.storage import BlqStorage
 
-    # Check for --lq-dir flag first (explicit .lq directory)
+    # Check for --lq-dir flag first (explicit .bird directory)
     lq_dir = getattr(args, "lq_dir", None)
     if lq_dir:
         lq_path = Path(lq_dir).expanduser()
         if not lq_path.exists():
-            print(f"Error: .lq directory does not exist: {lq_path}", file=sys.stderr)
+            print(f"Error: .bird directory does not exist: {lq_path}", file=sys.stderr)
             sys.exit(1)
         return BlqStorage.open(lq_path)
 
@@ -1814,7 +1814,7 @@ def get_store_for_args(args):
         )
         return LogStore.from_parquet_root(data_root)
     else:
-        # Standard .lq directory - use BlqStorage
+        # Standard .bird directory - use BlqStorage
         # Check for --lq-dir override
         lq_dir_override = getattr(args, "lq_dir", None)
         if lq_dir_override:

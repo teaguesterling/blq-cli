@@ -2,7 +2,7 @@
 blq CLI - Build Log Query command-line interface.
 
 Usage:
-    blq init [--mcp]                  Initialize .lq directory
+    blq init [--mcp]                  Initialize .bird directory
     blq run <command>                 Run registered command (alias: r)
     blq exec <command>                Execute ad-hoc command (alias: e)
     blq import <file> [--name NAME]   Import existing log file
@@ -201,7 +201,7 @@ def main() -> None:
         "--lq-dir",
         metavar="PATH",
         dest="lq_dir",
-        help="Use specific .lq directory (overrides discovery)",
+        help="Use specific .bird directory (overrides discovery)",
     )
     parser.add_argument(
         "-F",
@@ -214,7 +214,7 @@ def main() -> None:
         "--global",
         action="store_true",
         dest="global_",
-        help="Query global store (~/.lq/projects/) instead of local .lq",
+        help="Query global store (~/.bird/projects/) instead of local .bird",
     )
     parser.add_argument(
         "-d",
@@ -226,7 +226,7 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", help="Command")
 
     # init
-    p_init = subparsers.add_parser("init", help="Initialize .lq directory")
+    p_init = subparsers.add_parser("init", help="Initialize .bird directory")
     mcp_group = p_init.add_mutually_exclusive_group()
     mcp_group.add_argument(
         "--mcp", "-m", action="store_true", help="Create .mcp.json for MCP server discovery"
@@ -272,7 +272,7 @@ def main() -> None:
         action="store_true",
         dest="gitignore",
         default=True,
-        help="Add .lq/ to .gitignore (default)",
+        help="Add .bird/ to .gitignore (default)",
     )
     gitignore_group.add_argument(
         "--no-gitignore",
@@ -919,7 +919,7 @@ def main() -> None:
     )
 
     # clean full - full reset
-    p_clean_full = clean_subparsers.add_parser("full", help="Delete and recreate .lq directory")
+    p_clean_full = clean_subparsers.add_parser("full", help="Delete and recreate .bird directory")
     p_clean_full.add_argument(
         "--confirm", "-y", action="store_true", help="Confirm destructive operation"
     )

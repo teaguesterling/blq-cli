@@ -24,6 +24,6 @@ def cmd_serve(args: argparse.Namespace) -> None:
     # Ensure we're in an initialized directory
     lq_dir = get_lq_dir()
     if lq_dir is None:
-        print("Warning: No .lq directory found. Some features may not work.", file=sys.stderr)
+        print("Warning: No .bird directory found. Some features may not work.", file=sys.stderr)
 
     serve(transport=args.transport, port=args.port)

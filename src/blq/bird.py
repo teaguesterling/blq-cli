@@ -314,7 +314,7 @@ class BirdStore:
     It handles sessions, invocations, outputs, and events tables.
 
     Example:
-        store = BirdStore.open(".lq/")
+        store = BirdStore.open(".bird/")
 
         # Register session (once per CLI invocation)
         store.ensure_session("test", "blq-shell", "blq", "cli")
@@ -330,7 +330,7 @@ class BirdStore:
         """Initialize BirdStore.
 
         Args:
-            lq_dir: Path to .lq directory
+            lq_dir: Path to .bird directory
             conn: Open DuckDB connection
         """
         self._lq_dir = lq_dir
@@ -355,7 +355,7 @@ class BirdStore:
         """Open or create a BirdStore.
 
         Args:
-            lq_dir: Path to .lq directory
+            lq_dir: Path to .bird directory
 
         Returns:
             BirdStore instance
@@ -384,7 +384,7 @@ class BirdStore:
         writers (e.g., parallel command execution, hooks).
 
         Args:
-            lq_dir: Path to .lq directory
+            lq_dir: Path to .bird directory
             max_retries: Maximum number of retry attempts
             initial_delay: Initial delay between retries in seconds
 
@@ -408,7 +408,7 @@ class BirdStore:
 
         Args:
             conn: DuckDB connection
-            lq_dir: Path to .lq directory
+            lq_dir: Path to .bird directory
             force: If True, reload schema even if it exists (for reinit)
         """
         # Check if schema is already initialized (skip on force)
@@ -936,7 +936,7 @@ class BirdStore:
             attempt_id: The attempt UUID
 
         Returns:
-            Path to live output directory (.lq/live/{attempt_id}/)
+            Path to live output directory (.bird/live/{attempt_id}/)
         """
         return self._lq_dir / "live" / attempt_id
 
@@ -1617,7 +1617,7 @@ def write_bird_invocation(
     Args:
         events: Parsed events from the command output
         run_meta: Run metadata dict (same format as write_run_parquet)
-        lq_dir: Path to .lq directory
+        lq_dir: Path to .bird directory
         output: Optional raw output bytes to store
 
     Returns:

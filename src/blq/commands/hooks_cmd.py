@@ -51,7 +51,7 @@ def _is_blq_hook(hook_path: Path) -> bool:
 def cmd_hooks_generate(args: argparse.Namespace) -> None:
     """Generate hook scripts from registered commands.
 
-    Creates portable shell scripts in .lq/hooks/ that can run
+    Creates portable shell scripts in .bird/hooks/ that can run
     with or without blq installed.
     """
     config = BlqConfig.ensure()
@@ -111,7 +111,7 @@ def cmd_hooks_generate(args: argparse.Namespace) -> None:
 def cmd_hooks_install(args: argparse.Namespace) -> None:
     """Install hooks to a target (git, github, gitlab).
 
-    For git: installs a pre-commit hook that calls .lq/hooks/*.sh scripts.
+    For git: installs a pre-commit hook that calls .bird/hooks/*.sh scripts.
     For github/gitlab: generates workflow files.
     For claude-code: installs Claude Code hooks for blq integration.
     """
@@ -146,7 +146,7 @@ def cmd_hooks_install(args: argparse.Namespace) -> None:
         script_path = get_hooks_dir(config.lq_dir) / f"{cmd_name}.sh"
         if not script_path.exists() or force:
             write_hook_script(cmd, config.lq_dir, force=force)
-            print(f"Generated .lq/hooks/{cmd_name}.sh")
+            print(f"Generated .bird/hooks/{cmd_name}.sh")
 
     # Install to target
     if target == "git":
@@ -172,7 +172,7 @@ def _install_git_hook(
     hook_name: str,
     force: bool,
 ) -> None:
-    """Install a git hook that calls .lq/hooks/*.sh scripts."""
+    """Install a git hook that calls .bird/hooks/*.sh scripts."""
     git_dir = find_git_dir()
     if git_dir is None:
         print("Error: Not in a git repository.", file=sys.stderr)
@@ -262,7 +262,7 @@ jobs:
         run: pip install -e ".[dev]"
 """
         workflow_content += f"""      - name: Run {job["name"]}
-        run: .lq/hooks/{job["name"]}.sh --via=standalone --metadata=footer
+        run: .bird/hooks/{job["name"]}.sh --via=standalone --metadata=footer
 """
 
     workflow_path.write_text(workflow_content)
@@ -293,7 +293,7 @@ def _install_gitlab_ci(
     for cmd_name in commands:
         ci_content += f"""blq-{cmd_name}:
   script:
-    - .lq/hooks/{cmd_name}.sh --via=standalone --metadata=footer
+    - .bird/hooks/{cmd_name}.sh --via=standalone --metadata=footer
 
 """
 
@@ -331,7 +331,7 @@ steps:
         ci_content += f"""  - name: {cmd_name}
     image: alpine
     commands:
-      - .lq/hooks/{cmd_name}.sh --via=standalone --metadata=footer
+      - .bird/hooks/{cmd_name}.sh --via=standalone --metadata=footer
 """
 
     ci_path.write_text(ci_content)
@@ -442,7 +442,7 @@ def cmd_hooks_status(args: argparse.Namespace) -> None:
 
     # Show generated hook scripts
     hooks_dir = config.lq_dir / "hooks"
-    print("Hook Scripts (.lq/hooks/):")
+    print("Hook Scripts (.bird/hooks/):")
     if hooks_dir.exists():
         scripts = sorted(hooks_dir.glob("*.sh"))
         if scripts:
@@ -501,7 +501,7 @@ def cmd_hooks_status(args: argparse.Namespace) -> None:
                     content = hook_path.read_text()
                     import re
 
-                    matches = re.findall(r"\.lq/hooks/(\w+)\.sh", content)
+                    matches = re.findall(r"\.(?:bird|lq)/hooks/(\w+)\.sh", content)
                     cmds = ", ".join(matches) if matches else "?"
                     print(f"  {hook_name:<12} [installed] {cmds}")
                 else:
@@ -554,7 +554,7 @@ def cmd_hooks_status(args: argparse.Namespace) -> None:
         print("  record-post  [not installed]")
 
     # Check pending directory for record hooks
-    pending_dir = Path(".lq/hooks/pending")
+    pending_dir = Path(".bird/hooks/pending")
     if pending_dir.exists():
         pending_files = list(pending_dir.glob("*"))
         if pending_files:
@@ -579,7 +579,7 @@ COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 # Skip if no command, blq not available, or MCP not configured
 [[ -z "$COMMAND" ]] && exit 0
 command -v blq >/dev/null 2>&1 || exit 0
-[[ ! -d .lq ]] && exit 0
+[[ ! -d .bird ]] && exit 0
 [[ ! -f .mcp.json ]] && exit 0
 
 # Get suggestion from blq
@@ -613,7 +613,7 @@ COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 # Skip if no command or blq not available
 [[ -z "$COMMAND" ]] && exit 0
 command -v blq >/dev/null 2>&1 || exit 0
-[[ ! -d .lq ]] && exit 0
+[[ ! -d .bird ]] && exit 0
 
 # Record attempt
 RESULT=$(blq record-invocation attempt --command "$COMMAND" --json 2>/dev/null || true)
@@ -623,7 +623,7 @@ ATTEMPT_ID=$(echo "$RESULT" | jq -r '.attempt_id // empty')
 [[ -z "$ATTEMPT_ID" ]] && exit 0
 
 # Store attempt_id for PostToolUse (keyed by command hash)
-PENDING_DIR=".lq/hooks/pending"
+PENDING_DIR=".bird/hooks/pending"
 mkdir -p "$PENDING_DIR"
 CMD_HASH=$(echo -n "$COMMAND" | sha256sum | cut -c1-16)
 echo "$ATTEMPT_ID" > "$PENDING_DIR/$CMD_HASH"
@@ -647,10 +647,10 @@ STDOUT=$(echo "$INPUT" | jq -r '.tool_result.stdout // empty')
 # Skip if no command or blq not available
 [[ -z "$COMMAND" ]] && exit 0
 command -v blq >/dev/null 2>&1 || exit 0
-[[ ! -d .lq ]] && exit 0
+[[ ! -d .bird ]] && exit 0
 
 # Look for pending attempt
-PENDING_DIR=".lq/hooks/pending"
+PENDING_DIR=".bird/hooks/pending"
 CMD_HASH=$(echo -n "$COMMAND" | sha256sum | cut -c1-16)
 ATTEMPT_FILE="$PENDING_DIR/$CMD_HASH"
 
@@ -837,7 +837,7 @@ def _install_claude_code_hooks(
                 print(f"Registered blq-record-post.sh in {settings_file}")
 
         # Create pending directory for state passing
-        pending_dir = Path(".lq/hooks/pending")
+        pending_dir = Path(".bird/hooks/pending")
         pending_dir.mkdir(parents=True, exist_ok=True)
 
     # Save settings if modified
@@ -942,7 +942,7 @@ def _uninstall_claude_code_hooks(record: bool = False) -> None:
 
     # Remove pending directory if removing record hooks
     if record:
-        pending_dir = Path(".lq/hooks/pending")
+        pending_dir = Path(".bird/hooks/pending")
         if pending_dir.exists():
             import shutil
 

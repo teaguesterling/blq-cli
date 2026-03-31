@@ -262,8 +262,8 @@ def cmd_migrate(args: argparse.Namespace) -> None:
 
     if not keep_parquet:
         print()
-        print("Parquet files preserved in .lq/logs/")
-        print("Run 'rm -rf .lq/logs/' to remove after verifying migration")
+        print("Parquet files preserved in .bird/logs/")
+        print("Run 'rm -rf .bird/logs/' to remove after verifying migration")
     else:
         print()
         print("Parquet files preserved (--keep-parquet)")

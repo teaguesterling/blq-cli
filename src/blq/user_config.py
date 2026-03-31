@@ -32,7 +32,7 @@ class UserConfig:
     Example config file:
         [init]
         auto_mcp = true           # Create .mcp.json on init
-        auto_gitignore = true     # Add .lq/ to .gitignore
+        auto_gitignore = true     # Add .bird/ to .gitignore
         default_storage = "bird"  # Default storage mode
         auto_detect = false       # Auto-detect commands on init
 
@@ -63,7 +63,7 @@ class UserConfig:
 
     # Init defaults
     auto_mcp: bool = False  # Create .mcp.json on init (default: True if fastmcp installed)
-    auto_gitignore: bool = True  # Add .lq/ to .gitignore
+    auto_gitignore: bool = True  # Add .bird/ to .gitignore
     default_storage: str = "bird"  # Default storage mode
     auto_detect: bool = False  # Auto-detect commands on init
 

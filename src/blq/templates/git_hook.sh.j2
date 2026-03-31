@@ -6,6 +6,6 @@
 # To remove: blq hooks uninstall git{% if hook_name != "pre-commit" %} --hook={{ hook_name }}{% endif %}
 
 {% for cmd in commands %}
-.lq/hooks/{{ cmd }}.sh{% if not loop.last %} && \{% endif %}
+.bird/hooks/{{ cmd }}.sh{% if not loop.last %} && \{% endif %}
 
 {% endfor %}

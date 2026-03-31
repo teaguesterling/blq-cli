@@ -1160,9 +1160,9 @@ _blq_completions() {
     case "${COMP_WORDS[1]}" in
         run|r)
             # Complete registered command names
-            if [[ -f .lq/commands.toml ]]; then
+            if [[ -f .bird/commands.toml ]]; then
                 local registered
-                registered=$(grep -oP '(?<=^\[commands\.)[^]]+' .lq/commands.toml 2>/dev/null)
+                registered=$(grep -oP '(?<=^\[commands\.)[^]]+' .bird/commands.toml 2>/dev/null)
                 COMPREPLY=( $(compgen -W "${registered}" -- "${cur}") )
             fi
             ;;
@@ -1232,7 +1232,7 @@ def _zsh_completion() -> str:
 _blq() {
     local -a commands
     commands=(
-        'init:Initialize .lq directory'
+        'init:Initialize .bird directory'
         'run:Run registered command (alias: r)'
         'r:Run registered command'
         'exec:Execute ad-hoc command (alias: e)'
@@ -1282,9 +1282,9 @@ _blq() {
             case "${words[1]}" in
                 run|r)
                     # Complete registered commands
-                    if [[ -f .lq/commands.toml ]]; then
+                    if [[ -f .bird/commands.toml ]]; then
                         local -a registered
-                        local cmd="grep -oP '(?<=^\[commands\.)[^]]+' .lq/commands.toml"
+                        local cmd="grep -oP '(?<=^\[commands\.)[^]]+' .bird/commands.toml"
                         registered=(${(f)"$(eval $cmd 2>/dev/null)"})
                         _describe -t registered 'registered command' registered
                     fi
@@ -1373,7 +1373,7 @@ def _fish_completion() -> str:
 complete -c blq -f
 
 # Commands
-complete -c blq -n "__fish_use_subcommand" -a init -d "Initialize .lq directory"
+complete -c blq -n "__fish_use_subcommand" -a init -d "Initialize .bird directory"
 complete -c blq -n "__fish_use_subcommand" -a run -d "Run registered command"
 complete -c blq -n "__fish_use_subcommand" -a r -d "Run registered command (alias)"
 complete -c blq -n "__fish_use_subcommand" -a exec -d "Execute ad-hoc command"

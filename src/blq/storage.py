@@ -78,7 +78,7 @@ class BlqStorage:
     Uses BIRD storage backend internally.
 
     Example:
-        storage = BlqStorage.open(".lq/")
+        storage = BlqStorage.open(".bird/")
 
         # Check for data
         if storage.has_data():
@@ -93,7 +93,7 @@ class BlqStorage:
         """Initialize BlqStorage.
 
         Args:
-            lq_dir: Path to .lq directory
+            lq_dir: Path to .bird directory
             store: BirdStore instance
         """
         self._lq_dir = lq_dir
@@ -105,13 +105,13 @@ class BlqStorage:
         """Open a BlqStorage.
 
         Args:
-            lq_dir: Path to .lq directory. If None, searches from cwd.
+            lq_dir: Path to .bird directory. If None, searches from cwd.
 
         Returns:
             BlqStorage instance
 
         Raises:
-            FileNotFoundError: If .lq directory not found
+            FileNotFoundError: If .bird directory not found
         """
         if lq_dir is None:
             lq_dir = cls._find_lq_dir()
@@ -119,7 +119,7 @@ class BlqStorage:
             lq_dir = Path(lq_dir)
 
         if not lq_dir.exists():
-            raise FileNotFoundError(f".lq directory not found: {lq_dir}")
+            raise FileNotFoundError(f".bird directory not found: {lq_dir}")
 
         store = BirdStore.open(lq_dir)
         return cls(lq_dir, store)
@@ -165,7 +165,7 @@ class BlqStorage:
 
     @property
     def path(self) -> Path:
-        """Path to .lq directory."""
+        """Path to .bird directory."""
         return self._lq_dir
 
     @property

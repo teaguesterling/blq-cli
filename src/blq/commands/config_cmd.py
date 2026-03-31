@@ -39,7 +39,7 @@ CONFIG_SCHEMA: dict[str, dict[str, Any]] = {
         "attr": "auto_gitignore",
         "section": "init",
         "key": "auto_gitignore",
-        "description": "Add .lq/ to .gitignore",
+        "description": "Add .bird/ to .gitignore",
     },
     "init.default_storage": {
         "type": "str",

@@ -151,7 +151,7 @@ def write_hook_script(
 
     Args:
         cmd: The registered command.
-        lq_path: Path to .lq directory.
+        lq_path: Path to .bird directory.
         force: Overwrite existing script even if unchanged.
 
     Returns:
@@ -206,7 +206,7 @@ def check_script_staleness(
 
     Args:
         cmd: The registered command.
-        lq_path: Path to .lq directory.
+        lq_path: Path to .bird directory.
 
     Returns:
         Tuple of (is_stale, script_checksum).

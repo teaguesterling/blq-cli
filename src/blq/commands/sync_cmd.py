@@ -24,7 +24,7 @@ def get_sync_destination(destination: str | None = None) -> Path:
     """Get the sync destination directory.
 
     Args:
-        destination: Explicit destination path, or None for default (~/.lq/projects/)
+        destination: Explicit destination path, or None for default (~/.bird/projects/)
 
     Returns:
         Path to destination directory
@@ -69,7 +69,7 @@ def cmd_sync(args: argparse.Namespace) -> None:
     # Validate project info exists
     if not config.namespace or not config.project:
         print("Error: Project namespace/project not configured.", file=sys.stderr)
-        print("Run 'blq init --namespace X --project Y' or set in .lq/config.toml", file=sys.stderr)
+        print("Run 'blq init --namespace X --project Y' or set in .bird/config.toml", file=sys.stderr)
         sys.exit(1)
 
     # Get sync parameters
@@ -109,7 +109,7 @@ def _soft_sync(source: Path, target: Path, force: bool, verbose: bool) -> None:
     """Create a symlink from target to source.
 
     Args:
-        source: Source directory (.lq/logs)
+        source: Source directory (.bird/logs)
         target: Target path for symlink
         force: If True, remove existing symlink/directory
         verbose: If True, print detailed info
@@ -153,7 +153,7 @@ def _hard_sync(source: Path, target: Path, verbose: bool) -> None:
     """Copy files from source to target (incremental).
 
     Args:
-        source: Source directory (.lq/logs)
+        source: Source directory (.bird/logs)
         target: Target directory
         verbose: If True, print detailed info
     """

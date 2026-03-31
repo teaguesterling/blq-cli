@@ -8,7 +8,7 @@
 {% for cmd in commands %}
 blq-{{ cmd.name }}:
   script:
-    - .lq/hooks/{{ cmd.name }}.sh --via=standalone --metadata=footer
+    - .bird/hooks/{{ cmd.name }}.sh --via=standalone --metadata=footer
 {% if cmd.description %}
   # {{ cmd.description }}
 {% endif %}

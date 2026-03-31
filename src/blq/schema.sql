@@ -2,7 +2,7 @@
 -- This file defines the schema, views, and macros for querying blq logs.
 --
 -- Directory structure (Hive partitioned):
---   .lq/
+--   .bird/
 --   ├── logs/
 --   │   └── date=YYYY-MM-DD/
 --   │       └── source=run|import|capture/
@@ -13,7 +13,7 @@
 --   └── schema.sql     # This file (reference copy)
 --
 -- Usage:
---   .read .lq/schema.sql
+--   .read .bird/schema.sql
 --   SELECT * FROM blq_status();
 
 -- ============================================================================
@@ -21,7 +21,7 @@
 -- ============================================================================
 
 -- Base path for logs (overridden by LogStore at runtime)
-CREATE OR REPLACE MACRO blq_base_path() AS '.lq/logs';
+CREATE OR REPLACE MACRO blq_base_path() AS '.bird/logs';
 
 -- Status badge based on error/warning counts
 -- Returns: '[FAIL]' if errors, '[WARN]' if warnings, '[ OK ]' otherwise

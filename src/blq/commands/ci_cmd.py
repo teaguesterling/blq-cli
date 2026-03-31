@@ -498,7 +498,7 @@ def _generate_simple_script(cmd: RegisteredCommand, shell: str = "bash") -> str:
 set -euo pipefail
 
 # Check if blq is available for log capture
-if command -v blq &> /dev/null && [ -d ".lq" ]; then
+if command -v blq &> /dev/null && [ -d ".bird" ]; then
     # Use blq to capture and parse output
     if [ $# -gt 0 ]; then
         blq run {name} -- "$@"
@@ -645,7 +645,7 @@ done
 {required_block}
 
 # Check if blq is available for log capture
-if command -v blq &> /dev/null && [ -d ".lq" ]; then
+if command -v blq &> /dev/null && [ -d ".bird" ]; then
     # Build blq run command with parameters
     BLQ_ARGS="{cmd.name}"
 """
@@ -709,7 +709,7 @@ def cmd_ci_generate(args: argparse.Namespace) -> None:
     """
     config = BlqConfig.find()
     if config is None:
-        print("Error: .lq not initialized. Run 'blq init' first.", file=sys.stderr)
+        print("Error: .bird not initialized. Run 'blq init' first.", file=sys.stderr)
         sys.exit(1)
 
     commands = config.commands

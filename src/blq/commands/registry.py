@@ -131,7 +131,7 @@ def cmd_register(args: argparse.Namespace) -> None:
                 print("Error: Failed to initialize project.", file=sys.stderr)
                 sys.exit(1)
         else:
-            print("Error: .lq not initialized. Run 'blq init' first.", file=sys.stderr)
+            print("Error: .bird not initialized. Run 'blq init' first.", file=sys.stderr)
             print(
                 "Tip: Set auto_init = true in ~/.config/blq/config.toml to auto-init",
                 file=sys.stderr,

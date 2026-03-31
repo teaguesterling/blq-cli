@@ -4,7 +4,7 @@
 -- All reads go through views, writes go directly to tables.
 --
 -- Directory structure:
---   .lq/
+--   .bird/
 --   ├── blq.duckdb          # Database with tables and views
 --   ├── blobs/              # Content-addressed output storage
 --   │   └── content/
@@ -30,7 +30,7 @@ INSERT OR IGNORE INTO blq_metadata VALUES ('schema_version', '2.4.0');
 INSERT OR IGNORE INTO blq_metadata VALUES ('storage_mode', 'duckdb');
 
 -- Base path for blob storage (set at runtime)
-CREATE OR REPLACE MACRO blq_blob_root() AS '.lq/blobs/content';
+CREATE OR REPLACE MACRO blq_blob_root() AS '.bird/blobs/content';
 
 -- ============================================================================
 -- CORE TABLES (BIRD Schema)
