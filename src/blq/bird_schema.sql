@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS blq_metadata (
 );
 
 -- Insert schema version (ignore if exists)
-INSERT OR IGNORE INTO blq_metadata VALUES ('schema_version', '2.4.0');
+INSERT OR IGNORE INTO blq_metadata VALUES ('schema_version', '3.0.0');
 INSERT OR IGNORE INTO blq_metadata VALUES ('storage_mode', 'duckdb');
 
 -- Base path for blob storage (set at runtime)

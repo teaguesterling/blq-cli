@@ -594,6 +594,11 @@ class BirdStore:
             if migration_ok:
                 conn.execute("UPDATE blq_metadata SET value = '2.4.0' WHERE key = 'schema_version'")
 
+        # Migration: 2.4.0 -> 3.0.0 (directory rename .lq -> .bird, no table changes)
+        if (major, minor) < (3, 0):
+            conn.execute("UPDATE blq_metadata SET value = '3.0.0' WHERE key = 'schema_version'")
+            logger.info("Migration: Updated schema version to 3.0.0 (BIRD directory)")
+
         # If migrations were applied, reload views/macros to pick up new columns
         if migrations_applied:
             cls._reload_views_and_macros(conn)
