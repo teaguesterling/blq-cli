@@ -41,7 +41,8 @@ htmlcov/
 # mypy
 .mypy_cache/
 
-# lq data (local to each project)
+# BIRD data (local to each project)
+.bird/
 .lq/
 
 # Documentation

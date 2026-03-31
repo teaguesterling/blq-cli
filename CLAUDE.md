@@ -98,7 +98,7 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 - [ ] Consider integration with duckdb_mcp for ATTACH/DETACH workflow
 
 **BIRD Spec:**
-- [ ] Migrate from `.lq/` to `.bird/` directory (pending spec finalization)
+- [x] Migrated from `.lq/` to `.bird/` directory (auto-migration from legacy)
 - [ ] Running process tracking (pending BIRD spec)
 - [ ] Migrate to updated BIRD spec (when ready)
 
@@ -111,13 +111,13 @@ This is the initial scaffolding for `blq` (Build Log Query) - a CLI tool for cap
 ```
 blq (Python CLI)
     │
-    ├── .lq/blq.duckdb     - BIRD database with tables and macros
+    ├── .bird/blq.duckdb     - BIRD database with tables and macros
     │   ├── sessions       - Invoker sessions (shell, CLI, MCP)
     │   ├── invocations    - Command executions with metadata
     │   ├── outputs        - Captured stdout/stderr (content-addressed)
     │   └── events         - Parsed diagnostics (errors, warnings)
     │
-    ├── .lq/blobs/         - Content-addressed blob storage
+    ├── .bird/blobs/         - Content-addressed blob storage
     │   └── content/ab/{hash}.bin
     │
     ├── Uses duckdb Python API directly
@@ -171,7 +171,7 @@ All SQL macros use the `blq_` prefix:
 
 Direct DuckDB access:
 ```bash
-duckdb .lq/blq.duckdb "SELECT * FROM blq_status()"
+duckdb .bird/blq.duckdb "SELECT * FROM blq_status()"
 ```
 
 ## Run Metadata
@@ -193,7 +193,7 @@ Each `blq run` captures comprehensive execution context:
 
 ### Environment Capture
 
-Configurable in `.lq/config.toml`:
+Configurable in `.bird/config.toml`:
 ```toml
 capture_env = [
     "PATH",
@@ -221,7 +221,7 @@ SELECT ci['provider'], ci['run_id'] FROM blq_load_events() WHERE ci IS NOT NULL
 
 ## Project Identification
 
-Detected at `blq init` and stored in `.lq/config.toml`:
+Detected at `blq init` and stored in `.bird/config.toml`:
 
 ```toml
 [project]
@@ -265,7 +265,7 @@ Runtime override: `blq run --no-capture <cmd>` or `blq run --capture <cmd>`
 
 1. **BIRD as default storage**: DuckDB tables for simpler queries, content-addressed blobs for outputs
 2. **Parquet mode available**: For multi-writer scenarios (legacy, use `--parquet` flag)
-3. **Project-local storage**: `.lq/` directory in project root
+3. **Project-local storage**: `.bird/` directory in project root
 4. **blq.duckdb for everything**: Tables, views, and macros in single database file
 5. **Table-returning macros**: `blq_load_events()` evaluated at query time, not view creation
 6. **Backward-compatible views**: `blq_events_flat` provides v1-compatible schema
@@ -334,7 +334,7 @@ blq mcp serve -D exec,clean         # Disable specific tools
 blq mcp serve -S -D custom_tool     # Combine safe mode with additional tools
 ```
 
-Or via `.lq/config.toml`:
+Or via `.bird/config.toml`:
 ```toml
 [mcp]
 disabled_tools = ["clean", "register_command", "unregister_command"]
@@ -441,7 +441,7 @@ ruff format src/blq/
 
 ### Config Options
 
-Key `.lq/config.toml` options:
+Key `.bird/config.toml` options:
 ```toml
 [storage]
 keep_raw = true               # Always keep raw output

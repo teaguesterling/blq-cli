@@ -52,11 +52,11 @@ Fetch and query logs from CI systems. This is the last major feature gap.
 
 **Why before 1.0:** Users expect to query CI logs the same way they query local logs. Without sync, blq is local-only, which limits its value for teams.
 
-### 0.13.x — BIRD Spec Finalization
+### 0.12.x — BIRD Spec Finalization
 
 Settle the storage format before committing to API stability.
 
-- [ ] `.lq/` vs `.bird/` directory decision and migration (#35)
+- [x] `.lq/` → `.bird/` directory migration (#35) — auto-migration on first access
 - [ ] Finalize schema version, document storage guarantees (#36)
 
 **Why before 1.0:** Changing the storage directory or schema after 1.0 would be a breaking change. Lock it down now.
