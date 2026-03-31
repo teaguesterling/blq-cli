@@ -1,11 +1,11 @@
 # Data Schema Reference
 
-blq stores build logs and parsed events in a DuckDB database at `.lq/blq.duckdb`. This document describes the schema for users who want to write custom SQL queries.
+blq stores build logs and parsed events in a DuckDB database at `.bird/blq.duckdb`. This document describes the schema for users who want to write custom SQL queries.
 
 ## Directory Structure
 
 ```
-.lq/
+.bird/
 ├── blq.duckdb          # DuckDB database (tables, macros)
 ├── blobs/              # Content-addressed output storage
 │   └── content/
@@ -383,7 +383,7 @@ LIMIT 10;
 
 ```bash
 # Using DuckDB CLI
-duckdb .lq/blq.duckdb "SELECT * FROM blq_status()"
+duckdb .bird/blq.duckdb "SELECT * FROM blq_status()"
 
 # Using blq sql command
 blq sql "SELECT * FROM blq_errors(5)"

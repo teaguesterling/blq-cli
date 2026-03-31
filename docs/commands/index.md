@@ -52,7 +52,7 @@
 
 | Command | Description |
 |---------|-------------|
-| `init` | Initialize .lq directory |
+| `init` | Initialize .bird directory |
 | `clean` | Database cleanup |
 | `migrate` | Storage migration |
 

@@ -76,7 +76,7 @@ completions  exec         import       register     status       warnings
 context      filter       init         run          summary
 ```
 
-Typing `blq run <TAB>` shows registered commands from `.lq/commands.toml`.
+Typing `blq run <TAB>` shows registered commands from `.bird/commands.toml`.
 
 ---
 

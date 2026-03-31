@@ -19,7 +19,7 @@ cd your-project
 blq init --detect
 ```
 
-This creates `.lq/` (the database), adds it to `.gitignore`, and auto-detects your build commands from `Makefile`, `pyproject.toml`, `package.json`, etc.
+This creates `.bird/` (the database), adds it to `.gitignore`, and auto-detects your build commands from `Makefile`, `pyproject.toml`, `package.json`, etc.
 
 Register any commands it missed:
 

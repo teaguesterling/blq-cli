@@ -11,7 +11,7 @@ blq r [OPTIONS] <registered-name>
 
 ## Description
 
-The `run` command executes a registered command by name, captures its output, parses it for errors and warnings, and stores the events in `.lq/logs/`.
+The `run` command executes a registered command by name, captures its output, parses it for errors and warnings, and stores the events in `.bird/logs/`.
 
 For ad-hoc shell commands, use `blq exec` instead.
 
@@ -21,7 +21,7 @@ For ad-hoc shell commands, use `blq exec` instead.
 |--------|-------|-------------|
 | `--name NAME` | `-n` | Source name (default: command name) |
 | `--format FORMAT` | `-f` | Parse format hint (default: auto) |
-| `--keep-raw` | `-r` | Keep raw output file in `.lq/raw/` |
+| `--keep-raw` | `-r` | Keep raw output file in `.bird/raw/` |
 | `--json` | `-j` | Output structured JSON result |
 | `--markdown` | `-m` | Output markdown summary |
 | `--quiet` | `-q` | Suppress streaming output |
@@ -97,7 +97,7 @@ blq run --name "nightly build" build
 
 ```bash
 blq run --keep-raw build
-# Creates .lq/raw/001_build_103000.log
+# Creates .bird/raw/001_build_103000.log
 ```
 
 ### Structured Output

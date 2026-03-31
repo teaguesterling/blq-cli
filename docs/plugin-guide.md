@@ -76,7 +76,7 @@ The entry point value must be a callable (typically a class) that returns an `Ex
 
 ### Configuration
 
-Users configure your extension in `.lq/commands.toml` under a section matching your `config_key`:
+Users configure your extension in `.bird/commands.toml` under a section matching your `config_key`:
 
 ```toml
 [commands.test.my_extension]

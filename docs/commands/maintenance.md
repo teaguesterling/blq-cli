@@ -22,7 +22,7 @@ blq clean full                    # Full reinitialization
 | `data` | Clear all run data (invocations, events, outputs). Config and commands preserved. |
 | `prune` | Remove data by age, run count, or size. Includes orphaned blob cleanup. |
 | `schema` | Recreate database schema. All data lost, config files preserved. |
-| `full` | Delete and recreate entire .lq directory. Everything reset. |
+| `full` | Delete and recreate entire .bird directory. Everything reset. |
 
 ### Options
 
@@ -70,7 +70,7 @@ Recreated database schema. Config files preserved.
 
 # Full reinitialization
 $ blq clean full --confirm
-Fully reinitialized .lq directory.
+Fully reinitialized .bird directory.
 ```
 
 ## Automatic Pruning
@@ -85,9 +85,9 @@ blq config set storage.prune_interval_minutes 60  # Check at most every 60 minut
 blq config set storage.prune_days 30         # Remove data older than 30 days
 ```
 
-Autoprune uses a time-based trigger (checks `.lq/.last_prune` timestamp) rather than running on every command. When triggered, it applies limits in order: age, then run count, then size.
+Autoprune uses a time-based trigger (checks `.bird/.last_prune` timestamp) rather than running on every command. When triggered, it applies limits in order: age, then run count, then size.
 
-Project-level overrides can be set in `.lq/config.toml`:
+Project-level overrides can be set in `.bird/config.toml`:
 
 ```toml
 [storage]
@@ -100,7 +100,7 @@ max_runs = 100        # Tighter limit for this project
 blq uses BIRD storage (DuckDB tables with content-addressed blob storage):
 
 ```
-.lq/
+.bird/
 ├── blq.duckdb           # DuckDB database (tables, views, macros)
 ├── blobs/
 │   └── content/         # Content-addressed blob storage
@@ -178,11 +178,11 @@ For advanced operations, access the database directly:
 
 ```bash
 # Open DuckDB shell
-duckdb .lq/blq.duckdb
+duckdb .bird/blq.duckdb
 
 # View storage stats
-duckdb .lq/blq.duckdb "SELECT COUNT(*) FROM invocations"
+duckdb .bird/blq.duckdb "SELECT COUNT(*) FROM invocations"
 
 # Query using blq macros
-duckdb .lq/blq.duckdb "SELECT * FROM blq_status()"
+duckdb .bird/blq.duckdb "SELECT * FROM blq_status()"
 ```

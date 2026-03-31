@@ -485,7 +485,7 @@ Disables: `exec`, `clean`, `register_command`, `unregister_command`
 blq mcp serve --disabled-tools exec,clean
 ```
 
-Or in `.lq/config.toml`:
+Or in `.bird/config.toml`:
 
 ```toml
 [mcp]
@@ -528,7 +528,7 @@ blq mcp serve --transport sse --port 8080  # HTTP SSE
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `BLQ_DIR` | Path to .lq directory | Auto-detect |
+| `BLQ_DIR` | Path to .bird directory | Auto-detect |
 | `BLQ_TIMEOUT` | Default timeout (seconds) | 300 |
 | `BLQ_MCP_DISABLED_TOOLS` | Tools to disable | (none) |
 

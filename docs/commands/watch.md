@@ -83,7 +83,7 @@ blq watch --quiet test
 By default, watch mode excludes common non-source files:
 
 - `.git/*` - Git internals
-- `.lq/*` - blq data directory
+- `.bird/*` - blq data directory
 - `__pycache__/*` - Python bytecode
 - `*.pyc` - Python compiled files
 - `node_modules/*` - Node.js dependencies

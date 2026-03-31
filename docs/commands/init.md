@@ -1,6 +1,6 @@
 # init - Initialize Project
 
-The `blq init` command initializes a `.lq` directory in your project for storing logs and configuration.
+The `blq init` command initializes a `.bird` directory in your project for storing logs and configuration.
 
 ## Basic Usage
 
@@ -21,7 +21,7 @@ blq init --detect --yes     # Auto-detect and register build commands
 | `--detect-mode MODE` | | Detection mode: `none`, `simple`, `inspect`, `auto` |
 | `--yes` | `-y` | Non-interactive mode (auto-confirm detected commands) |
 | `--force` | `-f` | Reinitialize config files without deleting data |
-| `--gitignore` | | Add `.lq/` to `.gitignore` (default) |
+| `--gitignore` | | Add `.bird/` to `.gitignore` (default) |
 | `--no-gitignore` | | Don't modify `.gitignore` |
 | `--parquet` | | Use legacy parquet storage (default is BIRD) |
 
@@ -30,7 +30,7 @@ blq init --detect --yes     # Auto-detect and register build commands
 After initialization, your project will have:
 
 ```
-.lq/
+.bird/
 ├── blq.duckdb      # BIRD database (invocations, events)
 ├── blobs/          # Content-addressed blob storage
 │   └── content/
@@ -40,14 +40,14 @@ After initialization, your project will have:
 └── commands.toml   # Registered commands
 ```
 
-Additionally, `.lq/` is automatically added to `.gitignore` (use `--no-gitignore` to skip).
+Additionally, `.bird/` is automatically added to `.gitignore` (use `--no-gitignore` to skip).
 
 ## Project Identification
 
 blq automatically detects your project identity from git:
 
 ```toml
-# .lq/config.toml
+# .bird/config.toml
 [project]
 namespace = "github__username"    # From git remote owner
 project = "myproject"             # From git remote repo name

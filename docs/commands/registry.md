@@ -125,12 +125,12 @@ blq register test-integration "pytest tests/integration/"
 blq register test-all "pytest tests/"
 
 # Use a parameterized template:
-# (edit .lq/commands.toml directly - see Storage below)
+# (edit .bird/commands.toml directly - see Storage below)
 ```
 
 ### Template Syntax
 
-In `.lq/commands.toml`, use `tpl` instead of `cmd` with `{param}` placeholders:
+In `.bird/commands.toml`, use `tpl` instead of `cmd` with `{param}` placeholders:
 
 ```toml
 [commands.test]
@@ -172,7 +172,7 @@ Missing required parameters will show an error with valid parameter names.
 
 ## Storage
 
-Commands are stored in `.lq/commands.toml`:
+Commands are stored in `.bird/commands.toml`:
 
 ```toml
 [commands.build]
@@ -270,7 +270,7 @@ blq register deploy "./scripts/deploy.sh" --no-capture
 
 ### Team Standardization
 
-Share `.lq/commands.toml` in version control:
+Share `.bird/commands.toml` in version control:
 ```bash
 # Team member clones repo
 git clone https://github.com/team/project
@@ -308,7 +308,7 @@ blq run build-debug
 blq run build-release
 ```
 
-Or using a parameterized template (in `.lq/commands.toml`):
+Or using a parameterized template (in `.bird/commands.toml`):
 ```toml
 [commands.build]
 tpl = "make {flags}"
@@ -329,5 +329,5 @@ blq run build  # default (no flags)
 3. **Set appropriate timeouts**: Increase for long builds
 4. **Use format hints**: When auto-detection struggles
 5. **Skip capture for speed**: Use `--no-capture` for formatters and cleaners
-6. **Version control**: Commit `.lq/commands.toml` for team consistency
+6. **Version control**: Commit `.bird/commands.toml` for team consistency
 7. **Use templates**: Avoid duplicate commands - use `tpl` with `{param}` placeholders

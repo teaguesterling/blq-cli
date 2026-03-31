@@ -5,7 +5,7 @@ The `blq sync` command synchronizes project logs to a central location for cross
 ## Basic Usage
 
 ```bash
-# Sync to default location (~/.lq/projects/)
+# Sync to default location (~/.bird/projects/)
 blq sync
 
 # Sync to custom location
@@ -22,7 +22,7 @@ blq sync --status
 
 ### Soft Sync (Default)
 
-Creates a symlink to your project's `.lq/logs` directory:
+Creates a symlink to your project's `.bird/logs` directory:
 
 ```bash
 blq sync              # Creates symlink
@@ -46,7 +46,7 @@ Use hard sync when you need actual copies (e.g., for S3 upload).
 Synced projects use Hive-style partitioning:
 
 ```
-~/.lq/projects/
+~/.bird/projects/
   hostname=snape/
     namespace=github__teaguesterling/
       project=lq/
@@ -97,7 +97,7 @@ Projects are identified by namespace and project name from your git remote:
 | `gitlab.com/org/repo` | `gitlab__org` |
 | No git (filesystem) | `local__path__to__dir` |
 
-Configure manually in `.lq/config.toml`:
+Configure manually in `.bird/config.toml`:
 
 ```toml
 [project]
@@ -110,14 +110,14 @@ project = "lq"
 ```bash
 # Initial sync
 blq sync
-# Output: Synced (soft): ~/.lq/projects/hostname=snape/... -> /path/to/.lq/logs
+# Output: Synced (soft): ~/.bird/projects/hostname=snape/... -> /path/to/.bird/logs
 
 # Check status
 blq sync --status
 # Output:
 #   snape: github__teaguesterling/lq
 #     Mode: symlink (ok)
-#     Target: /path/to/project/.lq/logs
+#     Target: /path/to/project/.bird/logs
 
 # Re-sync (detects already synced)
 blq sync

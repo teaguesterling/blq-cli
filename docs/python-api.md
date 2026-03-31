@@ -32,15 +32,15 @@ events = LogQuery.from_file("build.log").filter(severity="error").df()
 
 ## LogStore
 
-Manages the `.lq` repository and provides access to stored events.
+Manages the `.bird` repository and provides access to stored events.
 
 ### Opening
 
 ```python
 from blq import LogStore
 
-store = LogStore.open()                    # Auto-find .lq
-store = LogStore.open("/path/to/.lq")      # Explicit path
+store = LogStore.open()                    # Auto-find .bird
+store = LogStore.open("/path/to/.bird")      # Explicit path
 ```
 
 ### Query Methods

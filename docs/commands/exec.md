@@ -11,7 +11,7 @@ blq e [OPTIONS] COMMAND [ARGS...]
 
 ## Description
 
-The `exec` command executes a shell command directly, captures its output, parses it for errors and warnings, and stores the events in `.lq/logs/`.
+The `exec` command executes a shell command directly, captures its output, parses it for errors and warnings, and stores the events in `.bird/logs/`.
 
 Unlike `blq run`, which operates on registered commands, `exec` runs any shell command directly. This is useful for:
 
@@ -25,7 +25,7 @@ Unlike `blq run`, which operates on registered commands, `exec` runs any shell c
 |--------|-------|-------------|
 | `--name NAME` | `-n` | Source name (default: derived from command) |
 | `--format FORMAT` | `-f` | Parse format hint (default: auto) |
-| `--keep-raw` | `-r` | Keep raw output file in `.lq/raw/` |
+| `--keep-raw` | `-r` | Keep raw output file in `.bird/raw/` |
 | `--json` | `-j` | Output structured JSON result |
 | `--markdown` | `-m` | Output markdown summary |
 | `--quiet` | `-q` | Suppress streaming output |
@@ -58,7 +58,7 @@ blq exec --name "nightly build" make -j8
 
 ```bash
 blq exec --keep-raw make
-# Creates .lq/raw/001_make_103000.log
+# Creates .bird/raw/001_make_103000.log
 ```
 
 ### Structured Output

@@ -140,7 +140,7 @@ Usually auto-detection works well. Specify format when:
 All captured logs are stored in the BIRD database (DuckDB tables with content-addressed blob storage):
 
 ```
-.lq/
+.bird/
 ├── blq.duckdb               # DuckDB database (events, runs, metadata)
 ├── blobs/                    # Content-addressed blob storage
 │   └── content/

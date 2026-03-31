@@ -89,7 +89,7 @@ blq shell
 
 This opens a DuckDB CLI session with:
 - duck_hunt extension loaded
-- Schema and macros loaded from `.lq/schema.sql`
+- Schema and macros loaded from `.bird/schema.sql`
 - Custom prompt `blq> `
 
 ### Interactive Session

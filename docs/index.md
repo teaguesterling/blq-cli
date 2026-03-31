@@ -50,10 +50,10 @@ See [Commands Reference](commands/) for all commands.
 
 ## Storage
 
-Logs are stored in `.lq/` in your project:
+Logs are stored in `.bird/` in your project:
 
 ```
-.lq/
+.bird/
 ├── blq.duckdb      # DuckDB database
 ├── blobs/          # Content-addressed output storage
 ├── config.toml     # Project configuration

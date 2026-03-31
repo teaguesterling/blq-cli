@@ -177,7 +177,7 @@ See [Python API Guide](python-api.md) for full documentation.
 
 ```bash
 # Query the database directly
-duckdb .lq/blq.duckdb "SELECT * FROM blq_errors(10)"
+duckdb .bird/blq.duckdb "SELECT * FROM blq_errors(10)"
 
 # Via blq
 blq sql "SELECT ref_file, COUNT(*) FROM blq_load_events() WHERE severity='error' GROUP BY 1"

@@ -8,7 +8,7 @@ blq can enforce execution boundaries on registered commands using Linux namespac
 # Register a command with a sandbox preset
 blq commands register test "pytest" --sandbox test
 
-# Or add sandbox to an existing command in .lq/commands.toml:
+# Or add sandbox to an existing command in .bird/commands.toml:
 # [commands.test.sandbox]
 # network = "none"
 # filesystem = "readonly"
