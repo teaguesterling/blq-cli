@@ -30,7 +30,7 @@ class TestGetLqDir:
 
     def test_finds_lq_in_current_dir(self, chdir_temp):
         """Find .lq in current directory."""
-        lq_path = chdir_temp / ".lq"
+        lq_path = chdir_temp / ".bird"
         lq_path.mkdir()
 
         result = get_lq_dir()
@@ -38,7 +38,7 @@ class TestGetLqDir:
 
     def test_finds_lq_in_parent_dir(self, chdir_temp):
         """Find .lq in parent directory."""
-        lq_path = chdir_temp / ".lq"
+        lq_path = chdir_temp / ".bird"
         lq_path.mkdir()
 
         subdir = chdir_temp / "subdir" / "deep"
@@ -74,7 +74,7 @@ class TestBlqConfigEnsureInitialized:
         """Return config when .lq exists."""
         config = BlqConfig.ensure()
         assert config.lq_dir.exists()
-        assert config.lq_dir.name == ".lq"
+        assert config.lq_dir.name == ".bird"
 
     def test_exits_when_not_initialized(self, chdir_temp):
         """Exit with error when .lq not found."""
@@ -105,7 +105,7 @@ class TestCmdInit:
         args = self._make_init_args(parquet=True)
         cmd_init(args)
 
-        lq_path = chdir_temp / ".lq"
+        lq_path = chdir_temp / ".bird"
         assert lq_path.exists()
         assert (lq_path / "logs").exists()
         assert (lq_path / "raw").exists()
@@ -116,7 +116,7 @@ class TestCmdInit:
         args = self._make_init_args(parquet=False)
         cmd_init(args)
 
-        lq_path = chdir_temp / ".lq"
+        lq_path = chdir_temp / ".bird"
         assert lq_path.exists()
         assert (lq_path / "blobs" / "content").exists()
         assert (lq_path / "raw").exists()
@@ -128,7 +128,7 @@ class TestCmdInit:
         args = self._make_init_args(parquet=True)
         cmd_init(args)
 
-        schema = (chdir_temp / ".lq" / "schema.sql").read_text()
+        schema = (chdir_temp / ".bird" / "schema.sql").read_text()
         assert "blq_load_events" in schema
         assert "blq_base_path" in schema
 
@@ -138,7 +138,7 @@ class TestCmdInit:
         cmd_init(args)
 
         captured = capsys.readouterr()
-        assert "Initialized .lq" in captured.out
+        assert "Initialized .bird" in captured.out
 
     def test_creates_gitignore_with_pattern(self, chdir_temp, capsys):
         """Create .gitignore with new multi-line pattern that tracks hooks."""
@@ -149,11 +149,11 @@ class TestCmdInit:
         assert gitignore.exists()
         content = gitignore.read_text()
 
-        # New pattern ignores .lq/* but tracks specific files
-        assert ".lq/*" in content
-        assert "!.lq/hooks/" in content
-        assert "!.lq/config.toml" in content
-        assert "!.lq/commands.toml" in content
+        # New pattern ignores .bird/* but tracks specific files
+        assert ".bird/*" in content
+        assert "!.bird/hooks/" in content
+        assert "!.bird/config.toml" in content
+        assert "!.bird/commands.toml" in content
 
     def test_gitignore_disabled_skips_file(self, chdir_temp, capsys):
         """Skip .gitignore creation when --no-gitignore is passed."""
@@ -176,8 +176,8 @@ class TestCmdInit:
         assert "node_modules/" in content
         assert "*.pyc" in content
         # And add new pattern
-        assert ".lq/*" in content
-        assert "!.lq/hooks/" in content
+        assert ".bird/*" in content
+        assert "!.bird/hooks/" in content
 
     def test_gitignore_skips_if_legacy_pattern_exists(self, chdir_temp, capsys):
         """Don't modify .gitignore if legacy .lq/ pattern already present."""
@@ -221,7 +221,7 @@ class TestGetNextRunId:
         run_adhoc_command([str(sample_build_script)])
 
         # Next run should be 2
-        lq_dir = Path(".lq")
+        lq_dir = Path(".bird")
         result = get_next_run_id(lq_dir)
         assert result == 2
 
@@ -248,7 +248,7 @@ class TestGetConnection:
         # Create some data first using ad-hoc execution
         run_adhoc_command([str(sample_build_script)])
 
-        conn = get_connection(Path(".lq"))
+        conn = get_connection(Path(".bird"))
         result = conn.execute("SELECT COUNT(*) FROM blq_load_events()").fetchone()
         assert result[0] > 0
 
@@ -400,7 +400,7 @@ class TestCmdExec:
         except SystemExit:
             pass
 
-        raw_files = list(Path(".lq/raw").glob("*.log"))
+        raw_files = list(Path(".bird/raw").glob("*.log"))
         assert len(raw_files) == 1
 
     def test_quiet_suppresses_output(self, initialized_project, sample_build_script, capsys):
@@ -512,7 +512,7 @@ Done
         assert "Imported" in captured.out or "Captured" in captured.out
 
         # Check parquet was created
-        parquet_files = list(Path(".lq/logs").rglob("*.parquet"))
+        parquet_files = list(Path(".bird/logs").rglob("*.parquet"))
         assert len(parquet_files) >= 1
 
 
@@ -757,7 +757,7 @@ class TestBlqConfigFind:
 
     def test_find_in_current_dir(self, chdir_temp):
         """Find .lq in current directory."""
-        lq_path = chdir_temp / ".lq"
+        lq_path = chdir_temp / ".bird"
         lq_path.mkdir()
 
         config = BlqConfig.find()
@@ -766,7 +766,7 @@ class TestBlqConfigFind:
 
     def test_find_in_parent_dir(self, chdir_temp):
         """Find .lq in parent directory."""
-        lq_path = chdir_temp / ".lq"
+        lq_path = chdir_temp / ".bird"
         lq_path.mkdir()
 
         subdir = chdir_temp / "subdir" / "deep"

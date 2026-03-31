@@ -109,7 +109,7 @@ class TestBirdStoreAttempts:
 
     def test_write_attempt(self, initialized_project):
         """Write an attempt record."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         attempt = AttemptRecord(
             id=AttemptRecord.generate_id(),
@@ -128,7 +128,7 @@ class TestBirdStoreAttempts:
 
     def test_attempt_without_outcome_is_pending(self, initialized_project):
         """Attempt without outcome has 'pending' status."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         attempt = AttemptRecord(
             id=AttemptRecord.generate_id(),
@@ -148,7 +148,7 @@ class TestBirdStoreAttempts:
 
     def test_attempt_with_outcome_is_completed(self, initialized_project):
         """Attempt with outcome has 'completed' status."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         attempt = AttemptRecord(
             id=AttemptRecord.generate_id(),
@@ -176,7 +176,7 @@ class TestBirdStoreAttempts:
 
     def test_outcome_with_null_exit_code_is_orphaned(self, initialized_project):
         """Outcome with NULL exit_code has 'orphaned' status."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         attempt = AttemptRecord(
             id=AttemptRecord.generate_id(),
@@ -204,7 +204,7 @@ class TestBirdStoreAttempts:
 
     def test_get_running_attempts(self, initialized_project):
         """Get list of running attempts (without outcomes)."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         # Create 3 attempts
         attempt1 = AttemptRecord(
@@ -254,7 +254,7 @@ class TestBirdStoreAttempts:
 
     def test_get_next_run_number_counts_invocations(self, initialized_project):
         """get_next_run_number counts only invocations (completed runs)."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         # Create an attempt (pending run - not yet complete)
         attempt = AttemptRecord(
@@ -295,7 +295,7 @@ class TestAttemptsOutcomesSql:
 
     def test_blq_load_attempts_returns_status(self, initialized_project):
         """blq_load_attempts() includes status column."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         # Create a pending attempt
         attempt = AttemptRecord(
@@ -329,7 +329,7 @@ class TestAttemptsOutcomesSql:
 
     def test_blq_running_returns_pending_only(self, initialized_project):
         """blq_running() returns only pending attempts."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         # Create pending and completed attempts
         pending = AttemptRecord(
@@ -377,7 +377,7 @@ class TestLiveOutputStreaming:
 
     def test_create_live_dir(self, initialized_project):
         """Create live output directory for an attempt."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         attempt = AttemptRecord(
             id=AttemptRecord.generate_id(),
@@ -400,7 +400,7 @@ class TestLiveOutputStreaming:
 
     def test_get_live_output_path(self, initialized_project):
         """Get path to live output file."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         attempt = AttemptRecord(
             id=AttemptRecord.generate_id(),
@@ -424,7 +424,7 @@ class TestLiveOutputStreaming:
 
     def test_write_and_read_live_output(self, initialized_project):
         """Write to and read from live output file."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         attempt = AttemptRecord(
             id=AttemptRecord.generate_id(),
@@ -457,7 +457,7 @@ class TestLiveOutputStreaming:
 
     def test_cleanup_live_dir(self, initialized_project):
         """Clean up live directory after completion."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         attempt = AttemptRecord(
             id=AttemptRecord.generate_id(),
@@ -487,7 +487,7 @@ class TestLiveOutputStreaming:
 
     def test_list_live_attempts(self, initialized_project):
         """List attempts with active live output."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         # Create two attempts with live directories
         attempt1 = AttemptRecord(
@@ -530,7 +530,7 @@ class TestLiveOutputStreaming:
 
     def test_finalize_live_output_inline(self, initialized_project):
         """Finalize small live output as inline storage."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         attempt = AttemptRecord(
             id=AttemptRecord.generate_id(),
@@ -563,7 +563,7 @@ class TestLiveOutputStreaming:
 
     def test_finalize_live_output_blob(self, initialized_project):
         """Finalize large live output to blob storage."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         attempt = AttemptRecord(
             id=AttemptRecord.generate_id(),
@@ -595,7 +595,7 @@ class TestLiveOutputStreaming:
         # Verify blob was written
         blob_hash = output_record.content_hash
         blob_path = (
-            initialized_project / ".lq" / "blobs" / "content" / blob_hash[:2] / f"{blob_hash}.bin"
+            initialized_project / ".bird" / "blobs" / "content" / blob_hash[:2] / f"{blob_hash}.bin"
         )
         assert blob_path.exists()
         assert blob_path.read_bytes() == test_content.encode()
@@ -604,7 +604,7 @@ class TestLiveOutputStreaming:
 
     def test_live_dir_not_created_for_nonexistent_attempt(self, initialized_project):
         """Live directory creation requires valid attempt ID."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         # Try to create live dir for non-existent attempt
         fake_id = "00000000-0000-0000-0000-000000000000"
@@ -622,7 +622,7 @@ class TestHistoryStatusFilter:
 
     def test_blq_history_status_pending(self, initialized_project):
         """blq_history_status filters pending attempts."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         # Create a pending attempt (no outcome)
         pending = AttemptRecord(
@@ -668,7 +668,7 @@ class TestHistoryStatusFilter:
 
     def test_blq_history_status_completed(self, initialized_project):
         """blq_history_status filters completed attempts."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         # Create a pending attempt
         pending = AttemptRecord(
@@ -713,7 +713,7 @@ class TestHistoryStatusFilter:
 
     def test_blq_history_status_null_returns_all(self, initialized_project):
         """blq_history_status with NULL returns all attempts."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         # Create pending and completed attempts
         pending = AttemptRecord(
@@ -833,13 +833,13 @@ class TestBirdStoreOpenWithRetry:
 
     def test_opens_successfully(self, initialized_project):
         """Opens store without issues when no contention."""
-        store = BirdStore.open_with_retry(initialized_project / ".lq")
+        store = BirdStore.open_with_retry(initialized_project / ".bird")
         assert store is not None
         store.close()
 
     def test_context_manager_works(self, initialized_project):
         """Context manager properly closes connection."""
-        with BirdStore.open_with_retry(initialized_project / ".lq") as store:
+        with BirdStore.open_with_retry(initialized_project / ".bird") as store:
             # Should be able to query
             count = store.invocation_count()
             assert count >= 0
@@ -853,7 +853,7 @@ class TestExecuteWithRetry:
 
     def test_executes_successfully(self, initialized_project):
         """Operation executes on first attempt."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         result = store.execute_with_retry(lambda: store.invocation_count())
         assert result >= 0
@@ -862,7 +862,7 @@ class TestExecuteWithRetry:
 
     def test_returns_result(self, initialized_project):
         """Returns the function's return value."""
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
 
         # Create an attempt so there's data
         attempt = AttemptRecord(
@@ -888,7 +888,7 @@ class TestConcurrentAccess:
         """Multiple threads can write with retry handling."""
         import threading
 
-        lq_dir = initialized_project / ".lq"
+        lq_dir = initialized_project / ".bird"
         results = []
         errors = []
 
@@ -928,7 +928,7 @@ class TestConcurrentAccess:
         """Background PID update pattern works as expected."""
         import threading
 
-        lq_dir = initialized_project / ".lq"
+        lq_dir = initialized_project / ".bird"
 
         # Window 1: Write attempt
         with BirdStore.open_with_retry(lq_dir) as store:
@@ -971,7 +971,7 @@ class TestConcurrentAccess:
         """Full execution pattern with Window 1 and Window 2."""
         import time
 
-        lq_dir = initialized_project / ".lq"
+        lq_dir = initialized_project / ".bird"
 
         # Window 1: Pre-execution
         with BirdStore.open_with_retry(lq_dir) as store:
@@ -1116,7 +1116,7 @@ class TestRaceConditions:
         """Multiple commands starting simultaneously (Window 1 race)."""
         import threading
 
-        lq_dir = initialized_project / ".lq"
+        lq_dir = initialized_project / ".bird"
         results = {"attempts": [], "errors": []}
         barrier = threading.Barrier(3)  # Synchronize 3 threads
 
@@ -1165,7 +1165,7 @@ class TestRaceConditions:
         """Race between Window 1 closing and background PID update."""
         import threading
 
-        lq_dir = initialized_project / ".lq"
+        lq_dir = initialized_project / ".bird"
         attempt_id = None
         pid_updated = threading.Event()
         errors = []
@@ -1226,7 +1226,7 @@ class TestRaceConditions:
         import threading
         import time
 
-        lq_dir = initialized_project / ".lq"
+        lq_dir = initialized_project / ".bird"
         results = {"cmd1": {}, "cmd2": {}}
         errors = []
 
@@ -1307,7 +1307,7 @@ class TestRaceConditions:
         """Verify data integrity when multiple threads write concurrently."""
         import threading
 
-        lq_dir = initialized_project / ".lq"
+        lq_dir = initialized_project / ".bird"
         num_commands = 10
         results = []
         errors = []

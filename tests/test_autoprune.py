@@ -83,13 +83,13 @@ class TestShouldPrune:
 
     def test_no_stamp_file(self, tmp_path):
         """Returns True when no .last_prune file exists."""
-        lq_dir = tmp_path / ".lq"
+        lq_dir = tmp_path / ".bird"
         lq_dir.mkdir()
         assert _should_prune(lq_dir, 60) is True
 
     def test_stale_stamp(self, tmp_path):
         """Returns True when stamp is older than interval."""
-        lq_dir = tmp_path / ".lq"
+        lq_dir = tmp_path / ".bird"
         lq_dir.mkdir()
         stamp_file = lq_dir / ".last_prune"
         old_time = (datetime.now() - timedelta(minutes=120)).isoformat()
@@ -99,7 +99,7 @@ class TestShouldPrune:
 
     def test_fresh_stamp(self, tmp_path):
         """Returns False when stamp is within interval."""
-        lq_dir = tmp_path / ".lq"
+        lq_dir = tmp_path / ".bird"
         lq_dir.mkdir()
         stamp_file = lq_dir / ".last_prune"
         stamp_file.write_text(datetime.now().isoformat())
@@ -108,7 +108,7 @@ class TestShouldPrune:
 
     def test_zero_interval(self, tmp_path):
         """interval_minutes=0 always returns True."""
-        lq_dir = tmp_path / ".lq"
+        lq_dir = tmp_path / ".bird"
         lq_dir.mkdir()
         stamp_file = lq_dir / ".last_prune"
         stamp_file.write_text(datetime.now().isoformat())
@@ -117,7 +117,7 @@ class TestShouldPrune:
 
     def test_corrupt_stamp(self, tmp_path):
         """Returns True when stamp file contains invalid data."""
-        lq_dir = tmp_path / ".lq"
+        lq_dir = tmp_path / ".bird"
         lq_dir.mkdir()
         stamp_file = lq_dir / ".last_prune"
         stamp_file.write_text("not a timestamp")
@@ -130,7 +130,7 @@ class TestMarkPruned:
 
     def test_creates_stamp_file(self, tmp_path):
         """_mark_pruned creates .last_prune file."""
-        lq_dir = tmp_path / ".lq"
+        lq_dir = tmp_path / ".bird"
         lq_dir.mkdir()
 
         _mark_pruned(lq_dir)
@@ -145,7 +145,7 @@ class TestMarkPruned:
 
     def test_overwrites_existing(self, tmp_path):
         """_mark_pruned overwrites existing stamp."""
-        lq_dir = tmp_path / ".lq"
+        lq_dir = tmp_path / ".bird"
         lq_dir.mkdir()
         stamp_file = lq_dir / ".last_prune"
         stamp_file.write_text("old content")
@@ -165,7 +165,7 @@ class TestMaybeAutoPrune:
         """Does nothing when auto_prune is disabled."""
         config = MagicMock()
         config.storage_config = {}
-        config.lq_dir = Path(".lq")
+        config.lq_dir = Path(".bird")
 
         user_config = MagicMock()
         user_config.auto_prune = False
@@ -184,7 +184,7 @@ class TestMaybeAutoPrune:
         """Creates .last_prune after pruning."""
         config = MagicMock()
         config.storage_config = {}
-        config.lq_dir = Path(".lq")
+        config.lq_dir = Path(".bird")
 
         user_config = MagicMock()
         user_config.auto_prune = True
@@ -201,7 +201,7 @@ class TestMaybeAutoPrune:
         """Skips pruning when recently pruned."""
         config = MagicMock()
         config.storage_config = {}
-        config.lq_dir = Path(".lq")
+        config.lq_dir = Path(".bird")
 
         user_config = MagicMock()
         user_config.auto_prune = True

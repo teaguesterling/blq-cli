@@ -188,7 +188,7 @@ class TestQuerySource:
         # First create some data
         run_adhoc_command([str(sample_build_script)])
 
-        lq_dir = Path(".lq")
+        lq_dir = Path(".bird")
         df = query_source(source=None, lq_dir=lq_dir)
 
         # Should return some data
@@ -200,7 +200,7 @@ class TestQuerySource:
         # First create some data
         run_adhoc_command([str(sample_build_script)])
 
-        lq_dir = Path(".lq")
+        lq_dir = Path(".bird")
         df = query_source(source=None, where="severity = 'error'", lq_dir=lq_dir)
 
         # Should return only errors
@@ -211,7 +211,7 @@ class TestQuerySource:
         # First create some data
         run_adhoc_command([str(sample_build_script)])
 
-        lq_dir = Path(".lq")
+        lq_dir = Path(".bird")
         df = query_source(source=None, select="severity, message", lq_dir=lq_dir)
 
         # Should only have selected columns

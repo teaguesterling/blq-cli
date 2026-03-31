@@ -15,13 +15,13 @@ class TestBlqStorageOpen:
     def test_open_finds_lq_dir(self, initialized_project):
         """Open finds .lq in current directory."""
         storage = BlqStorage.open()
-        assert storage.path.name == ".lq"
+        assert storage.path.name == ".bird"
         assert storage.path.exists()
         storage.close()
 
     def test_open_explicit_path(self, initialized_project):
         """Open with explicit path."""
-        storage = BlqStorage.open(Path(".lq"))
+        storage = BlqStorage.open(Path(".bird"))
         assert storage.path.exists()
         storage.close()
 

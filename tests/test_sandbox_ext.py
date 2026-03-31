@@ -18,7 +18,7 @@ def _make_spec(**overrides: Any) -> CommandSpec:
         attempt_id="test-001",
         workspace=Path("/project"),
         cwd=Path("/project"),
-        live_dir=Path("/project/.lq/live/test-001"),
+        live_dir=Path("/project/.bird/live/test-001"),
         env={},
     )
     defaults.update(overrides)

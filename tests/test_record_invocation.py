@@ -101,7 +101,7 @@ class TestRecordAttempt:
         assert result["attempt_id"] is not None
 
         # Verify format was stored in database
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
         attempt_info = store.connection.execute(
             "SELECT format_hint FROM attempts WHERE id = ?",
             [result["attempt_id"]],
@@ -125,7 +125,7 @@ class TestRecordAttempt:
             cmd_record_attempt(args)
 
         # Verify session exists
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
         sessions = store.connection.execute(
             "SELECT session_id FROM sessions WHERE session_id = ?",
             ["record-mytest"],
@@ -150,7 +150,7 @@ class TestRecordAttempt:
 
         result = json.loads(captured_output.getvalue())
 
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
         status = store.get_attempt_status(result["attempt_id"])
         store.close()
 
@@ -442,7 +442,7 @@ class TestRecordIntegration:
         attempt_id = attempt_result["attempt_id"]
 
         # Verify attempt is pending
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
         assert store.get_attempt_status(attempt_id) == "pending"
         store.close()
 
@@ -480,7 +480,7 @@ class TestRecordIntegration:
         assert outcome_result["output_bytes"] == len(test_output)
 
         # Verify attempt is now completed
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
         assert store.get_attempt_status(attempt_id) == "completed"
 
         # Verify output was stored
@@ -512,7 +512,7 @@ class TestRecordIntegration:
                 cmd_record_outcome(args)
 
         # Check history
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
         invocations = store.recent_invocations(limit=10)
         store.close()
 
@@ -551,7 +551,7 @@ class TestRecordIntegration:
         attempt_id = result["attempt_id"]
 
         # Verify the invocation was recorded (events may be 0 if duck_hunt not available)
-        store = BirdStore.open(initialized_project / ".lq")
+        store = BirdStore.open(initialized_project / ".bird")
         store.connection.execute(
             "SELECT COUNT(*) FROM events WHERE invocation_id = ?",
             [attempt_id],

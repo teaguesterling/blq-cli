@@ -296,12 +296,12 @@ class TestLogStore:
     def test_open_finds_lq_dir(self, initialized_project):
         """Open finds .lq in current directory."""
         store = LogStore.open()
-        assert store.path.name == ".lq"
+        assert store.path.name == ".bird"
         assert store.path.exists()
 
     def test_open_explicit_path(self, initialized_project):
         """Open with explicit path."""
-        store = LogStore.open(Path(".lq"))
+        store = LogStore.open(Path(".bird"))
         assert store.path.exists()
 
     def test_open_not_found(self, temp_dir):

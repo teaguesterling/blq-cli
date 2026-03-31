@@ -40,7 +40,7 @@ class TestRegisterWithoutInit:
         from blq.user_config import UserConfig
 
         # Verify not initialized
-        assert not (chdir_temp / ".lq").exists()
+        assert not (chdir_temp / ".bird").exists()
 
         # Mock user config with auto_init enabled
         with patch.object(
@@ -62,8 +62,8 @@ class TestRegisterWithoutInit:
             cmd_register(args)
 
         # Verify initialized
-        assert (chdir_temp / ".lq").exists()
-        assert (chdir_temp / ".lq" / "commands.toml").exists()
+        assert (chdir_temp / ".bird").exists()
+        assert (chdir_temp / ".bird" / "commands.toml").exists()
 
         # Verify command was registered
         config = BlqConfig.find()

@@ -24,23 +24,23 @@ class TestSourceLookupConfig:
     def test_source_lookup_disabled(self, initialized_project):
         """Source lookup can be disabled in config."""
         # Write config with source_lookup disabled
-        config_path = Path(".lq/config.toml")
+        config_path = Path(".bird/config.toml")
         existing = load_toml(config_path)
         existing["source_lookup"] = {"enabled": False}
         save_toml(config_path, existing)
 
         # Reload config
-        config = BlqConfig.load(Path(".lq"))
+        config = BlqConfig.load(Path(".bird"))
         assert config.source_lookup_enabled is False
 
     def test_source_lookup_custom_ref_root(self, initialized_project):
         """Source lookup can use custom ref_root."""
-        config_path = Path(".lq/config.toml")
+        config_path = Path(".bird/config.toml")
         existing = load_toml(config_path)
         existing["source_lookup"] = {"enabled": True, "ref_root": "./src"}
         save_toml(config_path, existing)
 
-        config = BlqConfig.load(Path(".lq"))
+        config = BlqConfig.load(Path(".bird"))
         assert config.source_lookup_enabled is True
         assert config.ref_root == Path("./src")
 

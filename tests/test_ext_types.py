@@ -16,7 +16,7 @@ class TestCommandSpec:
             attempt_id="abc-123",
             workspace=Path("/project"),
             cwd=Path("/project"),
-            live_dir=Path("/project/.lq/live/abc-123"),
+            live_dir=Path("/project/.bird/live/abc-123"),
             env={"PATH": "/usr/bin"},
         )
         assert spec.command == "pytest tests/"
@@ -32,7 +32,7 @@ class TestCommandSpec:
             attempt_id="abc",
             workspace=Path("/p"),
             cwd=Path("/p"),
-            live_dir=Path("/p/.lq/live/abc"),
+            live_dir=Path("/p/.bird/live/abc"),
             env={},
         )
         spec.extension_data["sandbox"] = {"network": "none"}
@@ -48,7 +48,7 @@ class TestCommandSpec:
             attempt_id="abc",
             workspace=Path("/p"),
             cwd=Path("/p"),
-            live_dir=Path("/p/.lq/live/abc"),
+            live_dir=Path("/p/.bird/live/abc"),
             env={},
         )
         spec.command = "bwrap -- pytest"

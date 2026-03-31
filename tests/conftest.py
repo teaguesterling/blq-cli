@@ -18,8 +18,8 @@ def temp_dir():
 
 @pytest.fixture
 def lq_dir(temp_dir):
-    """Create an initialized .lq directory."""
-    lq_path = temp_dir / ".lq"
+    """Create an initialized .bird directory."""
+    lq_path = temp_dir / ".bird"
     lq_path.mkdir()
     (lq_path / "logs").mkdir()
     (lq_path / "raw").mkdir()

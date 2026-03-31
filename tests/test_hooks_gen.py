@@ -215,8 +215,8 @@ class TestGenerateGitHook:
         from blq.commands.hooks_gen import generate_git_hook
 
         script = generate_git_hook(["lint", "test"])
-        assert ".lq/hooks/lint.sh" in script
-        assert ".lq/hooks/test.sh" in script
+        assert ".bird/hooks/lint.sh" in script
+        assert ".bird/hooks/test.sh" in script
 
     def test_chains_commands_with_and(self):
         """Multiple commands are chained with &&."""
@@ -224,8 +224,8 @@ class TestGenerateGitHook:
 
         script = generate_git_hook(["lint", "test", "format"])
         # Commands should be chained so failure stops execution
-        assert ".lq/hooks/lint.sh" in script
-        assert "&&" in script or script.count(".lq/hooks/") == 3
+        assert ".bird/hooks/lint.sh" in script
+        assert "&&" in script or script.count(".bird/hooks/") == 3
 
     def test_includes_hook_name(self):
         """Git hook includes hook name in header."""
@@ -612,7 +612,7 @@ class TestGitHookInstallation:
 
         hook_path = initialized_project / ".git" / "hooks" / "pre-commit"
         content = hook_path.read_text()
-        assert ".lq/hooks/mytest.sh" in content
+        assert ".bird/hooks/mytest.sh" in content
         assert "blq-managed-hook" in content
 
     def test_install_git_generates_scripts(self, initialized_project):

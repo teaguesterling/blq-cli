@@ -34,7 +34,7 @@ def _make_spec(**overrides: Any) -> CommandSpec:
         attempt_id="int-test-001",
         workspace=Path("/project"),
         cwd=Path("/project"),
-        live_dir=Path("/project/.lq/live/int-test-001"),
+        live_dir=Path("/project/.bird/live/int-test-001"),
         env={},
     )
     defaults.update(overrides)

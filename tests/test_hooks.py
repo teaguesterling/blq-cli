@@ -112,7 +112,7 @@ class TestHooksInstall:
         hook_path = initialized_git_project / ".git" / "hooks" / "pre-commit"
         content = hook_path.read_text()
         # Should call the generated hook script
-        assert ".lq/hooks/testcmd.sh" in content
+        assert ".bird/hooks/testcmd.sh" in content
 
     def test_install_idempotent(self, initialized_git_project, capsys):
         """Installing twice without force shows message."""
@@ -451,7 +451,7 @@ class TestClaudeCodeRecordHooks:
 
         _install_claude_code_hooks(record=True)
 
-        pending_dir = initialized_project / ".lq" / "hooks" / "pending"
+        pending_dir = initialized_project / ".bird" / "hooks" / "pending"
         assert pending_dir.exists()
         assert pending_dir.is_dir()
 
@@ -519,7 +519,7 @@ class TestClaudeCodeRecordHooks:
 
         pre_hook = initialized_project / ".claude" / "hooks" / "blq-record-pre.sh"
         post_hook = initialized_project / ".claude" / "hooks" / "blq-record-post.sh"
-        pending_dir = initialized_project / ".lq" / "hooks" / "pending"
+        pending_dir = initialized_project / ".bird" / "hooks" / "pending"
 
         assert pre_hook.exists()
         assert post_hook.exists()
@@ -573,7 +573,7 @@ class TestClaudeCodeRecordHooks:
         assert "#!/bin/bash" in content
         assert "blq record-invocation attempt" in content
         assert "sha256sum" in content
-        assert ".lq/hooks/pending" in content
+        assert ".bird/hooks/pending" in content
 
     def test_post_hook_script_content(self, initialized_project):
         """Post hook script has expected content."""

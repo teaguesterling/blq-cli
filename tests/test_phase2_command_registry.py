@@ -160,7 +160,7 @@ class TestCommandRegistryCLI:
         assert "Registered command 'build'" in captured.out
 
         # Verify it was saved
-        config = BlqConfig.load(Path(".lq"))
+        config = BlqConfig.load(Path(".bird"))
         assert "build" in config.commands
         assert config.commands["build"].cmd == "make -j8"
 
@@ -194,7 +194,7 @@ class TestCommandRegistryCLI:
         )
         cmd_register(args)
 
-        config = BlqConfig.load(Path(".lq"))
+        config = BlqConfig.load(Path(".bird"))
         assert config.commands["build"].cmd == "make -j8"
         assert config.commands["build"].description == "v2"
 
@@ -259,7 +259,7 @@ class TestCommandRegistryCLI:
         captured = capsys.readouterr()
         assert "Unregistered command 'build'" in captured.out
 
-        config = BlqConfig.load(Path(".lq"))
+        config = BlqConfig.load(Path(".bird"))
         assert "build" not in config.commands
 
     def test_unregister_nonexistent_fails(self, initialized_project, capsys):
@@ -449,7 +449,7 @@ class TestRunRegisteredCommand:
         )
         cmd_register(args)
 
-        config = BlqConfig.load(Path(".lq"))
+        config = BlqConfig.load(Path(".bird"))
         assert config.commands["lint"].format == "eslint_json"
 
     def test_run_with_extra_args_passes_them_through(self, initialized_project, capsys):

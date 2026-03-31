@@ -42,7 +42,7 @@ def temp_dir():
 @pytest.fixture
 def bird_store(temp_dir):
     """Create a BirdStore in a temporary directory."""
-    lq_dir = temp_dir / ".lq"
+    lq_dir = temp_dir / ".bird"
     lq_dir.mkdir()
     (lq_dir / "blobs" / "content").mkdir(parents=True)
 
@@ -78,7 +78,7 @@ class TestBirdStoreInit:
 
     def test_open_creates_schema(self, temp_dir):
         """Opening a BirdStore creates the schema."""
-        lq_dir = temp_dir / ".lq"
+        lq_dir = temp_dir / ".bird"
         lq_dir.mkdir()
         (lq_dir / "blobs" / "content").mkdir(parents=True)
 
@@ -101,7 +101,7 @@ class TestBirdStoreInit:
 
     def test_open_idempotent(self, temp_dir):
         """Opening a BirdStore multiple times doesn't fail."""
-        lq_dir = temp_dir / ".lq"
+        lq_dir = temp_dir / ".bird"
         lq_dir.mkdir()
         (lq_dir / "blobs" / "content").mkdir(parents=True)
 
@@ -116,7 +116,7 @@ class TestBirdStoreInit:
 
     def test_context_manager(self, temp_dir):
         """BirdStore works as context manager."""
-        lq_dir = temp_dir / ".lq"
+        lq_dir = temp_dir / ".bird"
         lq_dir.mkdir()
         (lq_dir / "blobs" / "content").mkdir(parents=True)
 
@@ -424,7 +424,7 @@ class TestWriteBirdInvocation:
 
     def test_write_bird_invocation(self, temp_dir):
         """write_bird_invocation creates complete invocation."""
-        lq_dir = temp_dir / ".lq"
+        lq_dir = temp_dir / ".bird"
         lq_dir.mkdir()
         (lq_dir / "blobs" / "content").mkdir(parents=True)
 
@@ -459,7 +459,7 @@ class TestWriteBirdInvocation:
 
     def test_write_bird_invocation_with_output(self, temp_dir):
         """write_bird_invocation stores output when provided."""
-        lq_dir = temp_dir / ".lq"
+        lq_dir = temp_dir / ".bird"
         lq_dir.mkdir()
         (lq_dir / "blobs" / "content").mkdir(parents=True)
 
@@ -489,7 +489,7 @@ class TestWriteBirdInvocation:
 
     def test_write_bird_invocation_sets_tag(self, temp_dir):
         """write_bird_invocation sets tag to source_name (logical command name)."""
-        lq_dir = temp_dir / ".lq"
+        lq_dir = temp_dir / ".bird"
         lq_dir.mkdir()
         (lq_dir / "blobs" / "content").mkdir(parents=True)
 
@@ -524,7 +524,7 @@ class TestBirdInit:
 
     def test_init_creates_bird_structure(self, bird_initialized_dir):
         """Default blq init creates BIRD directory structure."""
-        lq_dir = bird_initialized_dir / ".lq"
+        lq_dir = bird_initialized_dir / ".bird"
 
         assert lq_dir.exists()
         assert (lq_dir / "blq.duckdb").exists()
@@ -534,14 +534,14 @@ class TestBirdInit:
 
     def test_init_sets_bird_storage_mode(self, bird_initialized_dir):
         """Default blq init sets storage mode to bird."""
-        config = BlqConfig.load(bird_initialized_dir / ".lq")
+        config = BlqConfig.load(bird_initialized_dir / ".bird")
 
         assert config.storage_mode == "bird"
         assert config.use_bird is True
 
     def test_init_bird_schema_works(self, bird_initialized_dir):
         """BIRD schema is functional after init."""
-        lq_dir = bird_initialized_dir / ".lq"
+        lq_dir = bird_initialized_dir / ".bird"
 
         store = BirdStore.open(lq_dir)
 
@@ -576,7 +576,7 @@ class TestBirdInit:
 
             cmd_init(args)
 
-            lq_dir = temp_dir / ".lq"
+            lq_dir = temp_dir / ".bird"
             assert lq_dir.exists()
             assert (lq_dir / "blq.duckdb").exists()
             assert (lq_dir / "logs").exists()  # Parquet uses logs dir
@@ -711,7 +711,7 @@ def parquet_initialized_dir(temp_dir):
         cmd_init(args)
 
         # Write some test parquet data
-        lq_dir = temp_dir / ".lq"
+        lq_dir = temp_dir / ".bird"
         events = [
             {
                 "event_id": 0,
@@ -770,7 +770,7 @@ class TestMigration:
 
     def test_migrate_dry_run(self, parquet_initialized_dir):
         """Dry run shows what would be migrated."""
-        config = BlqConfig.load(parquet_initialized_dir / ".lq")
+        config = BlqConfig.load(parquet_initialized_dir / ".bird")
 
         invocations, events = _migrate_parquet_to_bird(config, dry_run=True, verbose=False)
 
@@ -782,8 +782,8 @@ class TestMigration:
 
     def test_migrate_actual(self, parquet_initialized_dir):
         """Migration converts parquet data to BIRD."""
-        config = BlqConfig.load(parquet_initialized_dir / ".lq")
-        lq_dir = parquet_initialized_dir / ".lq"
+        config = BlqConfig.load(parquet_initialized_dir / ".bird")
+        lq_dir = parquet_initialized_dir / ".bird"
 
         invocations, events = _migrate_parquet_to_bird(config, dry_run=False, verbose=False)
 
@@ -805,8 +805,8 @@ class TestMigration:
 
     def test_migrate_preserves_metadata(self, parquet_initialized_dir):
         """Migration preserves all metadata fields."""
-        config = BlqConfig.load(parquet_initialized_dir / ".lq")
-        lq_dir = parquet_initialized_dir / ".lq"
+        config = BlqConfig.load(parquet_initialized_dir / ".bird")
+        lq_dir = parquet_initialized_dir / ".bird"
 
         _migrate_parquet_to_bird(config, dry_run=False, verbose=False)
 
@@ -839,7 +839,7 @@ class TestMigration:
         cmd_migrate(args)
 
         # Config should now be BIRD mode
-        config = BlqConfig.load(parquet_initialized_dir / ".lq")
+        config = BlqConfig.load(parquet_initialized_dir / ".bird")
         assert config.storage_mode == "bird"
 
     def test_migrate_no_data(self, temp_dir):
@@ -860,7 +860,7 @@ class TestMigration:
 
             cmd_init(args)
 
-            config = BlqConfig.load(temp_dir / ".lq")
+            config = BlqConfig.load(temp_dir / ".bird")
             invocations, events = _migrate_parquet_to_bird(config, dry_run=False, verbose=False)
 
             # Should handle gracefully with no data

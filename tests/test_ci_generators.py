@@ -105,7 +105,7 @@ class TestGitHubActionsGenerator:
         content = workflow_path.read_text()
 
         # Should call the hook script with standalone mode
-        assert ".lq/hooks/lint.sh" in content
+        assert ".bird/hooks/lint.sh" in content
         assert "--via=standalone" in content
 
     def test_workflow_has_checkout_step(self, initialized_project):
@@ -239,7 +239,7 @@ class TestGitHubActionsGenerator:
 
         content = workflow_path.read_text()
         assert "existing content" not in content
-        assert ".lq/hooks/test.sh" in content
+        assert ".bird/hooks/test.sh" in content
 
 
 class TestGitLabCIGenerator:
@@ -337,7 +337,7 @@ class TestGitLabCIGenerator:
         gitlab_path = initialized_project / ".gitlab-ci.blq.yml"
         content = gitlab_path.read_text()
 
-        assert ".lq/hooks/lint.sh" in content
+        assert ".bird/hooks/lint.sh" in content
         assert "--via=standalone" in content
 
     def test_gitlab_ci_has_include_comment(self, initialized_project):
@@ -467,7 +467,7 @@ class TestDroneCIGenerator:
         drone_path = initialized_project / ".drone.blq.yml"
         content = drone_path.read_text()
 
-        assert ".lq/hooks/lint.sh" in content
+        assert ".bird/hooks/lint.sh" in content
         assert "--via=standalone" in content
 
     def test_drone_ci_has_pipeline_type(self, initialized_project):
@@ -527,7 +527,7 @@ class TestCIGeneratorCommon:
         cmd_register(reg_args)
 
         # Script doesn't exist yet
-        script_path = initialized_project / ".lq" / "hooks" / "mytest.sh"
+        script_path = initialized_project / ".bird" / "hooks" / "mytest.sh"
         assert not script_path.exists()
 
         args = argparse.Namespace(
