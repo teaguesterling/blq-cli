@@ -8,6 +8,7 @@ that are shared across multiple commands.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -33,11 +34,15 @@ from blq.git import GitInfo, capture_git_info  # noqa: F401
 if TYPE_CHECKING:
     pass
 
+logger = logging.getLogger("blq")
+
 # ============================================================================
 # Configuration
 # ============================================================================
 
-LQ_DIR = ".lq"
+BIRD_DIR = ".bird"
+LQ_DIR = BIRD_DIR  # Backward-compatible alias
+LEGACY_DIR = ".lq"  # Old directory name for auto-migration
 LOGS_DIR = "logs"
 RAW_DIR = "raw"
 SCHEMA_FILE = "schema.sql"
@@ -45,9 +50,10 @@ DB_FILE = "blq.duckdb"
 # Re-export from config_format for compatibility
 # COMMANDS_FILE = "commands.toml"
 # CONFIG_FILE = "config.toml"
-GLOBAL_LQ_DIR = Path.home() / ".lq"
+GLOBAL_BIRD_DIR = Path.home() / BIRD_DIR
+GLOBAL_LQ_DIR = GLOBAL_BIRD_DIR  # Backward-compatible alias
 PROJECTS_DIR = "projects"
-GLOBAL_PROJECTS_PATH = GLOBAL_LQ_DIR / PROJECTS_DIR
+GLOBAL_PROJECTS_PATH = GLOBAL_BIRD_DIR / PROJECTS_DIR
 
 # ============================================================================
 # Result Types
@@ -802,7 +808,10 @@ class BlqConfig:
 
     @classmethod
     def find(cls, start_dir: Path | None = None) -> BlqConfig | None:
-        """Find .lq directory in start_dir or parents and load config.
+        """Find .bird directory in start_dir or parents and load config.
+
+        Searches for .bird/ first. If not found but .lq/ exists,
+        auto-migrates by renaming .lq/ to .bird/.
 
         Args:
             start_dir: Directory to start searching from (default: cwd)
@@ -815,9 +824,26 @@ class BlqConfig:
 
         # Search current directory and parents
         for p in [start_dir, *list(start_dir.parents)]:
-            lq_path = p / LQ_DIR
-            if lq_path.exists() and lq_path.is_dir():
-                return cls.load(lq_path)
+            bird_path = p / BIRD_DIR
+            if bird_path.exists() and bird_path.is_dir():
+                return cls.load(bird_path)
+
+            # Auto-migrate from legacy .lq/ to .bird/
+            legacy_path = p / LEGACY_DIR
+            if legacy_path.exists() and legacy_path.is_dir():
+                try:
+                    legacy_path.rename(bird_path)
+                    logger.info(f"Migrated {legacy_path} → {bird_path}")
+                    print(
+                        f"  Migrated {LEGACY_DIR}/ → {BIRD_DIR}/ "
+                        f"(legacy directory renamed)",
+                        file=sys.stderr,
+                    )
+                    return cls.load(bird_path)
+                except OSError as e:
+                    logger.warning(f"Failed to migrate {legacy_path}: {e}")
+                    # Fall back to loading from legacy path
+                    return cls.load(legacy_path)
 
         return None
 
@@ -1474,15 +1500,18 @@ def get_all_suppressed_fingerprints(config: BlqConfig) -> list[str]:
 
 
 def get_lq_dir() -> Path | None:
-    """Find .lq directory in current or parent directories.
+    """Find .bird (or legacy .lq) directory in current or parent directories.
 
-    Returns None if no .lq directory is found.
+    Returns None if no directory is found.
     """
     cwd = Path.cwd()
     for p in [cwd, *list(cwd.parents)]:
-        lq_path = p / LQ_DIR
-        if lq_path.exists():
-            return lq_path
+        bird_path = p / BIRD_DIR
+        if bird_path.exists():
+            return bird_path
+        legacy_path = p / LEGACY_DIR
+        if legacy_path.exists():
+            return legacy_path
     return None
 
 

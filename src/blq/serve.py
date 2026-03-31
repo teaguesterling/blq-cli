@@ -3106,17 +3106,22 @@ def _clean_impl(
         }
 
     try:
-        # Find .lq directory
+        # Find BIRD directory
+        from blq.commands.core import BIRD_DIR, LEGACY_DIR
+
         lq_dir = None
         current = Path.cwd()
         while current != current.parent:
-            if (current / ".lq").exists():
-                lq_dir = current / ".lq"
+            for dirname in (BIRD_DIR, LEGACY_DIR):
+                if (current / dirname).exists():
+                    lq_dir = current / dirname
+                    break
+            if lq_dir:
                 break
             current = current.parent
 
         if lq_dir is None:
-            return {"success": False, "error": "No .lq directory found"}
+            return {"success": False, "error": f"No {BIRD_DIR} directory found"}
 
         if mode == "data":
             # Clear data tables but keep schema and config

@@ -126,20 +126,28 @@ class BlqStorage:
 
     @staticmethod
     def _find_lq_dir() -> Path:
-        """Find .lq directory by searching from cwd upward."""
+        """Find .bird (or legacy .lq) directory by searching from cwd upward."""
+        from blq.commands.core import BIRD_DIR, LEGACY_DIR
+
         current = Path.cwd()
         while current != current.parent:
-            lq_path = current / ".lq"
-            if lq_path.exists():
-                return lq_path
+            bird_path = current / BIRD_DIR
+            if bird_path.exists():
+                return bird_path
+            legacy_path = current / LEGACY_DIR
+            if legacy_path.exists():
+                return legacy_path
             current = current.parent
 
         # Check root
-        lq_path = current / ".lq"
-        if lq_path.exists():
-            return lq_path
+        for name in (BIRD_DIR, LEGACY_DIR):
+            path = current / name
+            if path.exists():
+                return path
 
-        raise FileNotFoundError(".lq directory not found. Run 'blq init' to initialize.")
+        raise FileNotFoundError(
+            f"{BIRD_DIR} directory not found. Run 'blq init' to initialize."
+        )
 
     def close(self) -> None:
         """Close the storage connection."""

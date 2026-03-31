@@ -36,8 +36,8 @@ from typing import Any
 import duckdb
 import pandas as pd  # type: ignore[import-untyped]
 
-# Directory name constant - must match blq.commands.core.LQ_DIR
-LQ_DIR = ".lq"
+# Must match blq.commands.core.BIRD_DIR (not imported to avoid circular import)
+LQ_DIR = ".bird"
 
 
 class LogQuery:
