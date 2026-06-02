@@ -184,8 +184,69 @@ def cmd_mcp_install(args: argparse.Namespace) -> None:
             print("     Or set hooks.auto_claude_code = true in user config")
 
 
+def _apply_mcp_thread_limits() -> None:
+    """Cap DuckDB and asyncio thread pools for the MCP server process.
+
+    The MCP server is long-lived and mostly idle, so it has no business
+    holding DuckDB's default per-CPU threadpool (~36 threads on a 36-core
+    host) or asyncio's default ThreadPoolExecutor (`min(32, cpu_count + 4)`).
+    Without these caps each `blq mcp serve` process holds ~73 idle threads;
+    with `N` Claude sessions that compounds to `N * 73`.
+
+    Both caps are configurable via env vars (sized for "responsive enough
+    for one capture/query at a time" rather than parallel throughput):
+      BLQ_MCP_DUCKDB_THREADS — default 2
+      BLQ_MCP_ASYNC_WORKERS  — default 4
+    """
+    import asyncio
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+
+    duckdb_threads = max(1, int(os.environ.get("BLQ_MCP_DUCKDB_THREADS", "2")))
+    async_workers = max(1, int(os.environ.get("BLQ_MCP_ASYNC_WORKERS", "4")))
+
+    # 1) DuckDB: wrap duckdb.connect so every connection lowers its thread
+    #    count immediately after open. There are 24+ duckdb.connect callsites
+    #    across blq; patching the entry point covers them all without
+    #    threading config through every caller.
+    import duckdb
+
+    _original_connect = duckdb.connect
+
+    def _capped_connect(*args, **kwargs):  # type: ignore[no-untyped-def]
+        conn = _original_connect(*args, **kwargs)
+        try:
+            conn.execute(f"PRAGMA threads={duckdb_threads}")
+        except Exception:
+            # Read-only connections or some attachment modes may refuse PRAGMA;
+            # leave those at the default rather than crash startup.
+            pass
+        return conn
+
+    duckdb.connect = _capped_connect  # type: ignore[assignment]
+
+    # 2) asyncio: install a bounded default executor BEFORE fastmcp starts
+    #    its event loop. fastmcp uses the running loop's default executor
+    #    for blocking calls (subprocess waits, file I/O). 4 workers is
+    #    plenty for the MCP server's "one tool call at a time" workload.
+    try:
+        loop = asyncio.new_event_loop()
+        loop.set_default_executor(
+            ThreadPoolExecutor(max_workers=async_workers, thread_name_prefix="blq-async"),
+        )
+        asyncio.set_event_loop(loop)
+    except Exception:
+        # If asyncio loop policy disallows replacing the loop here, fastmcp
+        # will create its own and we keep the DuckDB cap which is the bigger
+        # win anyway.
+        pass
+
+
 def cmd_mcp_serve(args: argparse.Namespace) -> None:
     """Start the MCP server."""
+    # Cap thread pools BEFORE importing serve (which loads fastmcp/duckdb).
+    _apply_mcp_thread_limits()
+
     from blq.serve import serve
     from blq.user_config import UserConfig
 
