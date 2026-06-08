@@ -14,7 +14,7 @@ Example usage:
     events = LogQuery.from_file("build.log").filter(severity="error").df()
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 from blq.query import LogQuery, LogQueryGrouped, LogStore
 
