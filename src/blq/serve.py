@@ -190,7 +190,23 @@ mcp = FastMCP(
 
 
 def _get_storage() -> BlqStorage:
-    """Get BlqStorage for current directory."""
+    """Get BlqStorage, honoring the runtime config's active_root if set.
+
+    Precedence:
+        1. runtime.active_root (if set) — search for .bird/ starting there
+        2. process cwd (default — walks up to find .bird/)
+    """
+    from blq.runtime import resolve_storage_root
+    root = resolve_storage_root()
+    if root is not None:
+        from pathlib import Path
+        # If active_root has a .bird/ directly, open it; else delegate the
+        # walk to BlqStorage's auto-search but rooted at active_root.
+        bird = Path(root) / ".bird"
+        if bird.exists():
+            return BlqStorage.open(bird)
+        # No direct .bird — fall through to cwd-walk. Could be enhanced to
+        # walk up from active_root, but kept simple for the prototype.
     return BlqStorage.open()
 
 
@@ -3608,6 +3624,47 @@ def sandbox_info(command: str | None = None) -> str:
         command: Specific command name (omit for all commands)
     """
     return json.dumps(_sandbox_info_impl(command), indent=2, default=str)
+
+
+@mcp.tool()
+def config(
+    set: dict[str, Any] | None = None,
+    reset: bool = False,
+) -> dict[str, Any]:
+    """Read or update blq's in-memory session config.
+
+    Returns the full current config dict. With `set=`, merges values and
+    returns the new state. With `reset=true`, reverts to env-seeded values
+    captured at server launch. Wiped on server restart — no disk
+    persistence. Persistent state (run history, retention, registered
+    commands) stays in the DB.
+
+    Keys:
+        active_root             — fallback for locating .bird/ workspace
+        log_level               — debug | info | warn | error
+        default_lines_window    — default for run(lines=...) when omitted
+        default_history_limit   — default for history(limit=...)
+
+    Env vars (seed at launch only): BLQ_ACTIVE_ROOT, BLQ_LOG_LEVEL,
+    BLQ_DEFAULT_LINES_WINDOW, BLQ_DEFAULT_HISTORY_LIMIT.
+
+    Args:
+        set: Dict of keys to update. Unknown keys raise; invalid values
+            raise; either way the config is left unchanged.
+        reset: If True, reset to env-seeded values (ignores `set`).
+    """
+    from blq.runtime import get_runtime, reset_runtime, update_runtime
+
+    if reset:
+        return reset_runtime().to_dict()
+
+    if set:
+        try:
+            return update_runtime(set).to_dict()
+        except ValueError as e:
+            return {"error": "invalid_config", "message": str(e)}
+
+    return get_runtime().to_dict()
 
 
 # ============================================================================
