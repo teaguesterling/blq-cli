@@ -353,7 +353,7 @@ def _build_preview(
 
 
 def _resolve_command_lines(command: str, lines: str | None) -> str | None:
-    """Resolve effective lines spec: explicit param > command config > None."""
+    """Resolve effective lines spec: explicit param > command config > runtime > None."""
     if lines is not None:
         return lines
     try:
@@ -364,6 +364,11 @@ def _resolve_command_lines(command: str, lines: str | None) -> str | None:
             return config.commands[command].lines
     except Exception:
         pass
+    # Fall back to runtime config's default_lines_window (empty string = no inline).
+    from blq.runtime import get_runtime
+    runtime_lines = get_runtime().default_lines_window
+    if runtime_lines:
+        return runtime_lines
     return None
 
 
@@ -2952,18 +2957,22 @@ def _last_impl(
 
 @mcp.tool()
 def history(
-    limit: int = 20, source: str | None = None, status: str | None = None
+    limit: int | None = None, source: str | None = None, status: str | None = None
 ) -> dict[str, Any]:
     """Get run history.
 
     Args:
-        limit: Max runs to return (default: 20)
+        limit: Max runs to return. Defaults to the runtime config's
+            default_history_limit (20 if unset).
         source: Filter to specific source name
         status: Filter by run status ('running', 'completed', 'orphaned')
 
     Returns:
         Run history list
     """
+    if limit is None:
+        from blq.runtime import get_runtime
+        limit = get_runtime().default_history_limit
     return _history_impl(limit, source, status)
 
 
