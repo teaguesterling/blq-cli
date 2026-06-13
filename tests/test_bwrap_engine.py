@@ -1,4 +1,5 @@
 """Tests for the BwrapEngine class."""
+
 from __future__ import annotations
 
 import shutil
@@ -62,9 +63,7 @@ class TestBwrapEngineIntegration:
 
         spec = SandboxSpec(network="none", filesystem="readonly", processes="isolated")
         wrapped = engine.wrap("echo sandbox-works", spec, Path("/tmp"), "test-int")
-        result = subprocess.run(
-            wrapped, shell=True, capture_output=True, text=True, timeout=10
-        )
+        result = subprocess.run(wrapped, shell=True, capture_output=True, text=True, timeout=10)
         assert result.returncode == 0
         assert "sandbox-works" in result.stdout
 
@@ -74,11 +73,11 @@ class TestBwrapEngineIntegration:
         spec = SandboxSpec(network="none", filesystem="readonly")
         wrapped = engine.wrap(
             "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:1')\"",
-            spec, Path("/tmp"), "test-net",
+            spec,
+            Path("/tmp"),
+            "test-net",
         )
-        result = subprocess.run(
-            wrapped, shell=True, capture_output=True, text=True, timeout=10
-        )
+        result = subprocess.run(wrapped, shell=True, capture_output=True, text=True, timeout=10)
         assert result.returncode != 0
 
     def test_readonly_blocks_write(self, engine, tmp_path):
@@ -87,11 +86,12 @@ class TestBwrapEngineIntegration:
         target = tmp_path / "canary.txt"
         spec = SandboxSpec(network="none", filesystem="readonly")
         wrapped = engine.wrap(
-            f"touch {target}", spec, Path("/tmp"), "test-ro",
+            f"touch {target}",
+            spec,
+            Path("/tmp"),
+            "test-ro",
         )
-        subprocess.run(
-            wrapped, shell=True, capture_output=True, text=True, timeout=10
-        )
+        subprocess.run(wrapped, shell=True, capture_output=True, text=True, timeout=10)
         assert not target.exists()
 
     def test_workspace_only_allows_workspace_write(self, engine, tmp_path):
@@ -100,11 +100,12 @@ class TestBwrapEngineIntegration:
         target = tmp_path / "output.txt"
         spec = SandboxSpec(network="none", filesystem="workspace_only")
         wrapped = engine.wrap(
-            f"touch {target}", spec, tmp_path, "test-ws",
+            f"touch {target}",
+            spec,
+            tmp_path,
+            "test-ws",
         )
-        result = subprocess.run(
-            wrapped, shell=True, capture_output=True, text=True, timeout=10
-        )
+        result = subprocess.run(wrapped, shell=True, capture_output=True, text=True, timeout=10)
         assert result.returncode == 0
         assert target.exists()
 
@@ -113,9 +114,7 @@ class TestBwrapEngineIntegration:
 
         spec = SandboxSpec.from_preset("test")
         wrapped = engine.wrap("echo preset-ok", spec, Path("/tmp"), "test-preset")
-        result = subprocess.run(
-            wrapped, shell=True, capture_output=True, text=True, timeout=10
-        )
+        result = subprocess.run(wrapped, shell=True, capture_output=True, text=True, timeout=10)
         assert result.returncode == 0
         assert "preset-ok" in result.stdout
 

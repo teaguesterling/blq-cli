@@ -3,6 +3,7 @@
 Defines the structured execution pipeline: CommandSpec flows through
 Extension.prepare() → Executor.execute() → Collector.collect().
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

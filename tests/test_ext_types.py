@@ -1,4 +1,5 @@
 """Tests for extension protocol types."""
+
 from __future__ import annotations
 
 from datetime import datetime

@@ -1,4 +1,5 @@
 """Tests for the lock field on RegisteredCommand."""
+
 from blq.commands.core import RegisteredCommand
 
 

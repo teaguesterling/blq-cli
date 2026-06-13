@@ -107,8 +107,7 @@ def update_runtime(values: dict[str, Any]) -> BlqRuntimeConfig:
     unknown = set(values) - valid_keys
     if unknown:
         raise ValueError(
-            f"unknown config key(s): {sorted(unknown)}. "
-            f"Valid keys: {sorted(valid_keys)}"
+            f"unknown config key(s): {sorted(unknown)}. Valid keys: {sorted(valid_keys)}"
         )
 
     candidate = replace(_runtime)
@@ -141,9 +140,7 @@ def _validate_one(key: str, value: Any) -> None:
     """Per-key value validation."""
     if key == "log_level":
         if not isinstance(value, str) or value.lower() not in _VALID_LOG_LEVELS:
-            raise ValueError(
-                f"log_level must be one of {sorted(_VALID_LOG_LEVELS)}, got {value!r}"
-            )
+            raise ValueError(f"log_level must be one of {sorted(_VALID_LOG_LEVELS)}, got {value!r}")
     elif key == "default_history_limit":
         if not isinstance(value, int) or isinstance(value, bool) or value < 1:
             raise ValueError(f"default_history_limit must be a positive int, got {value!r}")

@@ -1,4 +1,5 @@
 """Parse strace output to extract file, network, and process access patterns."""
+
 from __future__ import annotations
 
 import os
@@ -11,40 +12,34 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 # openat(AT_FDCWD, "/path", FLAGS[, mode]) = N
-_RE_OPENAT = re.compile(
-    r'openat\([^,]+,\s*"([^"]+)",\s*([^)]+)\)\s*=\s*(-?\d+)'
-)
+_RE_OPENAT = re.compile(r'openat\([^,]+,\s*"([^"]+)",\s*([^)]+)\)\s*=\s*(-?\d+)')
 
 # access("/path", MODE) = N
-_RE_ACCESS = re.compile(
-    r'access\("([^"]+)",[^)]+\)\s*=\s*(-?\d+)'
-)
+_RE_ACCESS = re.compile(r'access\("([^"]+)",[^)]+\)\s*=\s*(-?\d+)')
 
 # execve("/path", [...]) = N
-_RE_EXECVE = re.compile(
-    r'execve\("([^"]+)"'
-)
+_RE_EXECVE = re.compile(r'execve\("([^"]+)"')
 
 # connect(..., {sa_family=AF_INET, sin_port=htons(PORT), sin_addr=inet_addr("ADDR")}, ...) = N
 _RE_CONNECT_INET = re.compile(
-    r'connect\([^,]+,\s*\{sa_family=AF_INET,'
-    r'.*?sin_port=htons\((\d+)\),'
+    r"connect\([^,]+,\s*\{sa_family=AF_INET,"
+    r".*?sin_port=htons\((\d+)\),"
     r'.*?sin_addr=inet_addr\("([^"]+)"\)'
-    r'.*?\}\s*,\s*\d+\)\s*=\s*(-?\d+)',
+    r".*?\}\s*,\s*\d+\)\s*=\s*(-?\d+)",
     re.DOTALL,
 )
 
 # connect(..., {sa_family=AF_INET6, sin6_port=htons(PORT), ...}) = N
 _RE_CONNECT_INET6 = re.compile(
-    r'connect\([^,]+,\s*\{sa_family=AF_INET6,'
-    r'.*?sin6_port=htons\((\d+)\),'
+    r"connect\([^,]+,\s*\{sa_family=AF_INET6,"
+    r".*?sin6_port=htons\((\d+)\),"
     r'.*?inet_pton\(AF_INET6,\s*"([^"]+)"\)'
-    r'.*?\}\s*,\s*\d+\)\s*=\s*(-?\d+)',
+    r".*?\}\s*,\s*\d+\)\s*=\s*(-?\d+)",
     re.DOTALL,
 )
 
 # clone or clone3 call
-_RE_CLONE = re.compile(r'\bclone3?\(')
+_RE_CLONE = re.compile(r"\bclone3?\(")
 
 # Write-mode openat flags
 _WRITE_FLAGS = frozenset(["O_WRONLY", "O_RDWR", "O_CREAT", "O_APPEND", "O_TRUNC"])

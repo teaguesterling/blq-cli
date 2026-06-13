@@ -1,4 +1,5 @@
 """blq-sandbox-systemd: systemd-run cgroup enforcement engine."""
+
 from __future__ import annotations
 
 import logging
@@ -26,9 +27,7 @@ class SystemdCollector:
         try:
             memory_peak = cgroup_path / "memory.peak"
             if memory_peak.exists():
-                result.metrics["memory_peak_bytes"] = int(
-                    memory_peak.read_text().strip()
-                )
+                result.metrics["memory_peak_bytes"] = int(memory_peak.read_text().strip())
 
             cpu_stat = cgroup_path / "cpu.stat"
             if cpu_stat.exists():
@@ -46,9 +45,7 @@ class SystemdEngine:
     name = "systemd"
     capabilities = {"memory", "cpu", "pids"}
 
-    def wrap(
-        self, command: str, spec: SandboxSpec, workspace: Path, attempt_id: str
-    ) -> str:
+    def wrap(self, command: str, spec: SandboxSpec, workspace: Path, attempt_id: str) -> str:
         scope_name = f"blq-{attempt_id[:8]}"
         parts = [
             "systemd-run",

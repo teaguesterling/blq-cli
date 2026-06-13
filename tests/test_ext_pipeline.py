@@ -1,4 +1,5 @@
 """Tests for extension pipeline orchestration."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -55,8 +56,11 @@ class RecordingExecutor:
         self.executed_command = spec.command
         now = datetime.now()
         return ExecutionResult(
-            exit_code=0, output="ok", started_at=now,
-            completed_at=now, duration_ms=100,
+            exit_code=0,
+            output="ok",
+            started_at=now,
+            completed_at=now,
+            duration_ms=100,
         )
 
 
@@ -107,6 +111,7 @@ class TestRunPipeline:
         class OrderCollector:
             def __init__(self, label: str):
                 self.label = label
+
             def collect(self, spec: CommandSpec, result: ExecutionResult) -> None:
                 order.append(self.label)
 

@@ -1,4 +1,5 @@
 """Sandbox engine protocol and discovery."""
+
 from __future__ import annotations
 
 import logging
@@ -18,9 +19,7 @@ class SandboxEngine(Protocol):
     name: str
     capabilities: set[str]
 
-    def wrap(
-        self, command: str, spec: SandboxSpec, workspace: Path, attempt_id: str
-    ) -> str: ...
+    def wrap(self, command: str, spec: SandboxSpec, workspace: Path, attempt_id: str) -> str: ...
 
     def collector(self, spec: SandboxSpec, attempt_id: str) -> Collector | None: ...
 
@@ -31,9 +30,7 @@ class LogEngine:
     name = "log"
     capabilities: set[str] = set()
 
-    def wrap(
-        self, command: str, spec: SandboxSpec, workspace: Path, attempt_id: str
-    ) -> str:
+    def wrap(self, command: str, spec: SandboxSpec, workspace: Path, attempt_id: str) -> str:
         return command
 
     def collector(self, spec: SandboxSpec, attempt_id: str) -> Collector | None:

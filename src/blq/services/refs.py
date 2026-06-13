@@ -130,13 +130,9 @@ def parse_ref(ref: str) -> ParsedRef:
         tag = first
         # tag:~N:event
         if second.startswith("~") and second[1:].isdigit():
-            return ParsedRef(
-                tag=tag, relative=int(second[1:]), event_id=int(third)
-            )
+            return ParsedRef(tag=tag, relative=int(second[1:]), event_id=int(third))
         try:
-            return ParsedRef(
-                tag=tag, run_serial=int(second), event_id=int(third)
-            )
+            return ParsedRef(tag=tag, run_serial=int(second), event_id=int(third))
         except ValueError:
             raise ValueError(f"Invalid ref: {ref!r}")
 
@@ -164,12 +160,7 @@ def resolve_run_ref(storage: BlqStorage, ref: str) -> dict | None:
 
     try:
         # Get column names once
-        columns = [
-            d[0]
-            for d in conn.execute(
-                "SELECT * FROM blq_load_runs() LIMIT 0"
-            ).description
-        ]
+        columns = [d[0] for d in conn.execute("SELECT * FROM blq_load_runs() LIMIT 0").description]
 
         row = None
 

@@ -835,8 +835,7 @@ class BlqConfig:
                     legacy_path.rename(bird_path)
                     logger.info(f"Migrated {legacy_path} → {bird_path}")
                     print(
-                        f"  Migrated {LEGACY_DIR}/ → {BIRD_DIR}/ "
-                        f"(legacy directory renamed)",
+                        f"  Migrated {LEGACY_DIR}/ → {BIRD_DIR}/ (legacy directory renamed)",
                         file=sys.stderr,
                     )
                     return cls.load(bird_path)

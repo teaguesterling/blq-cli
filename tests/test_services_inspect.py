@@ -1,4 +1,5 @@
 """Tests for inspect service."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,9 +18,7 @@ class TestGetSourceContext:
         assert "line3" in result
 
     def test_returns_none_for_missing_file(self, tmp_path: Path):
-        result = get_source_context(
-            ref_file="nonexistent.py", ref_line=1, source_root=tmp_path
-        )
+        result = get_source_context(ref_file="nonexistent.py", ref_line=1, source_root=tmp_path)
         assert result is None
 
     def test_returns_none_without_ref_line(self, tmp_path: Path):

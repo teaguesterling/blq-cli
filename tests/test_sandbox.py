@@ -291,7 +291,12 @@ class TestSerialization:
 class TestPresets:
     def test_all_presets_exist(self) -> None:
         assert set(PRESETS.keys()) == {
-            "readonly", "test", "build", "integration", "unrestricted", "none"
+            "readonly",
+            "test",
+            "build",
+            "integration",
+            "unrestricted",
+            "none",
         }
 
     def test_from_preset(self) -> None:

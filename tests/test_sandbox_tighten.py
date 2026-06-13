@@ -1,4 +1,5 @@
 """Tests for sandbox spec tightening."""
+
 from __future__ import annotations
 
 from blq_sandbox.spec import SandboxSpec

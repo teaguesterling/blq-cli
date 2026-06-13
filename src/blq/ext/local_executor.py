@@ -1,4 +1,5 @@
 """Default local subprocess executor."""
+
 from __future__ import annotations
 
 import logging

@@ -20,8 +20,8 @@ _TIMEOUT_HEADROOM = 3
 
 # Minimums (to avoid impossible constraints)
 _MIN_MEMORY_BYTES = 64 * 1024**2  # 64m
-_MIN_CPU_SECONDS = 5              # 5s
-_MIN_TIMEOUT_SECONDS = 10         # 10s
+_MIN_CPU_SECONDS = 5  # 5s
+_MIN_TIMEOUT_SECONDS = 10  # 10s
 
 
 def compute_tighter_spec(current: SandboxSpec, observed: dict) -> SandboxSpec:

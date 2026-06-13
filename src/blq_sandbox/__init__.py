@@ -1,4 +1,5 @@
 """blq-sandbox: Sandbox specification extension for blq."""
+
 from __future__ import annotations
 
 import logging
@@ -45,9 +46,7 @@ class SandboxExtension:
 
         # Wrap command through each engine
         for engine in selected:
-            spec.command = engine.wrap(
-                spec.command, sandbox_spec, spec.workspace, spec.attempt_id
-            )
+            spec.command = engine.wrap(spec.command, sandbox_spec, spec.workspace, spec.attempt_id)
             collector = engine.collector(sandbox_spec, spec.attempt_id)
             if collector is not None:
                 spec.collectors.append(collector)

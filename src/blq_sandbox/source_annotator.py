@@ -3,6 +3,7 @@
 Enriches error events with enclosing function/class definitions by reading
 source files and scanning backwards from the error line.
 """
+
 from __future__ import annotations
 
 import re
@@ -39,9 +40,7 @@ _C_FUNC = re.compile(
 )
 
 
-def find_enclosing_definition(
-    file_path: Path, line_number: int
-) -> Definition | None:
+def find_enclosing_definition(file_path: Path, line_number: int) -> Definition | None:
     """Find the enclosing function/class definition for a given line.
 
     Scans backwards from *line_number* (1-based) looking for ``def``,
@@ -69,9 +68,7 @@ def find_enclosing_definition(
         return _find_c_style_definition(lines, line_number)
 
 
-def _find_python_definition(
-    lines: list[str], line_number: int
-) -> Definition | None:
+def _find_python_definition(lines: list[str], line_number: int) -> Definition | None:
     """Scan backwards for Python def/class enclosing *line_number*."""
     target_line = lines[line_number - 1]
     target_indent = len(target_line) - len(target_line.lstrip())
@@ -128,9 +125,7 @@ def _find_python_definition(
     return found_def
 
 
-def _find_c_style_definition(
-    lines: list[str], line_number: int
-) -> Definition | None:
+def _find_c_style_definition(lines: list[str], line_number: int) -> Definition | None:
     """Scan backwards for C/Rust/Go function enclosing *line_number*."""
     target_line = lines[line_number - 1]
     target_indent = len(target_line) - len(target_line.lstrip())
@@ -151,8 +146,17 @@ def _find_c_style_definition(
             name = m.group(1)
             # Skip common keywords that aren't function names
             if name in (
-                "if", "else", "for", "while", "switch", "return",
-                "case", "catch", "sizeof", "typeof", "alignof",
+                "if",
+                "else",
+                "for",
+                "while",
+                "switch",
+                "return",
+                "case",
+                "catch",
+                "sizeof",
+                "typeof",
+                "alignof",
             ):
                 continue
             return Definition(
@@ -177,10 +181,7 @@ class SourceContextAnnotator:
 
     def should_annotate(self, context: RunContext) -> bool:
         """Return True when there are error events with file references."""
-        return any(
-            e["severity"] == "error" and e.get("ref_file")
-            for e in context.events
-        )
+        return any(e["severity"] == "error" and e.get("ref_file") for e in context.events)
 
     def annotate(self, context: RunContext) -> None:
         """Add source context annotations to qualifying error events."""

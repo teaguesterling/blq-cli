@@ -1,4 +1,5 @@
 """Run a command under strace and return a parsed StraceProfile."""
+
 from __future__ import annotations
 
 import logging
@@ -14,17 +15,19 @@ logger = logging.getLogger("blq-sandbox")
 
 # Directories whose contents are considered "system" and excluded from
 # paths_readable in the suggested spec.
-_SYSTEM_DIRS = frozenset([
-    "/usr",
-    "/lib",
-    "/lib64",
-    "/bin",
-    "/sbin",
-    "/etc",
-    "/proc",
-    "/dev",
-    "/sys",
-])
+_SYSTEM_DIRS = frozenset(
+    [
+        "/usr",
+        "/lib",
+        "/lib64",
+        "/bin",
+        "/sbin",
+        "/etc",
+        "/proc",
+        "/dev",
+        "/sys",
+    ]
+)
 
 
 def run_profile(
@@ -53,9 +56,7 @@ def run_profile(
         logger.warning("strace not found on PATH; cannot profile command")
         return None
 
-    with tempfile.NamedTemporaryFile(
-        suffix=".strace", delete=False, mode="w"
-    ) as tmp:
+    with tempfile.NamedTemporaryFile(suffix=".strace", delete=False, mode="w") as tmp:
         strace_output_path = tmp.name
 
     try:
@@ -70,8 +71,10 @@ def run_profile(
         strace_cmd = [
             "strace",
             "-f",
-            "-e", "trace=%file,%network,%process",
-            "-o", strace_output_path,
+            "-e",
+            "trace=%file,%network,%process",
+            "-o",
+            strace_output_path,
             "--",
             *command_argv,
         ]
@@ -84,8 +87,7 @@ def run_profile(
             )
         except subprocess.TimeoutExpired:
             logger.warning(
-                "strace timed out after %d seconds profiling %r; "
-                "parsing partial output",
+                "strace timed out after %d seconds profiling %r; parsing partial output",
                 timeout,
                 command,
             )
@@ -146,8 +148,7 @@ def suggest_spec_from_profile(
     else:
         workspace_str = str(workspace.resolve())
         all_writes_local = all(
-            p.startswith(workspace_str) or p.startswith("/tmp")
-            for p in profile.files_written
+            p.startswith(workspace_str) or p.startswith("/tmp") for p in profile.files_written
         )
         filesystem = "workspace_only" if all_writes_local else "unrestricted"
 

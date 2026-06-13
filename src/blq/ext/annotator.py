@@ -5,6 +5,7 @@ Provides:
 - RunContext: lazy, DB-backed access to a stored run
 - Annotator protocol + dispatch: plugin discovery and execution
 """
+
 from __future__ import annotations
 
 import json
@@ -32,9 +33,7 @@ class Annotation:
 
     def __post_init__(self) -> None:
         if self.display not in VALID_DISPLAYS:
-            raise ValueError(
-                f"display must be one of {VALID_DISPLAYS}, got {self.display!r}"
-            )
+            raise ValueError(f"display must be one of {VALID_DISPLAYS}, got {self.display!r}")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -92,10 +91,7 @@ class RunContext:
                 [self._invocation_id],
             ).fetchall()
             columns = [
-                desc[0]
-                for desc in self._conn.execute(
-                    "SELECT * FROM events LIMIT 0"
-                ).description
+                desc[0] for desc in self._conn.execute("SELECT * FROM events LIMIT 0").description
             ]
             self._events = [dict(zip(columns, row)) for row in rows]
         return self._events

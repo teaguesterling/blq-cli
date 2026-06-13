@@ -1,4 +1,5 @@
 """Tests for strace output parser."""
+
 # ruff: noqa: E501 (raw strace fixture)
 from __future__ import annotations
 

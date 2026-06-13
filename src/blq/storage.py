@@ -145,9 +145,7 @@ class BlqStorage:
             if path.exists():
                 return path
 
-        raise FileNotFoundError(
-            f"{BIRD_DIR} directory not found. Run 'blq init' to initialize."
-        )
+        raise FileNotFoundError(f"{BIRD_DIR} directory not found. Run 'blq init' to initialize.")
 
     def close(self) -> None:
         """Close the storage connection."""

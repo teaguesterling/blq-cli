@@ -458,18 +458,20 @@ def _execute_with_live_output(
                     dims.append(f"{key}={sandbox[key]}")
             spec_summary = ", ".join(dims) if dims else "custom"
 
-            events.append({
-                "severity": "info",
-                "message": (
-                    f"Command failed in sandbox ({spec_summary},"
-                    f" grade_w={grade_w}, effects_ceiling={ceiling})"
-                ),
-                "code": f"sandbox_exit_{exit_code}",
-                "fingerprint": hashlib.blake2b(
-                    f"sandbox:{grade_w}:{ceiling}:{exit_code}".encode(),
-                    digest_size=8,
-                ).hexdigest(),
-            })
+            events.append(
+                {
+                    "severity": "info",
+                    "message": (
+                        f"Command failed in sandbox ({spec_summary},"
+                        f" grade_w={grade_w}, effects_ceiling={ceiling})"
+                    ),
+                    "code": f"sandbox_exit_{exit_code}",
+                    "fingerprint": hashlib.blake2b(
+                        f"sandbox:{grade_w}:{ceiling}:{exit_code}".encode(),
+                        digest_size=8,
+                    ).hexdigest(),
+                }
+            )
 
         # Detect specific sandbox violations in output
         if cmd_spec.extension_data.get("sandbox") and exit_code != 0 and output:
@@ -478,17 +480,19 @@ def _execute_with_live_output(
             sandbox = cmd_spec.extension_data["sandbox"]
             violations = detect_violations(output, sandbox)
             for v in violations:
-                events.append({
-                    "severity": "info",
-                    "message": f"Sandbox {v.dimension} violation: {v.pattern}",
-                    "code": f"sandbox_violation_{v.dimension}",
-                    "fingerprint": hashlib.blake2b(
-                        f"sandbox_violation:{v.dimension}:{v.pattern}".encode(),
-                        digest_size=8,
-                    ).hexdigest(),
-                    "log_line_start": v.line_number,
-                    "log_line_end": v.line_number,
-                })
+                events.append(
+                    {
+                        "severity": "info",
+                        "message": f"Sandbox {v.dimension} violation: {v.pattern}",
+                        "code": f"sandbox_violation_{v.dimension}",
+                        "fingerprint": hashlib.blake2b(
+                            f"sandbox_violation:{v.dimension}:{v.pattern}".encode(),
+                            digest_size=8,
+                        ).hexdigest(),
+                        "log_line_start": v.line_number,
+                        "log_line_end": v.line_number,
+                    }
+                )
 
         # =========================================================================
         # Window 2: Post-execution DB access (minimal lock time)
@@ -536,9 +540,7 @@ def _execute_with_live_output(
 
             # Update attempt with enriched extension_data (grades, metrics)
             if cmd_spec.extension_data:
-                store.update_attempt_extension_data(
-                    attempt_id, cmd_spec.extension_data
-                )
+                store.update_attempt_extension_data(attempt_id, cmd_spec.extension_data)
 
             # Write events
             store.write_events(

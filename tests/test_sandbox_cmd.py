@@ -1,4 +1,5 @@
 """Tests for blq sandbox CLI commands."""
+
 from __future__ import annotations
 
 import argparse

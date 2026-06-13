@@ -1,4 +1,5 @@
 """Extension pipeline orchestration."""
+
 from __future__ import annotations
 
 import logging
@@ -32,9 +33,7 @@ def run_pipeline(
         try:
             collector.collect(spec, result)
         except Exception as e:
-            logger.warning(
-                f"Collector {type(collector).__name__} failed: {e}"
-            )
+            logger.warning(f"Collector {type(collector).__name__} failed: {e}")
 
     # 4. Store (forward order) — deferred: extensions write their own artifacts
     # to BIRD storage. Not yet implemented; store() is a no-op on all extensions.

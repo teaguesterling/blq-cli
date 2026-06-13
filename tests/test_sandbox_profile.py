@@ -1,4 +1,5 @@
 """Tests for sandbox profile runner."""
+
 from __future__ import annotations
 
 import shutil

@@ -1,4 +1,5 @@
 """End-to-end integration tests for the extension pipeline."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -12,7 +13,9 @@ from blq_sandbox import SandboxExtension
 
 class FakeExecutor:
     """Records what command was executed."""
+
     name = "fake"
+
     def __init__(self):
         self.executed_command: str | None = None
 
@@ -20,8 +23,11 @@ class FakeExecutor:
         self.executed_command = spec.command
         now = datetime.now()
         return ExecutionResult(
-            exit_code=0, output="PASSED", started_at=now,
-            completed_at=now, duration_ms=500,
+            exit_code=0,
+            output="PASSED",
+            started_at=now,
+            completed_at=now,
+            duration_ms=500,
         )
 
 
@@ -68,13 +74,15 @@ class TestSandboxDictIntegration:
     """Test sandbox dict config flows through the pipeline."""
 
     def test_dict_config_resolves_grade(self) -> None:
-        spec = _make_spec(extension_data={
-            "sandbox": {
-                "network": "none",
-                "filesystem": "workspace_only",
-                "memory": "2g",
-            },
-        })
+        spec = _make_spec(
+            extension_data={
+                "sandbox": {
+                    "network": "none",
+                    "filesystem": "workspace_only",
+                    "memory": "2g",
+                },
+            }
+        )
         ext = SandboxExtension()
         executor = FakeExecutor()
         run_pipeline(spec, [ext], executor)
@@ -82,12 +90,14 @@ class TestSandboxDictIntegration:
         assert spec.extension_data["sandbox_grade_w"] == "scoped"
 
     def test_readonly_spec(self) -> None:
-        spec = _make_spec(extension_data={
-            "sandbox": {
-                "network": "none",
-                "filesystem": "readonly",
-            },
-        })
+        spec = _make_spec(
+            extension_data={
+                "sandbox": {
+                    "network": "none",
+                    "filesystem": "readonly",
+                },
+            }
+        )
         ext = SandboxExtension()
         executor = FakeExecutor()
         run_pipeline(spec, [ext], executor)
@@ -121,10 +131,12 @@ class TestMultipleExtensions:
 
     def test_sandbox_with_other_extensions(self) -> None:
         """Sandbox extension ignores other extension configs."""
-        spec = _make_spec(extension_data={
-            "sandbox": "readonly",
-            "env": {"venv": ".venv"},  # not handled by sandbox
-        })
+        spec = _make_spec(
+            extension_data={
+                "sandbox": "readonly",
+                "env": {"venv": ".venv"},  # not handled by sandbox
+            }
+        )
         ext = SandboxExtension()
         executor = FakeExecutor()
         run_pipeline(spec, [ext], executor)

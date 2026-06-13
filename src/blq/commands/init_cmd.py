@@ -508,8 +508,16 @@ def _add_to_gitignore(cwd: Path) -> bool:
         for line in lines:
             stripped = line.strip()
             if stripped in (
-                ".bird", ".bird/", "/.bird", "/.bird/", ".bird/*",
-                ".lq", ".lq/", "/.lq", "/.lq/", ".lq/*",
+                ".bird",
+                ".bird/",
+                "/.bird",
+                "/.bird/",
+                ".bird/*",
+                ".lq",
+                ".lq/",
+                "/.lq",
+                "/.lq/",
+                ".lq/*",
             ):
                 # Already has some form of ignore entry
                 # Check if it's the new pattern with exceptions

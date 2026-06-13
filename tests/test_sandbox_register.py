@@ -1,4 +1,5 @@
 """Tests for sandbox integration with command registration."""
+
 from __future__ import annotations
 
 import subprocess

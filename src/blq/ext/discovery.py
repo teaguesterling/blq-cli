@@ -1,4 +1,5 @@
 """Extension discovery via Python entry points."""
+
 from __future__ import annotations
 
 import logging

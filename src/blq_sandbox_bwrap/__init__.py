@@ -1,4 +1,5 @@
 """blq-sandbox-bwrap: bubblewrap enforcement engine for sandbox specs."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -24,9 +25,7 @@ class BwrapEngine:
     name = "bwrap"
     capabilities = {"network", "filesystem", "processes", "tmpfs", "paths_hidden", "paths_readable"}
 
-    def wrap(
-        self, command: str, spec: SandboxSpec, workspace: Path, attempt_id: str
-    ) -> str:
+    def wrap(self, command: str, spec: SandboxSpec, workspace: Path, attempt_id: str) -> str:
         args = build_bwrap_args(spec, workspace, attempt_id)
         parts = ["bwrap"] + args + ["--", command]
         return " ".join(parts)

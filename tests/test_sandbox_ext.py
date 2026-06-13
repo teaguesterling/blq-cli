@@ -1,4 +1,5 @@
 """Tests for SandboxExtension and engine dispatch."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -112,9 +113,11 @@ class TestSandboxExtension:
         assert result.extension_data["sandbox_effects_ceiling"] == 2
 
     def test_prepare_with_dict_config(self) -> None:
-        spec = _make_spec(extension_data={
-            "sandbox": {"network": "none", "filesystem": "workspace_only", "memory": "2g"}
-        })
+        spec = _make_spec(
+            extension_data={
+                "sandbox": {"network": "none", "filesystem": "workspace_only", "memory": "2g"}
+            }
+        )
         ext = SandboxExtension()
         result = ext.prepare(spec)
         assert result.extension_data["sandbox_grade_w"] == "scoped"

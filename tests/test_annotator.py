@@ -1,4 +1,5 @@
 """Tests for the annotator system: Annotation, RunContext, and Annotator dispatch."""
+
 # ruff: noqa: E501 (multiline SQL fixture strings)
 from __future__ import annotations
 
@@ -48,6 +49,7 @@ class TestAnnotation:
 # ---------------------------------------------------------------------------
 # TestRunContext — helpers
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def ctx_db():
@@ -116,6 +118,7 @@ def run_ctx(ctx_db, tmp_path):
 # TestRunContext
 # ---------------------------------------------------------------------------
 
+
 class TestRunContext:
     def test_events_returns_list(self, run_ctx):
         events = run_ctx.events
@@ -150,13 +153,13 @@ class TestRunContext:
         assert run_ctx.duration_ms == 5432
 
     def test_add_annotation_stores_in_db(self, run_ctx, ctx_db):
-        ann = Annotation(annotator="src", type="source", display="inline", data={"context": "hello"})
+        ann = Annotation(
+            annotator="src", type="source", display="inline", data={"context": "hello"}
+        )
         run_ctx.add_annotation("evt-1", ann)
 
         # Read directly from DB
-        row = ctx_db.execute(
-            "SELECT metadata FROM events WHERE id = 'evt-1'"
-        ).fetchone()
+        row = ctx_db.execute("SELECT metadata FROM events WHERE id = 'evt-1'").fetchone()
         meta = json.loads(row[0])
         assert len(meta["annotations"]) == 1
         assert meta["annotations"][0]["annotator"] == "src"
@@ -167,9 +170,7 @@ class TestRunContext:
         run_ctx.add_annotation("evt-1", a1)
         run_ctx.add_annotation("evt-1", a2)
 
-        row = ctx_db.execute(
-            "SELECT metadata FROM events WHERE id = 'evt-1'"
-        ).fetchone()
+        row = ctx_db.execute("SELECT metadata FROM events WHERE id = 'evt-1'").fetchone()
         meta = json.loads(row[0])
         assert len(meta["annotations"]) == 2
         assert meta["annotations"][0]["data"]["n"] == 1
@@ -183,13 +184,16 @@ class TestRunContext:
         # Re-access should reflect the new annotation
         events = run_ctx.events
         evt2 = [e for e in events if e["id"] == "evt-2"][0]
-        meta = json.loads(evt2["metadata"]) if isinstance(evt2["metadata"], str) else evt2["metadata"]
+        meta = (
+            json.loads(evt2["metadata"]) if isinstance(evt2["metadata"], str) else evt2["metadata"]
+        )
         assert len(meta["annotations"]) == 1
 
 
 # ---------------------------------------------------------------------------
 # TestRunAnnotators — mock annotators
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class MockEagerAnnotator:
@@ -204,7 +208,12 @@ class MockEagerAnnotator:
         self.called = True
         for e in context.events:
             if e["severity"] == "error":
-                ann = Annotation(annotator=self.name, type="diagnostic", display="inline", data={"enriched": True})
+                ann = Annotation(
+                    annotator=self.name,
+                    type="diagnostic",
+                    display="inline",
+                    data={"enriched": True},
+                )
                 context.add_annotation(e["id"], ann)
 
 

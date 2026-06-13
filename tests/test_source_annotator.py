@@ -1,4 +1,5 @@
 """Tests for source context annotator."""
+
 from __future__ import annotations
 
 import json
@@ -47,11 +48,7 @@ class TestFindEnclosingDefinition:
 
     def test_finds_python_method(self, tmp_path: Path):
         src = tmp_path / "baz.py"
-        src.write_text(
-            "class Foo:\n"
-            "    def bar(self, x):\n"
-            "        return x + 1\n"
-        )
+        src.write_text("class Foo:\n    def bar(self, x):\n        return x + 1\n")
         defn = find_enclosing_definition(src, 3)  # inside bar
         assert defn is not None
         assert defn.name == "Foo.bar"
@@ -62,7 +59,7 @@ class TestFindEnclosingDefinition:
             "#include <stdio.h>\n"
             "\n"
             "int main(int argc, char **argv) {\n"
-            "    printf(\"hello\\n\");\n"
+            '    printf("hello\\n");\n'
             "    return 0;\n"
             "}\n"
         )
@@ -72,11 +69,7 @@ class TestFindEnclosingDefinition:
 
     def test_returns_none_for_top_level(self, tmp_path: Path):
         src = tmp_path / "top.py"
-        src.write_text(
-            "import os\n"
-            "x = 1\n"
-            "y = 2\n"
-        )
+        src.write_text("import os\nx = 1\ny = 2\n")
         defn = find_enclosing_definition(src, 2)
         assert defn is None
 
@@ -135,11 +128,14 @@ class TestSourceContextAnnotator:
                 attempt_id VARCHAR, exit_code INTEGER, duration_ms BIGINT
             )
         """)
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO invocations VALUES (
                 'inv-1', 'test', 'pytest', ?, NULL, '2026-03-29 12:00:00'
             )
-        """, [str(project)])
+        """,
+            [str(project)],
+        )
         conn.execute("""
             INSERT INTO events VALUES
                 ('evt-1', 'inv-1', 0, 'error', 'src/auth.py', 4, NULL,
@@ -157,9 +153,7 @@ class TestSourceContextAnnotator:
     def test_annotates_error_events(self, ctx):
         annotator = SourceContextAnnotator()
         annotator.annotate(ctx)
-        result = ctx.conn.execute(
-            "SELECT metadata FROM events WHERE id = 'evt-1'"
-        ).fetchone()
+        result = ctx.conn.execute("SELECT metadata FROM events WHERE id = 'evt-1'").fetchone()
         assert result[0] is not None
         meta = json.loads(result[0])
         assert "annotations" in meta
@@ -172,9 +166,7 @@ class TestSourceContextAnnotator:
     def test_skips_warnings(self, ctx):
         annotator = SourceContextAnnotator()
         annotator.annotate(ctx)
-        result = ctx.conn.execute(
-            "SELECT metadata FROM events WHERE id = 'evt-2'"
-        ).fetchone()
+        result = ctx.conn.execute("SELECT metadata FROM events WHERE id = 'evt-2'").fetchone()
         # Warning should NOT be annotated
         assert result[0] is None
 

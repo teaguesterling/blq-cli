@@ -1,4 +1,5 @@
 """Tests for systemd sandbox engine."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -26,9 +27,7 @@ def _make_cmd_spec(**overrides: object) -> CommandSpec:
 
 def _make_result(**overrides: object) -> ExecutionResult:
     now = datetime.now()
-    defaults = dict(
-        exit_code=0, output="", started_at=now, completed_at=now, duration_ms=1000
-    )
+    defaults = dict(exit_code=0, output="", started_at=now, completed_at=now, duration_ms=1000)
     defaults.update(overrides)
     return ExecutionResult(**defaults)
 
@@ -122,9 +121,7 @@ class TestSystemdCollector:
         # Directly test parsing logic using real temp files
         memory_peak = scope_dir / "memory.peak"
         if memory_peak.exists():
-            result.metrics["memory_peak_bytes"] = int(
-                memory_peak.read_text().strip()
-            )
+            result.metrics["memory_peak_bytes"] = int(memory_peak.read_text().strip())
 
         assert result.metrics["memory_peak_bytes"] == 12345678
 
@@ -132,10 +129,7 @@ class TestSystemdCollector:
         scope_dir = tmp_path / "blq-test.scope"
         scope_dir.mkdir()
         (scope_dir / "cpu.stat").write_text(
-            "usage_usec 5000000\n"
-            "user_usec 3000000\n"
-            "system_usec 2000000\n"
-            "nr_periods 100\n"
+            "usage_usec 5000000\nuser_usec 3000000\nsystem_usec 2000000\nnr_periods 100\n"
         )
 
         result = _make_result()

@@ -1,4 +1,5 @@
 """Tests for sandbox violation event generation."""
+
 from __future__ import annotations
 
 import hashlib
@@ -26,18 +27,20 @@ class TestSandboxEventGeneration:
                 if key in sandbox:
                     dims.append(f"{key}={sandbox[key]}")
             spec_summary = ", ".join(dims) if dims else "custom"
-            events.append({
-                "severity": "info",
-                "message": (
-                    f"Command failed in sandbox ({spec_summary},"
-                    f" grade_w={grade_w}, effects_ceiling={ceiling})"
-                ),
-                "code": f"sandbox_exit_{exit_code}",
-                "fingerprint": hashlib.blake2b(
-                    f"sandbox:{grade_w}:{ceiling}:{exit_code}".encode(),
-                    digest_size=8,
-                ).hexdigest(),
-            })
+            events.append(
+                {
+                    "severity": "info",
+                    "message": (
+                        f"Command failed in sandbox ({spec_summary},"
+                        f" grade_w={grade_w}, effects_ceiling={ceiling})"
+                    ),
+                    "code": f"sandbox_exit_{exit_code}",
+                    "fingerprint": hashlib.blake2b(
+                        f"sandbox:{grade_w}:{ceiling}:{exit_code}".encode(),
+                        digest_size=8,
+                    ).hexdigest(),
+                }
+            )
 
         assert len(events) == 1
         assert events[0]["severity"] == "info"
@@ -107,18 +110,20 @@ class TestSandboxEventGeneration:
                 if key in sandbox:
                     dims.append(f"{key}={sandbox[key]}")
             spec_summary = ", ".join(dims) if dims else "custom"
-            events.append({
-                "severity": "info",
-                "message": (
-                    f"Command failed in sandbox ({spec_summary},"
-                    f" grade_w={grade_w}, effects_ceiling={ceiling})"
-                ),
-                "code": f"sandbox_exit_{exit_code}",
-                "fingerprint": hashlib.blake2b(
-                    f"sandbox:{grade_w}:{ceiling}:{exit_code}".encode(),
-                    digest_size=8,
-                ).hexdigest(),
-            })
+            events.append(
+                {
+                    "severity": "info",
+                    "message": (
+                        f"Command failed in sandbox ({spec_summary},"
+                        f" grade_w={grade_w}, effects_ceiling={ceiling})"
+                    ),
+                    "code": f"sandbox_exit_{exit_code}",
+                    "fingerprint": hashlib.blake2b(
+                        f"sandbox:{grade_w}:{ceiling}:{exit_code}".encode(),
+                        digest_size=8,
+                    ).hexdigest(),
+                }
+            )
 
         assert len(events) == 1
         assert "network=none" in events[0]["message"]
@@ -143,18 +148,20 @@ class TestSandboxEventGeneration:
                 if key in sandbox:
                     dims.append(f"{key}={sandbox[key]}")
             spec_summary = ", ".join(dims) if dims else "custom"
-            events.append({
-                "severity": "info",
-                "message": (
-                    f"Command failed in sandbox ({spec_summary},"
-                    f" grade_w={grade_w}, effects_ceiling={ceiling})"
-                ),
-                "code": f"sandbox_exit_{exit_code}",
-                "fingerprint": hashlib.blake2b(
-                    f"sandbox:{grade_w}:{ceiling}:{exit_code}".encode(),
-                    digest_size=8,
-                ).hexdigest(),
-            })
+            events.append(
+                {
+                    "severity": "info",
+                    "message": (
+                        f"Command failed in sandbox ({spec_summary},"
+                        f" grade_w={grade_w}, effects_ceiling={ceiling})"
+                    ),
+                    "code": f"sandbox_exit_{exit_code}",
+                    "fingerprint": hashlib.blake2b(
+                        f"sandbox:{grade_w}:{ceiling}:{exit_code}".encode(),
+                        digest_size=8,
+                    ).hexdigest(),
+                }
+            )
 
         assert len(events) == 1
         assert "grade_w=unknown" in events[0]["message"]

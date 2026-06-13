@@ -95,15 +95,17 @@ def query_status(storage: BlqStorage) -> list[dict[str, Any]]:
         status = _compute_status(error_count, warning_count, exit_code, db_status)
         run_ref = _build_run_ref(tag, source_name, run_serial)
 
-        output.append({
-            "name": source_name,
-            "status": status,
-            "error_count": error_count,
-            "warning_count": warning_count,
-            "last_run": data.get("started_at"),
-            "run_ref": run_ref,
-            "run_serial": run_serial,
-        })
+        output.append(
+            {
+                "name": source_name,
+                "status": status,
+                "error_count": error_count,
+                "warning_count": warning_count,
+                "last_run": data.get("started_at"),
+                "run_ref": run_ref,
+                "run_serial": run_serial,
+            }
+        )
 
     return output
 
@@ -208,20 +210,22 @@ def query_history(
         run_ref = _build_run_ref(tag, source_name, run_serial)
         human_status = _compute_status(error_count, warning_count, exit_code, db_status)
 
-        output.append({
-            "run_ref": run_ref,
-            "run_serial": run_serial,
-            "source_name": source_name,
-            "status": human_status,
-            "error_count": error_count,
-            "warning_count": warning_count,
-            "started_at": data.get("started_at"),
-            "exit_code": exit_code,
-            "command": data.get("command"),
-            "git_commit": data.get("git_commit"),
-            "git_branch": data.get("git_branch"),
-            "git_dirty": data.get("git_dirty"),
-        })
+        output.append(
+            {
+                "run_ref": run_ref,
+                "run_serial": run_serial,
+                "source_name": source_name,
+                "status": human_status,
+                "error_count": error_count,
+                "warning_count": warning_count,
+                "started_at": data.get("started_at"),
+                "exit_code": exit_code,
+                "command": data.get("command"),
+                "git_commit": data.get("git_commit"),
+                "git_branch": data.get("git_branch"),
+                "git_dirty": data.get("git_dirty"),
+            }
+        )
 
     return output
 
@@ -280,9 +284,7 @@ def query_events(
         elif source:
             where_parts.append(f"source_name = '{source}'")
         elif default_to_latest and not all_runs:
-            last_run = conn.execute(
-                "SELECT MAX(run_serial) FROM blq_load_events()"
-            ).fetchone()
+            last_run = conn.execute("SELECT MAX(run_serial) FROM blq_load_events()").fetchone()
             if last_run and last_run[0]:
                 where_parts.append(f"run_serial = {last_run[0]}")
 
@@ -292,9 +294,7 @@ def query_events(
         # Suppression filter
         if suppressed_fingerprints:
             fp_list = ", ".join(f"'{fp}'" for fp in suppressed_fingerprints)
-            where_parts.append(
-                f"(fingerprint IS NULL OR fingerprint NOT IN ({fp_list}))"
-            )
+            where_parts.append(f"(fingerprint IS NULL OR fingerprint NOT IN ({fp_list}))")
 
         where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 

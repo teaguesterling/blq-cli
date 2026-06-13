@@ -101,7 +101,15 @@ class TestQueryStatus:
         result = query_status(storage)
         assert len(result) >= 1
         entry = result[0]
-        for key in ("name", "status", "error_count", "warning_count", "last_run", "run_ref", "run_serial"):  # noqa: E501
+        for key in (
+            "name",
+            "status",
+            "error_count",
+            "warning_count",
+            "last_run",
+            "run_ref",
+            "run_serial",
+        ):  # noqa: E501
             assert key in entry, f"Missing key: {key}"
 
     def test_status_values_are_valid(self, initialized_project):
@@ -137,9 +145,18 @@ class TestQueryHistory:
         assert len(result) >= 1
         entry = result[0]
         for key in (
-            "run_ref", "run_serial", "source_name", "status",
-            "error_count", "warning_count", "started_at", "exit_code",
-            "command", "git_commit", "git_branch", "git_dirty",
+            "run_ref",
+            "run_serial",
+            "source_name",
+            "status",
+            "error_count",
+            "warning_count",
+            "started_at",
+            "exit_code",
+            "command",
+            "git_commit",
+            "git_branch",
+            "git_dirty",
         ):
             assert key in entry, f"Missing key: {key}"
 

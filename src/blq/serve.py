@@ -197,9 +197,11 @@ def _get_storage() -> BlqStorage:
         2. process cwd (default — walks up to find .bird/)
     """
     from blq.runtime import resolve_storage_root
+
     root = resolve_storage_root()
     if root is not None:
         from pathlib import Path
+
         # If active_root has a .bird/ directly, open it; else delegate the
         # walk to BlqStorage's auto-search but rooted at active_root.
         bird = Path(root) / ".bird"
@@ -366,6 +368,7 @@ def _resolve_command_lines(command: str, lines: str | None) -> str | None:
         pass
     # Fall back to runtime config's default_lines_window (empty string = no inline).
     from blq.runtime import get_runtime
+
     runtime_lines = get_runtime().default_lines_window
     if runtime_lines:
         return runtime_lines
@@ -2971,6 +2974,7 @@ def history(
     """
     if limit is None:
         from blq.runtime import get_runtime
+
         limit = get_runtime().default_history_limit
     return _history_impl(limit, source, status)
 

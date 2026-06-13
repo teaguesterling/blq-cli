@@ -1330,9 +1330,7 @@ def main() -> None:
         cmd_sandbox_tighten,
     )
 
-    p_sandbox = subparsers.add_parser(
-        "sandbox", help="Manage sandbox specifications"
-    )
+    p_sandbox = subparsers.add_parser("sandbox", help="Manage sandbox specifications")
     sandbox_subparsers = p_sandbox.add_subparsers(
         dest="sandbox_command", help="Sandbox subcommands"
     )
@@ -1358,9 +1356,7 @@ def main() -> None:
     p_sandbox_suggest.set_defaults(func=cmd_sandbox_suggest)
 
     # sandbox profile
-    p_sandbox_profile = sandbox_subparsers.add_parser(
-        "profile", help="Profile command with strace"
-    )
+    p_sandbox_profile = sandbox_subparsers.add_parser("profile", help="Profile command with strace")
     p_sandbox_profile.add_argument("command", help="Command name to profile")
     p_sandbox_profile.add_argument(
         "--json", "-j", action="store_true", help="Output raw profile as JSON"

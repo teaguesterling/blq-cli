@@ -1,4 +1,5 @@
 """Tests for sandbox violation detection."""
+
 from __future__ import annotations
 
 from blq_sandbox.violations import SandboxViolation, detect_violations
