@@ -89,7 +89,7 @@ class TestBwrapEngineIntegration:
         wrapped = engine.wrap(
             f"touch {target}", spec, Path("/tmp"), "test-ro",
         )
-        result = subprocess.run(
+        subprocess.run(
             wrapped, shell=True, capture_output=True, text=True, timeout=10
         )
         assert not target.exists()

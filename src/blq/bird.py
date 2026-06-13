@@ -1193,7 +1193,7 @@ class BirdStore:
             )
 
         # Clean up any stale lock files left by orphaned processes
-        locks_dir = self.lq_dir / "locks"
+        locks_dir = self._lq_dir / "locks"
         cleanup_stale_locks(locks_dir)
 
         return orphaned_ids

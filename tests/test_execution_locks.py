@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from blq.locks import CommandLock, LockHeldError, acquire_lock, release_lock
+from blq.locks import LockHeldError, acquire_lock, release_lock
 
 
 class TestExecutionLockIntegration:

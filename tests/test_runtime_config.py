@@ -134,7 +134,9 @@ class TestConfigToolViaMCP:
     def test_config_is_registered(self):
         pytest.importorskip("fastmcp")
         import asyncio
+
         from fastmcp import Client
+
         from blq.serve import mcp
 
         async def _list():
@@ -152,7 +154,9 @@ class TestConfigToolViaMCP:
     def test_call_returns_current_state(self):
         pytest.importorskip("fastmcp")
         import asyncio
+
         from fastmcp import Client
+
         from blq.serve import mcp
 
         async def _call():

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import sys
 
-import pytest
-
 from blq.services.query import (
     _build_run_ref,
     _compute_status,
@@ -15,7 +13,6 @@ from blq.services.query import (
     query_status,
 )
 from blq.storage import BlqStorage
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -104,7 +101,7 @@ class TestQueryStatus:
         result = query_status(storage)
         assert len(result) >= 1
         entry = result[0]
-        for key in ("name", "status", "error_count", "warning_count", "last_run", "run_ref", "run_serial"):
+        for key in ("name", "status", "error_count", "warning_count", "last_run", "run_ref", "run_serial"):  # noqa: E501
             assert key in entry, f"Missing key: {key}"
 
     def test_status_values_are_valid(self, initialized_project):

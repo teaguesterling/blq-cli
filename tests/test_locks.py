@@ -5,11 +5,17 @@ from __future__ import annotations
 import json
 import os
 import time
-from pathlib import Path
 
 import pytest
 
-from blq.locks import CommandLock, LockHeldError, acquire_lock, cleanup_stale_locks, read_lock, release_lock
+from blq.locks import (
+    CommandLock,
+    LockHeldError,
+    acquire_lock,
+    cleanup_stale_locks,
+    read_lock,
+    release_lock,
+)
 
 DEAD_PID = 99999999
 

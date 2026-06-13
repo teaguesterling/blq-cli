@@ -77,7 +77,7 @@ class TestConfigPassthrough:
     def test_extra_sections_preserved_on_roundtrip(self, tmp_path) -> None:
         from pathlib import Path
 
-        from blq.commands.core import RegisteredCommand, _load_commands_impl
+        from blq.commands.core import _load_commands_impl
         from blq.config_format import save_toml
 
         lq_dir = Path(str(tmp_path))

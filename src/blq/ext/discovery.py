@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 from importlib.metadata import entry_points
-from typing import Any
 
 from blq.ext import Extension
 

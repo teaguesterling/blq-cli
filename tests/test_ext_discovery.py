@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from blq.ext import CommandSpec, ExecutionResult
 from blq.ext.discovery import load_extensions, order_extensions

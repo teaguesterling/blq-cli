@@ -14,7 +14,6 @@ from blq_sandbox.spec import (
     resolve_sandbox,
 )
 
-
 # =============================================================================
 # Duration parsing/formatting
 # =============================================================================
@@ -386,7 +385,7 @@ class TestRegisteredCommandIntegration:
         """Test that sandbox config in _extra survives TOML save/load cycle."""
         from pathlib import Path
 
-        from blq.commands.core import RegisteredCommand, _load_commands_impl
+        from blq.commands.core import _load_commands_impl
         from blq.config_format import save_toml
 
         lq_dir = Path(str(tmp_path))
@@ -410,7 +409,7 @@ class TestRegisteredCommandIntegration:
         """Test that sandbox preset string in _extra survives TOML save/load."""
         from pathlib import Path
 
-        from blq.commands.core import RegisteredCommand, _load_commands_impl
+        from blq.commands.core import _load_commands_impl
         from blq.config_format import save_toml
 
         lq_dir = Path(str(tmp_path))

@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from blq.services.execution import run_result_to_concise
-
 
 # ---------------------------------------------------------------------------
 # Helpers

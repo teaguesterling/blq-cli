@@ -124,7 +124,8 @@ class RunContext:
 
     @property
     def extension_data(self) -> dict[str, Any]:
-        return self.metadata["extension_data"]
+        data: dict[str, Any] = self.metadata["extension_data"]
+        return data
 
     def _load_outcome(self) -> None:
         if not self._outcome_loaded:

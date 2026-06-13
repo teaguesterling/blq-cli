@@ -7,9 +7,8 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from blq.ext.annotator import Annotation, RunContext
+from blq.ext.annotator import RunContext
 from blq_sandbox.source_annotator import (
-    Definition,
     SourceContextAnnotator,
     find_enclosing_definition,
 )

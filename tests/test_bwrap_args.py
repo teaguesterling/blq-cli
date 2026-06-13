@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from blq_sandbox.spec import SandboxSpec
 from blq_sandbox_bwrap.args import build_bwrap_args
-
 
 WORKSPACE = Path("/tmp/blq-test-workspace/attempt-abc123")
 ATTEMPT_ID = "attempt-abc123"

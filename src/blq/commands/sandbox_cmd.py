@@ -145,11 +145,11 @@ def cmd_sandbox_suggest(args: Any) -> None:
         print(f"Error querying metrics: {e}", file=sys.stderr)
         sys.exit(1)
 
-    run_count = result[0] if result else 0
-    if run_count == 0:
+    if not result or result[0] == 0:
         print(f"No runs found for '{cmd_name}'. Run it a few times first.")
         return
 
+    run_count = result[0]
     max_memory = result[1]
     max_cpu_usec = result[2]
     max_duration_ms = result[3]
@@ -327,8 +327,8 @@ def cmd_sandbox_tighten(args: Any) -> None:
         print(f"Error querying metrics: {e}", file=sys.stderr)
         sys.exit(1)
 
-    run_count = result[0] if result else 0
-    if run_count < 3:
+    if not result or result[0] < 3:
+        run_count = result[0] if result else 0
         print(
             f"Insufficient data: only {run_count} run(s) found for '{cmd_name}'. "
             "At least 3 runs are required for reliable tightening.",
@@ -357,7 +357,7 @@ def cmd_sandbox_tighten(args: Any) -> None:
         return
 
     # Show diff
-    from blq_sandbox.spec import format_size, format_duration
+    from blq_sandbox.spec import format_duration, format_size
 
     print(f"Tightening sandbox spec for '{cmd_name}' (based on {run_count} runs):")
     print()

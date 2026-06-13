@@ -394,7 +394,10 @@ def _format_context_with_read_lines(
         conn.execute("""
             CREATE OR REPLACE MACRO blq_read_lines(content, lines_spec, marks := []) AS TABLE
             WITH mark_ranges AS (
-                SELECT unnest(marks::STRUCT(start INT, "end" INT, mark VARCHAR)[], recursive := true)
+                SELECT unnest(
+                    marks::STRUCT(start INT, "end" INT, mark VARCHAR)[],
+                    recursive := true
+                )
             )
             SELECT
                 l.line_number,

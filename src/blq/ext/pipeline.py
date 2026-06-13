@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from blq.ext import CommandSpec, ExecutionResult, Extension, Executor
+from blq.ext import CommandSpec, ExecutionResult, Executor, Extension
 
 logger = logging.getLogger("blq-ext")
 

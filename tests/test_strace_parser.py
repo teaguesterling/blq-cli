@@ -1,7 +1,6 @@
 """Tests for strace output parser."""
+# ruff: noqa: E501 (raw strace fixture)
 from __future__ import annotations
-
-import pytest
 
 from blq_sandbox.strace_parser import StraceProfile, parse_strace_output
 

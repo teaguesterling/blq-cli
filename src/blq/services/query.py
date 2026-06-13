@@ -152,7 +152,7 @@ def query_history(
             params.append(source)
 
         if status is not None:
-            db_status = _status_map.get(status.lower(), status.lower())
+            db_status: str | None = _status_map.get(status.lower(), status.lower())
             where_parts.append("a.status = ?")
             params.append(db_status)
 

@@ -439,7 +439,7 @@ class LogQuery:
     @property
     def dtypes(self) -> list[str]:
         """Get list of column types."""
-        return self._rel.dtypes
+        return [str(t) for t in self._rel.dtypes]
 
     def describe(self) -> pd.DataFrame:
         """Get statistical description of the data."""

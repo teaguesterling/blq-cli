@@ -19,9 +19,8 @@ Shape mirrors jetsam.config.runtime and squackit.runtime.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import dataclass, fields, replace
 from typing import Any
-
 
 _ENV_PREFIX = "BLQ_"
 
@@ -52,7 +51,7 @@ class BlqRuntimeConfig:
     default_history_limit: int = 20
 
     @classmethod
-    def from_env(cls, env: dict[str, str] | None = None) -> "BlqRuntimeConfig":
+    def from_env(cls, env: dict[str, str] | None = None) -> BlqRuntimeConfig:
         """Build a config seeded from environment variables.
 
         Variables read (each optional):

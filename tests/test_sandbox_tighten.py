@@ -1,8 +1,6 @@
 """Tests for sandbox spec tightening."""
 from __future__ import annotations
 
-import pytest
-
 from blq_sandbox.spec import SandboxSpec
 from blq_sandbox.tighten import compute_tighter_spec
 

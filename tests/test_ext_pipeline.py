@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from blq.ext import CommandSpec, ExecutionResult, Collector
+from blq.ext import CommandSpec, ExecutionResult
 from blq.ext.pipeline import run_pipeline
 
 
@@ -87,7 +87,7 @@ class TestRunPipeline:
         spec.extension_data["wrapper"] = {}
         ext = RecordingExtension("wrapper", prefix="sudo")
         executor = RecordingExecutor()
-        result = run_pipeline(spec, [ext], executor)
+        run_pipeline(spec, [ext], executor)
         assert executor.executed_command == "sudo echo hello"
 
     def test_only_active_extensions_called(self) -> None:

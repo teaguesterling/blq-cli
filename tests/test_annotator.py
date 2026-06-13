@@ -1,11 +1,10 @@
 """Tests for the annotator system: Annotation, RunContext, and Annotator dispatch."""
+# ruff: noqa: E501 (multiline SQL fixture strings)
 from __future__ import annotations
 
 import json
 import logging
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
 
 import duckdb
 import pytest

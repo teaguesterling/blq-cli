@@ -11,6 +11,7 @@ Tests the BIRD storage backend including:
 - Integration with command execution
 """
 
+# ruff: noqa: E501 (multiline SQL fixture strings)
 from __future__ import annotations
 
 import argparse

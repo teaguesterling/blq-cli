@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from importlib.metadata import entry_points
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
 from blq.ext import Collector
 from blq_sandbox.spec import SandboxSpec

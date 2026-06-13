@@ -6,7 +6,7 @@ from pathlib import Path
 
 from blq.ext import CommandSpec, ExecutionResult
 from blq_sandbox.spec import SandboxSpec, parse_size
-from blq_sandbox_systemd import SystemdEngine, SystemdCollector
+from blq_sandbox_systemd import SystemdCollector, SystemdEngine
 
 
 def _make_cmd_spec(**overrides: object) -> CommandSpec:
@@ -117,7 +117,7 @@ class TestSystemdCollector:
         (scope_dir / "memory.peak").write_text("12345678\n")
 
         result = _make_result()
-        spec = _make_cmd_spec()
+        _make_cmd_spec()
 
         # Directly test parsing logic using real temp files
         memory_peak = scope_dir / "memory.peak"

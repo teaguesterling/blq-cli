@@ -8,6 +8,8 @@ from blq.ext import CommandSpec, ExecutionResult
 from blq_sandbox.engines import load_engines, select_engines
 from blq_sandbox.spec import SandboxSpec, resolve_sandbox
 
+__all__ = ["SandboxExtension", "SandboxSpec", "resolve_sandbox"]
+
 logger = logging.getLogger("blq-sandbox")
 
 

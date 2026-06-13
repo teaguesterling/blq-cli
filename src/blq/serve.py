@@ -1185,8 +1185,6 @@ def _inspect_impl(
         Event details with log_context and optional enrichment fields
     """
     from blq.cli import BlqConfig
-    from blq.git import get_file_context
-    from blq.output import read_source_context
 
     try:
         tag, run_serial, event_id = _parse_ref(ref)
@@ -1253,10 +1251,11 @@ def _inspect_impl(
 
         # Source context, git context, fingerprint history via service layer
         from pathlib import Path
+
         from blq.services.inspect import (
-            get_source_context,
-            get_git_context,
             get_fingerprint_history,
+            get_git_context,
+            get_source_context,
         )
 
         source_root = Path(ref_root) if ref_root else Path.cwd()

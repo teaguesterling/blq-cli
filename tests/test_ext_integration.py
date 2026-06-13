@@ -8,7 +8,6 @@ from typing import Any
 from blq.ext import CommandSpec, ExecutionResult
 from blq.ext.pipeline import run_pipeline
 from blq_sandbox import SandboxExtension
-from blq_sandbox.spec import SandboxSpec
 
 
 class FakeExecutor:
@@ -78,7 +77,7 @@ class TestSandboxDictIntegration:
         })
         ext = SandboxExtension()
         executor = FakeExecutor()
-        result = run_pipeline(spec, [ext], executor)
+        run_pipeline(spec, [ext], executor)
 
         assert spec.extension_data["sandbox_grade_w"] == "scoped"
 
@@ -128,7 +127,7 @@ class TestMultipleExtensions:
         })
         ext = SandboxExtension()
         executor = FakeExecutor()
-        result = run_pipeline(spec, [ext], executor)
+        run_pipeline(spec, [ext], executor)
 
         assert spec.extension_data["sandbox_grade_w"] == "pinhole"
         # env config preserved but not processed (no env extension)

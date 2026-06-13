@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import hashlib
 
-import pytest
-
 
 class TestSandboxEventGeneration:
     """Test that sandboxed command failures produce info events."""
@@ -76,14 +74,14 @@ class TestSandboxEventGeneration:
 
     def test_fingerprint_differs_by_exit_code(self):
         """Different exit codes should produce different fingerprints."""
-        fp1 = hashlib.blake2b("sandbox:pinhole:2:1".encode(), digest_size=8).hexdigest()
-        fp2 = hashlib.blake2b("sandbox:pinhole:2:2".encode(), digest_size=8).hexdigest()
+        fp1 = hashlib.blake2b(b"sandbox:pinhole:2:1", digest_size=8).hexdigest()
+        fp2 = hashlib.blake2b(b"sandbox:pinhole:2:2", digest_size=8).hexdigest()
         assert fp1 != fp2
 
     def test_fingerprint_same_for_same_conditions(self):
         """Same sandbox + exit code should produce same fingerprint."""
-        fp1 = hashlib.blake2b("sandbox:pinhole:2:1".encode(), digest_size=8).hexdigest()
-        fp2 = hashlib.blake2b("sandbox:pinhole:2:1".encode(), digest_size=8).hexdigest()
+        fp1 = hashlib.blake2b(b"sandbox:pinhole:2:1", digest_size=8).hexdigest()
+        fp2 = hashlib.blake2b(b"sandbox:pinhole:2:1", digest_size=8).hexdigest()
         assert fp1 == fp2
 
     def test_sandbox_event_with_all_dimensions(self):

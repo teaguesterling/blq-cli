@@ -126,15 +126,15 @@ class LocalExecutor:
                         break
 
                     try:
-                        line = output_queue.get(timeout=min(remaining, 0.5))
-                        if line is None:
+                        queued = output_queue.get(timeout=min(remaining, 0.5))
+                        if queued is None:
                             break
-                        output_lines.append(line)
+                        output_lines.append(queued)
                         if live_file:
-                            live_file.write(line)
+                            live_file.write(queued)
                             live_file.flush()
                         if not self._quiet:
-                            sys.stdout.write(line)
+                            sys.stdout.write(queued)
                             sys.stdout.flush()
                     except queue.Empty:
                         if process.poll() is not None:
