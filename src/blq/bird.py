@@ -420,13 +420,26 @@ class BirdStore:
                 ).fetchone()
                 if result:
                     current_version = result[0]
-                    # Apply any pending migrations
-                    cls._apply_migrations(conn, current_version)
-                    return
             except duckdb.Error:
                 pass  # Table doesn't exist, need to create
 
-        # Load schema from SQL file
+        if current_version is not None and not force:
+            # Existing DB. Only touch it when there's pending migration work or a
+            # column a past (possibly silently-failed) migration never added;
+            # otherwise this is a fast no-op.
+            if not cls._needs_repair(conn, current_version):
+                return
+            # DuckDB blocks column ALTER/RENAME while views depend on the table
+            # (this is what left old DBs stuck without extension_data). Drop all
+            # views first so migrations + the reconcile can alter the base tables;
+            # re-applying the schema below recreates every view.
+            cls._drop_all_views(conn)
+            cls._apply_migrations(conn, current_version)
+            cls._reconcile_schema(conn)
+
+        # Load schema from SQL file (idempotent: CREATE TABLE IF NOT EXISTS,
+        # INSERT OR IGNORE, CREATE OR REPLACE VIEW — safe to re-apply, and it
+        # recreates any views dropped above).
         schema_path = Path(__file__).parent / "bird_schema.sql"
         if schema_path.exists():
             schema_sql = schema_path.read_text()
@@ -505,6 +518,92 @@ class BirdStore:
         return statements
 
     @classmethod
+    def _needs_repair(cls, conn: duckdb.DuckDBPyConnection, current_version: str) -> bool:
+        """True if the DB needs migration/repair — pending version bump OR a
+        required column a past (possibly silently-failed) migration never added.
+
+        Keeps the common path a fast no-op: a fully current DB returns False, so
+        _ensure_schema doesn't drop/recreate views on every connect.
+        """
+        try:
+            parts = [int(p) for p in current_version.split(".")]
+            major, minor = parts[0], parts[1] if len(parts) > 1 else 0
+            if (major, minor) < (3, 0):
+                return True
+        except (ValueError, IndexError):
+            return True  # unparseable version — reconcile to be safe
+        # Self-heal for migrations that failed silently on dependent views and
+        # then let the version advance past themselves (leaving no column).
+        for table in ("attempts", "invocations"):
+            try:
+                has = conn.execute(
+                    "SELECT 1 FROM information_schema.columns "
+                    f"WHERE table_name = '{table}' AND column_name = 'extension_data'"
+                ).fetchone()
+                if not has:
+                    return True
+            except duckdb.Error:
+                return True
+        return False
+
+    @staticmethod
+    def _drop_all_views(conn: duckdb.DuckDBPyConnection) -> None:
+        """Drop all views so base-table column ALTER/RENAME isn't blocked by
+        dependents. The schema is re-applied afterward (CREATE OR REPLACE VIEW)
+        to recreate them."""
+        try:
+            views = conn.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_type = 'VIEW'"
+            ).fetchall()
+        except duckdb.Error:
+            return
+        for (name,) in views:
+            try:
+                conn.execute(f'DROP VIEW IF EXISTS "{name}" CASCADE')
+            except duckdb.Error:
+                pass
+
+    @classmethod
+    def _reconcile_schema(cls, conn: duckdb.DuckDBPyConnection) -> None:
+        """Version-independent self-heal: ensure `extension_data` exists on
+        attempts and invocations even if a past migration failed silently (blocked
+        by dependent views) and the schema version advanced past it. Views must
+        already be dropped by the caller so the ALTER/RENAME can proceed.
+
+        Uses ADD COLUMN + data copy, NOT rename: RENAME COLUMN on these tables is
+        blocked by non-view dependencies (FKs/constraints) that persist even after
+        dropping views, whereas ADD COLUMN is never blocked. Existing `sandbox`
+        data (from the 2.3 migration) is copied into the new column wrapped as
+        {"sandbox": ...}; the now-redundant `sandbox` column is left in place
+        (harmless, and DROP COLUMN hits the same dependency wall).
+        """
+        for table in ("attempts", "invocations"):
+            try:
+                cols = {
+                    r[0]
+                    for r in conn.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        f"WHERE table_name = '{table}'"
+                    ).fetchall()
+                }
+                if "extension_data" in cols:
+                    continue
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN extension_data JSON")
+                if "sandbox" in cols:
+                    conn.execute(
+                        f"UPDATE {table} SET extension_data = "
+                        f"json_object('sandbox', sandbox) WHERE sandbox IS NOT NULL"
+                    )
+                    logger.info(
+                        f"Repaired {table}: added extension_data (copied sandbox data)"
+                    )
+                else:
+                    logger.info(f"Repaired {table}: added extension_data")
+            except duckdb.Error as e:
+                logger.warning(f"Schema reconcile warning ({table}): {e}")
+
+    @classmethod
     def _apply_migrations(cls, conn: duckdb.DuckDBPyConnection, current_version: str) -> None:
         """Apply schema migrations from current version to latest.
 
@@ -557,42 +656,15 @@ class BirdStore:
             # Update schema version
             conn.execute("UPDATE blq_metadata SET value = '2.3.0' WHERE key = 'schema_version'")
 
-        # Migration: 2.3.0 -> 2.4.0 (rename sandbox to extension_data)
+        # Migration: 2.3.0 -> 2.4.0 (sandbox -> extension_data).
+        # RENAME COLUMN is blocked by non-view dependencies on these tables, so
+        # this is done as ADD + copy via _reconcile_schema (which is idempotent
+        # and always succeeds), rather than the RENAME that silently failed and
+        # left old DBs stuck without extension_data.
         if (major, minor) < (2, 4):
-            migration_ok = True
-            for table in ("attempts", "invocations"):
-                try:
-                    # Check if old column exists
-                    result = conn.execute(
-                        "SELECT column_name FROM information_schema.columns "
-                        f"WHERE table_name = '{table}' AND column_name = 'sandbox'"
-                    ).fetchone()
-                    if result:
-                        conn.execute(f"ALTER TABLE {table} RENAME COLUMN sandbox TO extension_data")
-                        # Wrap existing sandbox data in {"sandbox": ...} envelope
-                        conn.execute(
-                            f"UPDATE {table} SET extension_data = "
-                            f"json_object('sandbox', extension_data) "
-                            f"WHERE extension_data IS NOT NULL"
-                        )
-                        logger.info(f"Migration: Renamed sandbox to extension_data in {table}")
-                        migrations_applied = True
-                    else:
-                        # Check if new column exists, add if not
-                        result = conn.execute(
-                            "SELECT column_name FROM information_schema.columns "
-                            f"WHERE table_name = '{table}' AND column_name = 'extension_data'"
-                        ).fetchone()
-                        if not result:
-                            conn.execute(f"ALTER TABLE {table} ADD COLUMN extension_data JSON")
-                            logger.info(f"Migration: Added extension_data column to {table}")
-                            migrations_applied = True
-                except duckdb.Error as e:
-                    logger.warning(f"Migration warning: {e}")
-                    migration_ok = False
-
-            if migration_ok:
-                conn.execute("UPDATE blq_metadata SET value = '2.4.0' WHERE key = 'schema_version'")
+            cls._reconcile_schema(conn)
+            migrations_applied = True
+            conn.execute("UPDATE blq_metadata SET value = '2.4.0' WHERE key = 'schema_version'")
 
         # Migration: 2.4.0 -> 3.0.0 (directory rename .lq -> .bird, no table changes)
         if (major, minor) < (3, 0):
