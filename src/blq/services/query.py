@@ -269,37 +269,46 @@ def query_events(
         conn = storage.connection
 
         where_parts: list[str] = []
+        params: list[Any] = []
 
-        # Severity filter (supports comma-separated)
+        # Severity filter (supports comma-separated). Parameterized so a
+        # caller-supplied value cannot alter the query.
         if severity is not None:
-            if "," in severity:
-                severities = [s.strip() for s in severity.split(",")]
-                placeholders = ", ".join(f"'{s}'" for s in severities)
-                where_parts.append(f"severity IN ({placeholders})")
-            else:
-                where_parts.append(f"severity = '{severity}'")
+            severities = (
+                [s.strip() for s in severity.split(",")] if "," in severity else [severity]
+            )
+            placeholders = ", ".join("?" for _ in severities)
+            where_parts.append(f"severity IN ({placeholders})")
+            params.extend(severities)
 
         if run_id is not None:
-            where_parts.append(f"run_serial = {int(run_id)}")
+            where_parts.append("run_serial = ?")
+            params.append(int(run_id))
         elif source:
-            where_parts.append(f"source_name = '{source}'")
+            where_parts.append("source_name = ?")
+            params.append(source)
         elif default_to_latest and not all_runs:
             last_run = conn.execute("SELECT MAX(run_serial) FROM blq_load_events()").fetchone()
             if last_run and last_run[0]:
-                where_parts.append(f"run_serial = {last_run[0]}")
+                where_parts.append("run_serial = ?")
+                params.append(int(last_run[0]))
 
         if file_pattern is not None:
-            where_parts.append(f"ref_file LIKE '{file_pattern}'")
+            where_parts.append("ref_file LIKE ?")
+            params.append(file_pattern)
 
         # Suppression filter
         if suppressed_fingerprints:
-            fp_list = ", ".join(f"'{fp}'" for fp in suppressed_fingerprints)
-            where_parts.append(f"(fingerprint IS NULL OR fingerprint NOT IN ({fp_list}))")
+            fp_placeholders = ", ".join("?" for _ in suppressed_fingerprints)
+            where_parts.append(
+                f"(fingerprint IS NULL OR fingerprint NOT IN ({fp_placeholders}))"
+            )
+            params.extend(suppressed_fingerprints)
 
         where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
         count_sql = f"SELECT COUNT(*) FROM blq_load_events() {where_clause}"
-        total_count_result = conn.execute(count_sql).fetchone()
+        total_count_result = conn.execute(count_sql, params).fetchone()
         total_count: int = int(total_count_result[0]) if total_count_result else 0
 
         events_sql = f"""
@@ -309,7 +318,7 @@ def query_events(
             ORDER BY run_serial DESC, event_id
             LIMIT {int(limit)}
         """
-        result = conn.execute(events_sql)
+        result = conn.execute(events_sql, params)
         columns = [d[0] for d in result.description]
         rows = result.fetchall()
 
