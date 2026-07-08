@@ -135,9 +135,7 @@ class TestSourceContextConfinement:
 
         root, canary = self._make_canary(tmp_path)
         # Path(root) / "/abs/canary" == Path("/abs/canary") -- root is discarded.
-        result = output_mod.read_source_context(
-            str(canary), 1, ref_root=str(root), context=2
-        )
+        result = output_mod.read_source_context(str(canary), 1, ref_root=str(root), context=2)
         assert result is None or "CANARY_SECRET_TOKEN" not in result
 
     def test_dotdot_ref_file_is_refused(self, tmp_path):
@@ -154,9 +152,7 @@ class TestSourceContextConfinement:
         import blq.output as output_mod
 
         root, _ = self._make_canary(tmp_path)
-        result = output_mod.read_source_context(
-            "in_tree.py", 1, ref_root=str(root), context=2
-        )
+        result = output_mod.read_source_context("in_tree.py", 1, ref_root=str(root), context=2)
         assert result is not None
         assert "inside" in result
 
@@ -207,14 +203,10 @@ class TestQueryBuilderInjection:
         baseline = query_events(storage, all_runs=True, limit=100)
         assert baseline["total_count"] > 0, "fixture should have produced events"
 
-        injected = query_events(
-            storage, source="nope' OR '1'='1", all_runs=True, limit=100
-        )
+        injected = query_events(storage, source="nope' OR '1'='1", all_runs=True, limit=100)
         # Parameterized: the literal source matches nothing -> 0 rows.
         # On the f-string path the OR makes it match every row.
-        assert injected["total_count"] == 0, (
-            "SQL injection via source filter altered results"
-        )
+        assert injected["total_count"] == 0, "SQL injection via source filter altered results"
 
     def test_tag_clause_injection_does_not_bypass_tag(self, blq_with_data):
         """serve.py tag where-clause: injection must not bypass the tag match."""

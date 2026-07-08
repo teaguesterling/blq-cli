@@ -1046,9 +1046,7 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
             where = "run_serial = ? AND event_id = ?"
             params = [run_serial, event_id]
 
-        result = store.sql(
-            f"SELECT * FROM blq_load_events() WHERE {where}", params
-        ).fetchone()
+        result = store.sql(f"SELECT * FROM blq_load_events() WHERE {where}", params).fetchone()
 
         if result is None:
             return None
@@ -1125,9 +1123,7 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
             where = "run_serial = ? AND event_id = ?"
             params = [run_serial, event_id]
 
-        result = storage.sql(
-            f"SELECT * FROM blq_load_events() WHERE {where}", params
-        ).fetchone()
+        result = storage.sql(f"SELECT * FROM blq_load_events() WHERE {where}", params).fetchone()
 
         if result is None:
             return {"error": f"Event {ref} not found"}
@@ -1214,9 +1210,7 @@ def _inspect_impl(
             where = "run_serial = ? AND event_id = ?"
             params = [run_serial, event_id]
 
-        result = storage.sql(
-            f"SELECT * FROM blq_load_events() WHERE {where}", params
-        ).fetchone()
+        result = storage.sql(f"SELECT * FROM blq_load_events() WHERE {where}", params).fetchone()
 
         if result is None:
             return {"error": f"Event {ref} not found"}

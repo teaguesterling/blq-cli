@@ -274,9 +274,7 @@ def query_events(
         # Severity filter (supports comma-separated). Parameterized so a
         # caller-supplied value cannot alter the query.
         if severity is not None:
-            severities = (
-                [s.strip() for s in severity.split(",")] if "," in severity else [severity]
-            )
+            severities = [s.strip() for s in severity.split(",")] if "," in severity else [severity]
             placeholders = ", ".join("?" for _ in severities)
             where_parts.append(f"severity IN ({placeholders})")
             params.extend(severities)
@@ -300,9 +298,7 @@ def query_events(
         # Suppression filter
         if suppressed_fingerprints:
             fp_placeholders = ", ".join("?" for _ in suppressed_fingerprints)
-            where_parts.append(
-                f"(fingerprint IS NULL OR fingerprint NOT IN ({fp_placeholders}))"
-            )
+            where_parts.append(f"(fingerprint IS NULL OR fingerprint NOT IN ({fp_placeholders}))")
             params.extend(suppressed_fingerprints)
 
         where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
