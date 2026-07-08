@@ -60,6 +60,8 @@ from blq.storage import BlqStorage
 # These are the tools disabled when running in safe mode
 SAFE_MODE_DISABLED_TOOLS = {
     "exec",  # Can run arbitrary commands
+    "run",  # Executes registered commands; forwards caller args into a shell
+    "query",  # Raw SQL against DuckDB (read_text/COPY reach the filesystem)
     "clean",  # Can delete data
     "register_command",  # Can modify command registry
     "unregister_command",  # Can modify command registry
@@ -1035,13 +1037,16 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
         tag, run_serial, event_id = _parse_ref(ref)
         store = _get_storage()
 
-        # Build query using run_serial and event_id
+        # Build query using run_serial and event_id (parameterized: tag is
+        # caller-influenced and must not be interpolated into SQL)
         if tag is not None:
-            where = f"tag = '{tag}' AND run_serial = {run_serial} AND event_id = {event_id}"
+            where = "tag = ? AND run_serial = ? AND event_id = ?"
+            params: list[Any] = [tag, run_serial, event_id]
         else:
-            where = f"run_serial = {run_serial} AND event_id = {event_id}"
+            where = "run_serial = ? AND event_id = ?"
+            params = [run_serial, event_id]
 
-        result = store.sql(f"SELECT * FROM blq_load_events() WHERE {where}").fetchone()
+        result = store.sql(f"SELECT * FROM blq_load_events() WHERE {where}", params).fetchone()
 
         if result is None:
             return None
@@ -1109,13 +1114,16 @@ def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
         tag, run_serial, event_id = _parse_ref(ref)
         storage = _get_storage()
 
-        # Build query using run_serial and event_id
+        # Build query using run_serial and event_id (parameterized: tag is
+        # caller-influenced and must not be interpolated into SQL)
         if tag is not None:
-            where = f"tag = '{tag}' AND run_serial = {run_serial} AND event_id = {event_id}"
+            where = "tag = ? AND run_serial = ? AND event_id = ?"
+            params: list[Any] = [tag, run_serial, event_id]
         else:
-            where = f"run_serial = {run_serial} AND event_id = {event_id}"
+            where = "run_serial = ? AND event_id = ?"
+            params = [run_serial, event_id]
 
-        result = storage.sql(f"SELECT * FROM blq_load_events() WHERE {where}").fetchone()
+        result = storage.sql(f"SELECT * FROM blq_load_events() WHERE {where}", params).fetchone()
 
         if result is None:
             return {"error": f"Event {ref} not found"}
@@ -1193,13 +1201,16 @@ def _inspect_impl(
         tag, run_serial, event_id = _parse_ref(ref)
         storage = _get_storage()
 
-        # Build query using run_serial and event_id
+        # Build query using run_serial and event_id (parameterized: tag is
+        # caller-influenced and must not be interpolated into SQL)
         if tag is not None:
-            where = f"tag = '{tag}' AND run_serial = {run_serial} AND event_id = {event_id}"
+            where = "tag = ? AND run_serial = ? AND event_id = ?"
+            params: list[Any] = [tag, run_serial, event_id]
         else:
-            where = f"run_serial = {run_serial} AND event_id = {event_id}"
+            where = "run_serial = ? AND event_id = ?"
+            params = [run_serial, event_id]
 
-        result = storage.sql(f"SELECT * FROM blq_load_events() WHERE {where}").fetchone()
+        result = storage.sql(f"SELECT * FROM blq_load_events() WHERE {where}", params).fetchone()
 
         if result is None:
             return {"error": f"Event {ref} not found"}
@@ -2292,6 +2303,7 @@ def run(
         When lines is active (explicit or from command config), includes 'output' key.
         In batch mode, returns results for each command with overall status.
     """
+    _check_tool_enabled("run")
     # Batch mode: run multiple commands in sequence
     if commands is not None:
         results = []
@@ -2392,6 +2404,7 @@ def query(
         query(filter="severity=error,warning ref_file~test")
         query(filter="tool_name=pytest", limit=50)
     """
+    _check_tool_enabled("query")
     return _query_impl(sql=sql, filter=filter, limit=limit)
 
 

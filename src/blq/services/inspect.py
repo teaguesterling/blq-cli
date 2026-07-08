@@ -117,9 +117,12 @@ def get_git_context(
 
     try:
         import blq.git as git_mod
+        import blq.output as output_mod
 
-        file_path = source_root / ref_file
-        if not file_path.exists():
+        # Confine to source_root: ref_file is untrusted (parsed from log output),
+        # so an absolute or ``..`` path that escapes the tree is refused.
+        file_path = output_mod.resolve_under_root(source_root, ref_file)
+        if file_path is None or not file_path.exists():
             return None
 
         ctx = git_mod.get_file_context(str(file_path), line=ref_line, history_limit=history_limit)

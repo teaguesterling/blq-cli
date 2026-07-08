@@ -841,6 +841,33 @@ def print_output(
     print(output, file=file)
 
 
+def resolve_under_root(root: Any, ref_file: Any) -> Any:
+    """Resolve ``ref_file`` against ``root``, refusing anything that escapes it.
+
+    ``ref_file`` is populated from parsed compiler/test output and is therefore
+    untrusted. A crafted absolute path or a ``..`` traversal must not be able to
+    read files outside the project tree. Absolute paths that legitimately live
+    *inside* ``root`` (compilers often emit absolute paths) are still allowed.
+
+    Returns the resolved ``Path`` if it lies within ``root``, otherwise ``None``.
+    """
+    from pathlib import Path
+
+    try:
+        root_resolved = Path(root).resolve()
+        candidate = Path(ref_file)
+        if candidate.is_absolute():
+            resolved = candidate.resolve()
+        else:
+            resolved = (root_resolved / candidate).resolve()
+    except (OSError, ValueError, RuntimeError):
+        return None
+
+    if resolved == root_resolved or resolved.is_relative_to(root_resolved):
+        return resolved
+    return None
+
+
 def read_source_context(
     ref_file: str,
     ref_line: int,
@@ -850,13 +877,14 @@ def read_source_context(
     """Read source file and return formatted context lines around ref_line.
 
     Args:
-        ref_file: Path to source file (relative or absolute)
+        ref_file: Path to source file (relative to ref_root; must not escape it)
         ref_line: 1-indexed line number of interest
         ref_root: Root path for resolving relative paths (default: current dir)
         context: Number of context lines before/after
 
     Returns:
-        Formatted context string with line numbers and markers, or None if file not found
+        Formatted context string with line numbers and markers, or None if file
+        not found or if it would resolve outside ref_root.
     """
     from pathlib import Path
 
@@ -865,15 +893,11 @@ def read_source_context(
     else:
         ref_root = Path(ref_root)
 
-    # Try to resolve the file path
-    file_path = ref_root / ref_file
-    if not file_path.exists():
-        # Try absolute path
-        abs_path = Path(ref_file)
-        if abs_path.exists():
-            file_path = abs_path
-        else:
-            return None
+    # Resolve strictly under ref_root: an absolute or ``..`` ref_file that
+    # escapes the root is refused (arbitrary off-tree file read).
+    file_path = resolve_under_root(ref_root, ref_file)
+    if file_path is None or not file_path.exists():
+        return None
 
     try:
         content = file_path.read_text(errors="replace")

