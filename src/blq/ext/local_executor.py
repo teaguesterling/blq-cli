@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from types import FrameType
 
-from blq.ext import CommandSpec, ExecutionResult
+from blq.ext import CommandSpec, ExecutionResult, capture_env
 
 logger = logging.getLogger("blq-ext")
 
@@ -78,7 +78,9 @@ class LocalExecutor:
             signal.signal(signal.SIGINT, _cleanup)
             signal.signal(signal.SIGTERM, _cleanup)
 
-            run_env = {**os.environ, **spec.env} if spec.env else None
+            # Always via capture_env: a captured child has no TTY, so
+            # terminal-formatting tools self-truncate at 80 columns.
+            run_env = capture_env({**os.environ, **spec.env} if spec.env else None)
             process = subprocess.Popen(
                 spec.command,
                 shell=True,
