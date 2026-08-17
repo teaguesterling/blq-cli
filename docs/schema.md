@@ -86,6 +86,7 @@ Parsed diagnostics (errors, warnings, test results).
 | `fingerprint` | VARCHAR | Unique identifier for deduplication |
 | `log_line_start` | INTEGER | Start line in raw log |
 | `log_line_end` | INTEGER | End line in raw log |
+| `log_content` | VARCHAR | Raw log block for this event (e.g. the whole pytest FAILURES block); capped at 32768 chars, with a visible marker when truncated |
 | `context` | VARCHAR | Surrounding context |
 | `metadata` | JSON | Format-specific extras |
 | `format_used` | VARCHAR | Parser format (gcc, cargo, pytest) |

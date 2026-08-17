@@ -4,6 +4,10 @@
 
 This document outlines the changes needed to migrate blq to duck_hunt's Schema V3.
 
+> **Status:** the `ref_*` renames and the `raw_text` -> `log_content` rename have
+> landed (the latter in #52, which also began populating the column in both
+> storage backends). The `log_file` field is still not persisted.
+
 ## Key Changes
 
 ### 1. Field Renames

@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS blq_metadata (
 );
 
 -- Insert schema version (ignore if exists)
-INSERT OR IGNORE INTO blq_metadata VALUES ('schema_version', '3.0.0');
+-- Keep in sync with SCHEMA_VERSION in bird.py (migrations key off it)
+INSERT OR IGNORE INTO blq_metadata VALUES ('schema_version', '3.1.0');
 INSERT OR IGNORE INTO blq_metadata VALUES ('storage_mode', 'duckdb');
 
 -- Base path for blob storage (set at runtime)
@@ -230,6 +231,7 @@ CREATE TABLE IF NOT EXISTS events (
     fingerprint       VARCHAR,                          -- Unique identifier for dedup
     log_line_start    INTEGER,                          -- Start line in raw log
     log_line_end      INTEGER,                          -- End line in raw log
+    log_content       VARCHAR,                          -- Raw log block for this event (duck_hunt log_content)
     context           VARCHAR,                          -- Surrounding context
     metadata          JSON,                             -- Format-specific extras
 
@@ -344,6 +346,7 @@ SELECT
     e.fingerprint,
     e.log_line_start,
     e.log_line_end,
+    e.log_content,
     e.context,
     e.metadata,
 

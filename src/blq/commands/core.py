@@ -1868,6 +1868,37 @@ def get_next_run_id(lq_dir: Path) -> int:
 
 
 # ============================================================================
+# Event content
+# ============================================================================
+
+# Cap on the stored `log_content` (duck_hunt's raw block for an event, e.g. the
+# whole pytest FAILURES block). It is bounded in practice — the block, not the
+# log — but not in principle: a parser that spans a large region, or a test that
+# dumps a large diff, can produce a very big value, and every event of a run
+# would carry its own copy. 32K is well above any realistic traceback while
+# keeping a pathological run from bloating storage.
+LOG_CONTENT_MAX_CHARS = 32_768
+
+
+def truncate_log_content(value: str | None, max_chars: int = LOG_CONTENT_MAX_CHARS) -> str | None:
+    """Cap `log_content`, making any truncation visible in the value itself.
+
+    Silent shortening has bitten this codebase before, so an over-long value
+    keeps its head and gains a marker stating what was kept and what existed:
+
+        ... [blq: log_content truncated to 32768 of 91234 chars]
+
+    Values at or under the cap are returned unchanged (including None/"").
+    """
+    if not value or len(value) <= max_chars:
+        return value
+    return (
+        value[:max_chars]
+        + f"\n... [blq: log_content truncated to {max_chars} of {len(value)} chars]"
+    )
+
+
+# ============================================================================
 # Parquet Writing
 # ============================================================================
 
@@ -1908,7 +1939,11 @@ PARQUET_SCHEMA = [
     ("ref_column", "BIGINT"),
     # Content
     ("message", "VARCHAR"),
-    ("raw_text", "VARCHAR"),
+    # duck_hunt's raw block for this event (e.g. the whole pytest FAILURES
+    # block). Replaces the vestigial `raw_text`, which nothing ever populated —
+    # duck_hunt's field has been named log_content since its Schema V3
+    # (see docs/design/duck-hunt-v3-migration.md).
+    ("log_content", "VARCHAR"),
     # Classification
     ("tool_name", "VARCHAR"),
     ("category", "VARCHAR"),
@@ -1981,6 +2016,8 @@ def write_run_parquet(
     for event in events or [{}]:
         # Merge run metadata and event data
         merged = {**run_meta, **event}
+        if merged.get("log_content"):
+            merged["log_content"] = truncate_log_content(merged["log_content"])
         # Build row with all columns in schema order
         vals = []
         for col in PARQUET_SCHEMA_COLUMNS:

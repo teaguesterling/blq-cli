@@ -32,6 +32,34 @@ logger = logging.getLogger("blq-bird")
 # Type variable for retry function
 T = TypeVar("T")
 
+# Current BIRD schema version. Must match the value seeded by bird_schema.sql;
+# _needs_repair/_apply_migrations compare a database's stored version against it.
+SCHEMA_VERSION = "3.1.0"
+
+
+def _version_tuple(version: str) -> tuple[int, int]:
+    """(major, minor) of a version string, or (0, 0) if unparseable."""
+    try:
+        parts = [int(p) for p in version.split(".")]
+    except (ValueError, AttributeError):
+        return (0, 0)
+    if not parts:
+        return (0, 0)
+    return (parts[0], parts[1] if len(parts) > 1 else 0)
+
+
+LATEST_SCHEMA = _version_tuple(SCHEMA_VERSION)
+
+# Columns that must exist on a table regardless of the recorded schema version.
+# A migration can fail silently (DuckDB blocks ALTER while views depend on the
+# table) and let the version advance past itself, so these are also checked
+# directly and re-added by _reconcile_schema.
+REQUIRED_COLUMNS: dict[str, dict[str, str]] = {
+    "attempts": {"extension_data": "JSON"},
+    "invocations": {"extension_data": "JSON"},
+    "events": {"log_content": "VARCHAR"},
+}
+
 # Default retry settings for lock contention
 DEFAULT_MAX_RETRIES = 5
 DEFAULT_INITIAL_DELAY = 0.05  # 50ms
@@ -99,8 +127,9 @@ def retry_on_lock(
     raise last_error
 
 
-# Schema version
-BIRD_SCHEMA_VERSION = "2.1.0"
+# (BIRD_SCHEMA_VERSION used to live here, hardcoded at "2.1.0" and read by
+# nothing — a second, stale version constant. SCHEMA_VERSION above is the one
+# the schema file and the migrations agree on.)
 
 # Storage thresholds (per BIRD spec)
 DEFAULT_INLINE_THRESHOLD = 4096  # 4KB - outputs smaller than this are stored inline
@@ -528,22 +557,23 @@ class BirdStore:
         try:
             parts = [int(p) for p in current_version.split(".")]
             major, minor = parts[0], parts[1] if len(parts) > 1 else 0
-            if (major, minor) < (3, 0):
+            if (major, minor) < LATEST_SCHEMA:
                 return True
         except (ValueError, IndexError):
             return True  # unparseable version — reconcile to be safe
         # Self-heal for migrations that failed silently on dependent views and
         # then let the version advance past themselves (leaving no column).
-        for table in ("attempts", "invocations"):
-            try:
-                has = conn.execute(
-                    "SELECT 1 FROM information_schema.columns "
-                    f"WHERE table_name = '{table}' AND column_name = 'extension_data'"
-                ).fetchone()
-                if not has:
+        for table, required in REQUIRED_COLUMNS.items():
+            for column in required:
+                try:
+                    has = conn.execute(
+                        "SELECT 1 FROM information_schema.columns "
+                        f"WHERE table_name = '{table}' AND column_name = '{column}'"
+                    ).fetchone()
+                    if not has:
+                        return True
+                except duckdb.Error:
                     return True
-            except duckdb.Error:
-                return True
         return False
 
     @staticmethod
@@ -553,8 +583,7 @@ class BirdStore:
         to recreate them."""
         try:
             views = conn.execute(
-                "SELECT table_name FROM information_schema.tables "
-                "WHERE table_type = 'VIEW'"
+                "SELECT table_name FROM information_schema.tables WHERE table_type = 'VIEW'"
             ).fetchall()
         except duckdb.Error:
             return
@@ -566,19 +595,19 @@ class BirdStore:
 
     @classmethod
     def _reconcile_schema(cls, conn: duckdb.DuckDBPyConnection) -> None:
-        """Version-independent self-heal: ensure `extension_data` exists on
-        attempts and invocations even if a past migration failed silently (blocked
-        by dependent views) and the schema version advanced past it. Views must
-        already be dropped by the caller so the ALTER/RENAME can proceed.
+        """Version-independent self-heal: ensure every column in REQUIRED_COLUMNS
+        exists, even if the migration that should have added it failed silently
+        (blocked by dependent views) and the schema version advanced past it.
+        Views must already be dropped by the caller so the ALTER can proceed.
 
-        Uses ADD COLUMN + data copy, NOT rename: RENAME COLUMN on these tables is
-        blocked by non-view dependencies (FKs/constraints) that persist even after
-        dropping views, whereas ADD COLUMN is never blocked. Existing `sandbox`
-        data (from the 2.3 migration) is copied into the new column wrapped as
-        {"sandbox": ...}; the now-redundant `sandbox` column is left in place
-        (harmless, and DROP COLUMN hits the same dependency wall).
+        Uses ADD COLUMN, NOT rename: RENAME COLUMN on these tables is blocked by
+        non-view dependencies (FKs/constraints) that persist even after dropping
+        views, whereas ADD COLUMN is never blocked. For `extension_data`,
+        existing `sandbox` data (from the 2.3 migration) is copied into the new
+        column wrapped as {"sandbox": ...}; the now-redundant `sandbox` column is
+        left in place (harmless, and DROP COLUMN hits the same dependency wall).
         """
-        for table in ("attempts", "invocations"):
+        for table, required in REQUIRED_COLUMNS.items():
             try:
                 cols = {
                     r[0]
@@ -587,21 +616,26 @@ class BirdStore:
                         f"WHERE table_name = '{table}'"
                     ).fetchall()
                 }
-                if "extension_data" in cols:
-                    continue
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN extension_data JSON")
-                if "sandbox" in cols:
-                    conn.execute(
-                        f"UPDATE {table} SET extension_data = "
-                        f"json_object('sandbox', sandbox) WHERE sandbox IS NOT NULL"
-                    )
-                    logger.info(
-                        f"Repaired {table}: added extension_data (copied sandbox data)"
-                    )
-                else:
-                    logger.info(f"Repaired {table}: added extension_data")
             except duckdb.Error as e:
                 logger.warning(f"Schema reconcile warning ({table}): {e}")
+                continue
+            if not cols:
+                continue  # table doesn't exist yet; the schema file will create it
+            for column, column_type in required.items():
+                if column in cols:
+                    continue
+                try:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+                    if column == "extension_data" and "sandbox" in cols:
+                        conn.execute(
+                            f"UPDATE {table} SET extension_data = "
+                            f"json_object('sandbox', sandbox) WHERE sandbox IS NOT NULL"
+                        )
+                        logger.info(f"Repaired {table}: added extension_data (copied sandbox data)")
+                    else:
+                        logger.info(f"Repaired {table}: added {column}")
+                except duckdb.Error as e:
+                    logger.warning(f"Schema reconcile warning ({table}.{column}): {e}")
 
     @classmethod
     def _apply_migrations(cls, conn: duckdb.DuckDBPyConnection, current_version: str) -> None:
@@ -670,6 +704,16 @@ class BirdStore:
         if (major, minor) < (3, 0):
             conn.execute("UPDATE blq_metadata SET value = '3.0.0' WHERE key = 'schema_version'")
             logger.info("Migration: Updated schema version to 3.0.0 (BIRD directory)")
+
+        # Migration: 3.0.0 -> 3.1.0 (add events.log_content — duck_hunt's raw
+        # block for the event, previously received and dropped; see #52).
+        # _reconcile_schema does the ADD COLUMN and is idempotent, so it also
+        # covers a DB whose version advanced without the column landing.
+        if (major, minor) < (3, 1):
+            cls._reconcile_schema(conn)
+            migrations_applied = True
+            conn.execute("UPDATE blq_metadata SET value = '3.1.0' WHERE key = 'schema_version'")
+            logger.info("Migration: Added log_content column to events table")
 
         # If migrations were applied, reload views/macros to pick up new columns
         if migrations_applied:
@@ -1583,6 +1627,10 @@ class BirdStore:
         if not events:
             return 0
 
+        # Local import: core imports nothing from bird at module scope, and this
+        # mirrors the existing lazy-import pattern used elsewhere in this module.
+        from blq.commands.core import truncate_log_content
+
         date = datetime.now().strftime("%Y-%m-%d")
 
         for idx, event in enumerate(events):
@@ -1594,10 +1642,10 @@ class BirdStore:
                     id, invocation_id, event_index, client_id, hostname,
                     event_type, severity, ref_file, ref_line, ref_column,
                     message, code, rule, tool_name, category, test_name,
-                    fingerprint, log_line_start, log_line_end, context,
-                    metadata, format_used, date
+                    fingerprint, log_line_start, log_line_end, log_content,
+                    context, metadata, format_used, date
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     event_id,
@@ -1619,6 +1667,7 @@ class BirdStore:
                     event.get("fingerprint"),
                     event.get("log_line_start"),
                     event.get("log_line_end"),
+                    truncate_log_content(event.get("log_content")),
                     event.get("context"),
                     json.dumps(event.get("metadata")) if event.get("metadata") else None,
                     format_used,
