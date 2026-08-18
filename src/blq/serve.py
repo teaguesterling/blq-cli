@@ -34,7 +34,17 @@ import re as _re
 import shlex
 import subprocess
 import sys
-from typing import Any, TypedDict
+from typing import Any
+
+# pydantic rejects `typing.TypedDict` below 3.12 and refuses to build a schema
+# from it ("Please use typing_extensions.TypedDict instead"). This package
+# supports 3.10+, so the stdlib import breaks every MCP tool on 3.10/3.11 —
+# which is exactly how it shipped in 1.2.0, because the dev interpreter was
+# 3.14 and only CI runs the older matrix.
+if sys.version_info >= (3, 12):
+    from typing import TypedDict
+else:
+    from typing_extensions import TypedDict
 
 import pandas as pd  # type: ignore[import-untyped]
 from fastmcp import FastMCP

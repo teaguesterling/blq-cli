@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "blq-cli"
-version = "1.2.0"
+version = "1.2.1"
 description = "Build Log Query - capture and query build/test logs with DuckDB"
 readme = "README.md"
 license = "MIT"
@@ -33,6 +33,9 @@ dependencies = [
     "pyyaml>=6.0",
     "tabulate>=0.9.0",
     "tomli>=2.0.0;python_version<'3.11'",
+    # pydantic will not build a schema from `typing.TypedDict` below 3.12, so
+    # the MCP tools' output schemas need the backport there.
+    "typing_extensions>=4.0;python_version<'3.12'",
     "tomli-w>=1.0.0",
     "watchdog>=3.0.0",
 ]

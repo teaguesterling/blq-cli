@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.2.1
+
+### Fixed — 1.2.0 was broken on Python 3.10 and 3.11
+
+The TypedDicts added in 1.2.0 were imported from `typing`. pydantic refuses to
+build a schema from `typing.TypedDict` below 3.12 ("Please use
+`typing_extensions.TypedDict` instead"), so importing `blq.serve` raised on
+every supported Python under 3.12 — which is to say the MCP server did not
+start at all there.
+
+`requires-python` is `>=3.10`, so 1.2.0 should not have shipped. It passed
+local checks because the development interpreter was 3.14; CI caught it on the
+3.10 matrix entry, but the publish workflow triggers on release rather than on
+a green CI run, so the package reached PyPI anyway.
+
+Now imported from `typing_extensions` below 3.12, with the backport declared as
+a conditional dependency. Verified against a real 3.11 interpreter: 1382 tests
+pass, where 1.2.0 could not import.
+
+**If you installed 1.2.0 on Python 3.10 or 3.11, upgrade.** On 3.12+ it was
+unaffected.
+
+
 ## v1.2.0
 
 ### Added — MCP tools publish the names of the keys they return (#47)
