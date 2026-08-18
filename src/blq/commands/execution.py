@@ -1566,7 +1566,7 @@ def _write_imported_run(
     run_meta: dict[str, Any],
     config: "BlqConfig",
     lq_dir: Path,
-) -> Path | str:
+) -> Path:
     """Persist an imported/captured run to the ACTIVE storage backend.
 
     `import` and `capture` used to call `write_run_parquet` unconditionally,

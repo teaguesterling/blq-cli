@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shlex
 import shutil
 import subprocess
@@ -78,12 +79,26 @@ def run_profile(
             "--",
             *command_argv,
         ]
+        # Present a wide terminal to the traced command, for the same reason
+        # blq.ext.capture_env does: a captured child has no TTY, so anything
+        # that formats for a terminal self-truncates at an assumed 80 columns.
+        #
+        # Set locally rather than imported. blq_sandbox is registered as an
+        # extension through entry points and deliberately does not import from
+        # `blq`; pulling in blq.ext.capture_env here would couple two packages
+        # that are independent today. This path profiles syscalls and discards
+        # the command's stdout, so nothing depends on the width now — it is set
+        # so that surfacing this output later cannot silently reintroduce the
+        # truncation.
+        profile_env = dict(os.environ)
+        profile_env.setdefault("COLUMNS", "200")
         try:
             subprocess.run(
                 strace_cmd,
                 timeout=timeout,
                 check=False,
                 capture_output=True,
+                env=profile_env,
             )
         except subprocess.TimeoutExpired:
             logger.warning(
