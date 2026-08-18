@@ -560,7 +560,7 @@ Pre-built prompts that guide agents through common workflows:
   "file_path": "src/main.c",
   "line_number": 15,
   "message": "undefined variable 'foo'",
-  "raw_text": "src/main.c:15:5: error: use of undeclared identifier 'foo'",
+  "log_content": "src/main.c:15:5: error: use of undeclared identifier 'foo'",
   "fingerprint": "abc123...",
   "cwd": "/home/user/project",
   "hostname": "dev-machine",

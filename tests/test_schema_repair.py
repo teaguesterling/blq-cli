@@ -12,7 +12,7 @@ from pathlib import Path
 import duckdb
 
 import blq.bird as _bird_mod
-from blq.bird import BirdStore
+from blq.bird import SCHEMA_VERSION, BirdStore
 
 SCHEMA = (Path(_bird_mod.__file__).parent / "bird_schema.sql").read_text()
 
@@ -57,7 +57,7 @@ def test_stuck_db_self_heals_and_preserves_data(tmp_path):
     c = duckdb.connect(str(db))
     assert "sandbox" in _cols(c, "attempts")
     assert "extension_data" not in _cols(c, "attempts")
-    assert BirdStore._needs_repair(c, "3.0.0") is True
+    assert BirdStore._needs_repair(c, "3.0.0") is True  # missing column, old version
 
     BirdStore._ensure_schema(c, bird)
 
@@ -78,7 +78,9 @@ def test_stuck_db_self_heals_and_preserves_data(tmp_path):
     )
 
     # converges: a repaired DB is a fast no-op on the next open
-    assert BirdStore._needs_repair(c, "3.0.0") is False
+    assert BirdStore._needs_repair(c, SCHEMA_VERSION) is False
+    # ...but a DB still *claiming* an older version has migrations pending
+    assert BirdStore._needs_repair(c, "3.0.0") is True
     c.close()
 
 
@@ -88,7 +90,9 @@ def test_fresh_db_is_healthy_and_no_op(tmp_path):
     c = duckdb.connect(str(bird / "blq.duckdb"))
     BirdStore._ensure_schema(c, bird)  # fresh init
     assert "extension_data" in _cols(c, "attempts")
-    assert BirdStore._needs_repair(c, "3.0.0") is False
+    # Version-agnostic: a freshly initialized DB is at SCHEMA_VERSION and healthy.
+    # (Asserting a literal here would go stale on every schema bump — it did.)
+    assert BirdStore._needs_repair(c, SCHEMA_VERSION) is False
     # re-open is a no-op and stays healthy
     BirdStore._ensure_schema(c, bird)
     assert "extension_data" in _cols(c, "attempts")

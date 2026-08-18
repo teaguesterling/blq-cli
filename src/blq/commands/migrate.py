@@ -196,6 +196,7 @@ def _migrate_parquet_to_bird(
                             "fingerprint": event.get("fingerprint"),
                             "log_line_start": event.get("log_line_start"),
                             "log_line_end": event.get("log_line_end"),
+                            "log_content": event.get("log_content"),
                         }
                     )
 

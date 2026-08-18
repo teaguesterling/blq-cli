@@ -1077,7 +1077,9 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
             "tool_name": event_data.get("tool_name"),
             "category": event_data.get("category"),
             "fingerprint": event_data.get("fingerprint"),
-            "raw_text": event_data.get("raw_text"),
+            # duck_hunt's raw block for this event. Was keyed "raw_text" after a
+            # column nothing ever populated, so it was always null (#52).
+            "log_content": event_data.get("log_content"),
             "log_line_start": event_data.get("log_line_start"),
             "log_line_end": event_data.get("log_line_end"),
             # Execution context
