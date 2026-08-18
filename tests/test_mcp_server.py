@@ -16,7 +16,18 @@ if fastmcp:
 
 
 def get_data(result):
-    """Extract data from CallToolResult."""
+    """Extract data from CallToolResult as a plain dict.
+
+    Prefer `structured_content`: once a tool declares an outputSchema (which
+    they now do, so callers can see the key names — see #47), fastmcp
+    deserializes `.data` into a generated model rather than a dict, and a model
+    is not subscriptable. `structured_content` is the JSON payload a real MCP
+    client receives over the wire, including any keys the schema does not
+    declare, so asserting against it tests what a consumer actually gets.
+    """
+    sc = getattr(result, "structured_content", None)
+    if sc is not None:
+        return sc
     if hasattr(result, "data"):
         return result.data
     return result
