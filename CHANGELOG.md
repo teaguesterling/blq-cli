@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.2.0
+
+### Added — MCP tools publish the names of the keys they return (#47)
+
+fastmcp derives `outputSchema` from a tool's return annotation, so
+`dict[str, Any]` published `{"type": "object", "additionalProperties": true}`
+— an object with no key names. A programmatic caller had to guess them, and a
+wrong guess produces a program that validates, runs, and answers incorrectly.
+Measured across four local models driven through lackpy: **0/24 correct while
+17/24 called the right tool**, with `len()` on `events`' dict returning its key
+count rather than its event count.
+
+14 tools now return TypedDicts whose keys come from the implementations' own
+return statements. Declaring the shapes immediately caught three places where
+the code did not match a reasonable reading of it:
+
+- `output.streams` is a list of stream names, not a mapping
+- `query.rows` is positional value lists paired with `columns`, not per-row objects
+- `ci_generate.available` is the registered command names, not a boolean
+
+No data is dropped — keys a TypedDict does not declare still reach the client
+in `structuredContent`.
+
+**One behavioural note for Python callers:** with an `outputSchema` present,
+fastmcp's own client deserializes `.data` into a generated model rather than a
+dict, so `result.data["key"]` no longer works. Read `structured_content`, which
+is the JSON a real MCP client receives over the wire. Consumers speaking
+JSON-RPC (Claude Code, lackpy, any stdio client) are unaffected and strictly
+better off.
+
+
 ## v1.1.0
 
 Three fixes with one theme: blq reported success while losing the thing it was
