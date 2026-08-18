@@ -511,9 +511,18 @@ Done
         captured = capsys.readouterr()
         assert "Imported" in captured.out or "Captured" in captured.out
 
-        # Check parquet was created
-        parquet_files = list(Path(".bird/logs").rglob("*.parquet"))
-        assert len(parquet_files) >= 1
+        # Assert the events are QUERYABLE, not that a file appeared.
+        #
+        # This used to check for a parquet under .bird/logs/. That assertion
+        # held throughout the period when `import` wrote parquet in BIRD mode
+        # — the default — where the query layer reads the BIRD tables and
+        # never looks at those files. A well-formed but unreadable artifact
+        # satisfied it, so the suite reported health while every import on a
+        # default project was stranded. Storage location is an implementation
+        # detail; reading back what you imported is the requirement.
+        conn = get_connection(Path(".bird"))
+        count = conn.execute("SELECT count(*) FROM blq_load_events()").fetchone()[0]
+        assert count >= 1
 
 
 class TestCmdEvent:

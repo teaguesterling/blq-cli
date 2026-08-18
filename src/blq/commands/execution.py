@@ -45,7 +45,7 @@ from blq.commands.core import (
     parse_log_content,
     write_run_parquet,
 )
-from blq.ext import CommandSpec
+from blq.ext import CommandSpec, capture_env
 from blq.ext.discovery import load_extensions, order_extensions
 from blq.ext.local_executor import LocalExecutor
 from blq.ext.pipeline import run_pipeline
@@ -772,6 +772,7 @@ def _execute_command(
             stderr=subprocess.STDOUT,
             text=True,
             start_new_session=True,
+            env=capture_env(),
         )
 
         output_lines: list[str] = []
@@ -1137,6 +1138,7 @@ def _run_no_capture(command: str, quiet: bool = False) -> int:
             stderr=subprocess.STDOUT,
             text=True,
             start_new_session=True,
+            env=capture_env(),
         )
 
         assert process.stdout is not None  # stdout=PIPE ensures this
@@ -1559,6 +1561,39 @@ def cmd_exec(args: argparse.Namespace) -> None:
     sys.exit(result.exit_code)
 
 
+def _write_imported_run(
+    events: list[dict[str, Any]],
+    run_meta: dict[str, Any],
+    config: "BlqConfig",
+    lq_dir: Path,
+) -> Path:
+    """Persist an imported/captured run to the ACTIVE storage backend.
+
+    `import` and `capture` used to call `write_run_parquet` unconditionally,
+    while `exec`/`run` branch on `config.use_bird`. BIRD is the default storage
+    mode, so on a default project those two commands wrote a well-formed
+    parquet under `.bird/logs/` that the query layer — a view over the BIRD
+    tables — never reads:
+
+        $ blq import report.json --format pytest_json
+        Imported 2 events (2 errors, 0 warnings)
+        Saved to .bird/logs/date=.../source=import/001_report.parquet
+        $ blq events
+        (no data)
+
+    Success, a destination path, exit 0, a real file, and nothing observable.
+    The branch was added to the exec path and never to these two.
+
+    Raw output is deliberately not stored here: neither command previously
+    retained it, and this function is fixing where events land, not what else
+    gets kept.
+    """
+    if config.use_bird:
+        _invocation_id, db_path = write_bird_invocation(events, run_meta, lq_dir)
+        return db_path
+    return write_run_parquet(events, run_meta, lq_dir)
+
+
 def cmd_import(args: argparse.Namespace) -> None:
     """Import an existing log file."""
     config = BlqConfig.ensure()
@@ -1587,7 +1622,7 @@ def cmd_import(args: argparse.Namespace) -> None:
         "exit_code": 0,
     }
 
-    outpath = write_run_parquet(events, run_meta, lq_dir)
+    outpath = _write_imported_run(events, run_meta, config, lq_dir)
 
     errors = sum(1 for e in events if e.get("severity") == "error")
     warnings = sum(1 for e in events if e.get("severity") == "warning")
@@ -1620,7 +1655,7 @@ def cmd_capture(args: argparse.Namespace) -> None:
         "exit_code": 0,
     }
 
-    outpath = write_run_parquet(events, run_meta, lq_dir)
+    outpath = _write_imported_run(events, run_meta, config, lq_dir)
 
     errors = sum(1 for e in events if e.get("severity") == "error")
     warnings = sum(1 for e in events if e.get("severity") == "warning")
