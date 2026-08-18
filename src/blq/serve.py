@@ -34,7 +34,7 @@ import re as _re
 import shlex
 import subprocess
 import sys
-from typing import Any
+from typing import Any, TypedDict
 
 import pandas as pd  # type: ignore[import-untyped]
 from fastmcp import FastMCP
@@ -212,6 +212,129 @@ def _get_storage() -> BlqStorage:
         # No direct .bird — fall through to cwd-walk. Could be enhanced to
         # walk up from active_root, but kept simple for the prototype.
     return BlqStorage.open()
+
+
+# ── Published result shapes ──────────────────────────────────────────
+#
+# fastmcp derives each tool's `outputSchema` from its return annotation. A bare
+# `dict[str, Any]` becomes {"type": "object", "additionalProperties": true} —
+# an object with no key names, which tells a programmatic caller nothing it can
+# write code against. Measured cost, from four local models driven against this
+# suite: 0/24 correct while 17/24 called the correct tool, because the models
+# picked the right tool and guessed the return shape wrong. `len()` on `events`'
+# dict returns its key count, not its event count.
+#
+# These TypedDicts exist to put the key names on the wire. Keys are taken from
+# the implementations' own `return {...}` statements. `total=False` throughout:
+# most of these tools return an `error` key on failure paths and omit it
+# otherwise, and several have distinct success shapes (`events` returns batch
+# keys under `run_ids`), so declaring everything required would publish a
+# contract the code does not keep.
+
+class EventsResult(TypedDict, total=False):
+    """`events` — single-run keys, plus the batch keys used with `run_ids`."""
+    events: list[dict[str, Any]]
+    total_count: int
+    runs: list[dict[str, Any]]
+    run_count: int
+    total_events: int
+
+
+class StatusResult(TypedDict, total=False):
+    sources: list[dict[str, Any]]
+
+
+class HistoryResult(TypedDict, total=False):
+    runs: list[dict[str, Any]]
+
+
+class QueryResult(TypedDict, total=False):
+    # Positional value lists paired with `columns`, not per-row objects.
+    rows: list[list[Any]]
+    columns: list[str]
+    row_count: int
+    error: str
+
+
+class InspectResult(TypedDict, total=False):
+    events: list[dict[str, Any]]
+    found: int
+    total: int
+    error: str
+
+
+class OutputResult(TypedDict, total=False):
+    # A LIST of stream names, not a mapping — declaring it as an object made
+    # fastmcp reject every call with "[] is not of type 'object'". Worth noting
+    # that the schema caught the wrong assumption immediately, which is most of
+    # the argument for declaring these at all.
+    streams: list[str]
+    ref: str
+    run_id: int
+    error: str
+
+
+class DiffResult(TypedDict, total=False):
+    new: list[dict[str, Any]]
+    fixed: list[dict[str, Any]]
+    summary: dict[str, Any]
+    error: str
+
+
+class CommandsResult(TypedDict, total=False):
+    commands: list[dict[str, Any]]
+    error: str
+
+
+class RunResult(TypedDict, total=False):
+    # Nullable, not merely optional: the failure paths return these keys set to
+    # None rather than omitting them, and `total=False` only makes a key
+    # absent-able.
+    run_ref: str | None
+    status: str | None
+    exit_code: int | None
+    summary: dict[str, Any]
+    results: list[dict[str, Any]]
+    commands_requested: int
+    commands_run: int
+    error: str
+
+
+class ExecResult(TypedDict, total=False):
+    run_ref: str | None
+    status: str | None
+    exit_code: int | None
+    summary: dict[str, Any]
+    errors: list[dict[str, Any]]
+    error: str
+
+
+class CiCheckResult(TypedDict, total=False):
+    status: str | None
+    mode: str | None
+    has_errors: bool
+    current_errors: int
+    current_run_id: int
+    error: str
+
+
+class CiGenerateResult(TypedDict, total=False):
+    # The names of the registered commands, not a yes/no — read from the
+    # implementation rather than inferred from the key name, which is how the
+    # first three drafts of these annotations got it wrong.
+    available: list[str]
+    count: int
+    scripts: list[dict[str, Any]]
+    shell: str | None
+    error: str
+
+
+class CommandMutationResult(TypedDict, total=False):
+    """Shared by `register_command` / `unregister_command`."""
+    success: bool
+    message: str
+    existing_name: str
+    error: str
 
 
 def _get_suppressed_list(include_suppressed: bool = False) -> list[str] | None:
@@ -2282,7 +2405,7 @@ def run(
     # Batch mode parameters
     commands: list[str] | None = None,
     stop_on_failure: bool = True,
-) -> dict[str, Any]:
+) -> RunResult:
     """Run a registered command and capture its output.
 
     Can run a single command or multiple commands in sequence (batch mode).
@@ -2340,7 +2463,7 @@ def exec(
     timeout: int | None = None,
     shell: bool = False,
     lines: str | None = None,
-) -> dict[str, Any]:
+) -> ExecResult:
     """Execute an ad-hoc shell command and capture its output.
 
     IMPORTANT: Do NOT use shell pipes, redirects, or command chains
@@ -2379,7 +2502,7 @@ def query(
     sql: str | None = None,
     filter: str | None = None,
     limit: int = 100,
-) -> dict[str, Any]:
+) -> QueryResult:
     """Query stored log events with SQL or simple filter expressions.
 
     Use either `sql` for raw SQL queries or `filter` for simple expressions.
@@ -2421,7 +2544,7 @@ def events(
     # Batch mode
     run_ids: list[int] | None = None,
     limit_per_run: int = 10,
-) -> dict[str, Any]:
+) -> EventsResult:
     """Get events with optional severity filter.
 
     For errors only: use severity="error"
@@ -2493,7 +2616,7 @@ def inspect(
     include_fingerprint_history: bool = False,
     # Batch mode
     refs: list[str] | None = None,
-) -> dict[str, Any]:
+) -> InspectResult:
     """Get comprehensive event details with context and enrichment.
 
     Returns event details with optional context and enrichment:
@@ -2572,7 +2695,7 @@ def output(
     context: int = 0,
     lines: str | None = None,
     debug_formats: bool = False,
-) -> dict[str, Any]:
+) -> OutputResult:
     """Get raw output for a run with optional search and filtering.
 
     Retrieves the captured stdout/stderr from a command execution.
@@ -2606,7 +2729,7 @@ def output(
 
 
 @mcp.tool()
-def status() -> dict[str, Any]:
+def status() -> StatusResult:
     """Get current status summary of all sources.
 
     Returns:
@@ -2975,7 +3098,7 @@ def _last_impl(
 @mcp.tool()
 def history(
     limit: int | None = None, source: str | None = None, status: str | None = None
-) -> dict[str, Any]:
+) -> HistoryResult:
     """Get run history.
 
     Args:
@@ -2995,7 +3118,7 @@ def history(
 
 
 @mcp.tool()
-def diff(run1: int, run2: int) -> dict[str, Any]:
+def diff(run1: int, run2: int) -> DiffResult:
     """Compare errors between two runs.
 
     Args:
@@ -3023,7 +3146,7 @@ def register_command(
     lines: str | None = None,
     sandbox: str | dict[str, Any] | None = None,
     lock: str | None = None,
-) -> dict[str, Any]:
+) -> CommandMutationResult:
     """Register a new command.
 
     If a command with the same name or same command string already exists,
@@ -3075,7 +3198,7 @@ def register_command(
 
 
 @mcp.tool()
-def unregister_command(name: str) -> dict[str, Any]:
+def unregister_command(name: str) -> CommandMutationResult:
     """Remove a registered command.
 
     Note: This tool can be disabled via mcp.disabled_tools config.
@@ -3091,7 +3214,7 @@ def unregister_command(name: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def commands() -> dict[str, Any]:
+def commands() -> CommandsResult:
     """List all registered commands.
 
     Returns:
@@ -3592,7 +3715,7 @@ def ci_check(
     baseline: str | None = None,
     fail_on_any: bool = False,
     run_id: int | None = None,
-) -> dict[str, Any]:
+) -> CiCheckResult:
     """Check for regressions compared to a baseline run.
 
     Compares error fingerprints between the current run and a baseline to
@@ -3619,7 +3742,7 @@ def ci_check(
 def ci_generate(
     commands: list[str] | None = None,
     shell: str = "bash",
-) -> dict[str, Any]:
+) -> CiGenerateResult:
     """Generate standalone shell scripts from registered commands.
 
     Creates shell script content for CI environments where blq may not be
