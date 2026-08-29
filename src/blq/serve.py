@@ -4174,9 +4174,9 @@ def serve(
     _init_disabled_tools(cli_disabled=disabled_tools, safe_mode=safe_mode)
 
     if transport == "stdio":
-        mcp.run()
+        mcp.run(show_banner=False)
     elif transport == "sse":
-        mcp.run(transport="sse", port=port)
+        mcp.run(transport="sse", port=port, show_banner=False)
     else:
         raise ValueError(f"Unknown transport: {transport}")
 

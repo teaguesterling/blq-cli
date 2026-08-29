@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.2.2
+
+### Fixed — Suppress FastMCP banners on stdio transport
+
+When starting the MCP server over stdio, FastMCP banner rendering is suppressed
+(`show_banner=False`) so that stdout contains strictly valid JSON-RPC messages
+without terminal box decorations. Also derives `__version__` from installed package
+metadata.
+
 ## v1.2.1
 
 ### Fixed — 1.2.0 was broken on Python 3.10 and 3.11
