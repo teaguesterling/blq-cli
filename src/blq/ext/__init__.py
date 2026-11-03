@@ -6,12 +6,11 @@ Extension.prepare() → Executor.execute() → Collector.collect().
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
-
-import os
 
 
 @dataclass

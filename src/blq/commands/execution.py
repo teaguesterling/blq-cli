@@ -1564,7 +1564,7 @@ def cmd_exec(args: argparse.Namespace) -> None:
 def _write_imported_run(
     events: list[dict[str, Any]],
     run_meta: dict[str, Any],
-    config: "BlqConfig",
+    config: BlqConfig,
     lq_dir: Path,
 ) -> Path:
     """Persist an imported/captured run to the ACTIVE storage backend.

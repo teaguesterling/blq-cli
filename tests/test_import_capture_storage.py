@@ -30,7 +30,6 @@ import pytest
 
 from blq.commands.execution import cmd_capture, cmd_import
 
-
 PYTEST_TEXT_LOG = """\
 ============================= test session starts ==============================
 collected 1 item
@@ -83,15 +82,11 @@ def log_file(tmp_path):
 
 
 class TestImportIsQueryable:
-
-    def test_imported_events_are_visible_in_bird_mode(
-        self, initialized_project, log_file, capsys
-    ):
+    def test_imported_events_are_visible_in_bird_mode(self, initialized_project, log_file, capsys):
         cmd_import(_import_args(log_file))
         capsys.readouterr()
         assert _event_count(initialized_project) > 0, (
-            "import reported success and wrote a file, but the query layer "
-            "sees nothing"
+            "import reported success and wrote a file, but the query layer sees nothing"
         )
 
     def test_imported_events_are_visible_in_parquet_mode(
@@ -101,9 +96,7 @@ class TestImportIsQueryable:
         capsys.readouterr()
         assert _event_count(initialized_project_parquet) > 0
 
-    def test_the_error_message_survives_the_round_trip(
-        self, initialized_project, log_file, capsys
-    ):
+    def test_the_error_message_survives_the_round_trip(self, initialized_project, log_file, capsys):
         """The point of importing is the diagnostic text, so assert on it.
 
         The fixture carries an UNtruncated summary line — what pytest emits

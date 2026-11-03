@@ -14,7 +14,8 @@ Example usage:
     events = LogQuery.from_file("build.log").filter(severity="error").df()
 """
 
-from importlib.metadata import PackageNotFoundError, version as _dist_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _dist_version
 
 # Derived, never written by hand. The literal here read "1.0.1" against a
 # distribution version of 1.2.1 — two releases stale, and immune to
