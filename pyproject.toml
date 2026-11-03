@@ -27,7 +27,12 @@ classifiers = [
     "Topic :: Software Development :: Testing",
 ]
 dependencies = [
-    "duckdb>=1.4.4",
+    # Upper bound: duckdb 2.0 removed DuckDBPyRelation.fetchone() and tightened
+    # connection reuse, which fails 71 of this suite's tests (24 AttributeError,
+    # 18 ResourceInUseException). Measured 2026-11-03 on py3.12.3 and py3.13.13
+    # with a clean HOME. CI never caught it: the 3.10 leg resolves 1.5.6, fails
+    # first, and matrix fail-fast cancels the 3.11/3.12 legs that do get 2.0.
+    "duckdb>=1.4.4,<2",
     "jinja2>=3.0.0",
     "pandas>=2.0.0",
     "pyyaml>=6.0",
@@ -81,6 +86,12 @@ packages = ["src/blq", "src/blq_sandbox", "src/blq_sandbox_systemd", "src/blq_sa
 [tool.ruff]
 target-version = "py310"
 line-length = 100
+# ruff formats Python code blocks inside markdown too. In this repo that
+# collapses the aligned trailing comments the docs use as a two-column
+# listing, so `ruff format --check .` reported 19 documentation files as
+# unformatted. Excluding markdown keeps the docs as written; ruff's lint
+# rules never applied to them anyway.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]

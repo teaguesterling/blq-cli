@@ -29,6 +29,7 @@ fastmcp = pytest.importorskip("fastmcp")
 
 async def _schema_for(tool_name):
     from fastmcp import Client
+
     from blq.serve import mcp
 
     async with Client(mcp) as client:
@@ -55,13 +56,13 @@ def _properties(schema):
 
 # Keys taken from the impl's own `return {...}` statements, not from docs.
 EXPECTED = {
-    "events":  {"events", "total_count"},
-    "status":  {"sources"},
+    "events": {"events", "total_count"},
+    "status": {"sources"},
     "history": {"runs"},
-    "query":   {"rows", "columns", "row_count"},
+    "query": {"rows", "columns", "row_count"},
     "inspect": {"events", "found", "total"},
-    "output":  {"streams", "ref"},
-    "diff":    {"new", "fixed", "summary"},
+    "output": {"streams", "ref"},
+    "diff": {"new", "fixed", "summary"},
     "commands": {"commands"},
 }
 
@@ -85,6 +86,4 @@ async def test_schema_is_not_an_open_object(tool_name):
     """`additionalProperties: true` with no properties is the defect."""
     schema = await _schema_for(tool_name)
     props = _properties(schema)
-    assert props, (
-        f"{tool_name}'s outputSchema names no properties at all"
-    )
+    assert props, f"{tool_name}'s outputSchema names no properties at all"
