@@ -13,6 +13,7 @@ created before the column existed.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import duckdb
@@ -340,6 +341,6 @@ def test_log_content_reaches_mcp_event_response(initialized_project, run_adhoc_c
         f"SELECT ref FROM blq_load_events() WHERE severity = '{severity}'"
     ).fetchone()[0]
 
-    response = _event_impl(ref)
+    response = _event_impl(ref, root=os.getcwd())
     assert response is not None
     assert IMPLICATED_SOURCE_LINE in (response.get("log_content") or "")

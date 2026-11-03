@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from blq import runtime as rt
@@ -25,7 +27,7 @@ class TestDefaultLinesWindow:
         from blq.serve import _resolve_command_lines
 
         update_runtime({"default_lines_window": "+5-"})
-        assert _resolve_command_lines("test", "+20-") == "+20-"
+        assert _resolve_command_lines("test", "+20-", root=os.getcwd()) == "+20-"
 
     def test_runtime_fallback_when_explicit_none(self):
         from blq.serve import _resolve_command_lines
@@ -33,14 +35,14 @@ class TestDefaultLinesWindow:
         update_runtime({"default_lines_window": "+10-"})
         # No command-level config (BlqConfig.find returns None outside a
         # blq workspace); should fall through to the runtime knob.
-        assert _resolve_command_lines("nonexistent_cmd", None) == "+10-"
+        assert _resolve_command_lines("nonexistent_cmd", None, root=os.getcwd()) == "+10-"
 
     def test_empty_runtime_treated_as_no_default(self):
         from blq.serve import _resolve_command_lines
 
         # default_lines_window="" means "no inline output" — same as old behavior
         update_runtime({"default_lines_window": ""})
-        assert _resolve_command_lines("nonexistent_cmd", None) is None
+        assert _resolve_command_lines("nonexistent_cmd", None, root=os.getcwd()) is None
 
 
 class TestDefaultHistoryLimit:
@@ -50,7 +52,7 @@ class TestDefaultHistoryLimit:
         """Stub out _history_impl so we can verify the resolved limit."""
         captured = {}
 
-        def fake_impl(limit, source, status):
+        def fake_impl(limit, source, status, *, root=None):
             captured["limit"] = limit
             return {"runs": []}
 
@@ -68,7 +70,7 @@ class TestDefaultHistoryLimit:
     def test_history_explicit_limit_wins(self, monkeypatch):
         captured = {}
 
-        def fake_impl(limit, source, status):
+        def fake_impl(limit, source, status, *, root=None):
             captured["limit"] = limit
             return {"runs": []}
 

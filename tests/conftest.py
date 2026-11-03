@@ -8,6 +8,36 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def seed_active_root_like_production(monkeypatch):
+    """Resolve the workspace from the process cwd, as a launched server does.
+
+    The MCP tools refuse a call that names no workspace: there is no implicit
+    read of the server's own directory, because that directory is a real
+    workspace often enough that a wrong-workspace answer was
+    indistinguishable from a correct one (blq-cli#55).
+
+    In production the root is still almost always implicit, because the
+    plugin's `.mcp.json` seeds `BLQ_ACTIVE_ROOT` from `${PWD}`. The suite's
+    tool-level tests chdir into a temp project and then call without `cwd=`,
+    which is the same shape, so seeding here mirrors the deployment rather
+    than adding `cwd=` to several hundred call sites.
+
+    `tests/test_strict_root_resolution.py` opts out of this, because the
+    contract itself is what it tests.
+    """
+    import os
+
+    from blq import runtime as rt
+
+    real = rt.resolve_storage_root
+
+    def seeded() -> str | None:
+        return real() or os.getcwd()
+
+    monkeypatch.setattr(rt, "resolve_storage_root", seeded)
+
+
 @pytest.fixture
 def temp_dir():
     """Create a temporary directory for tests."""

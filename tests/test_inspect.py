@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -447,7 +448,7 @@ class TestInspectMCPTool:
         from blq.serve import _inspect_impl
 
         # Test the implementation directly since full MCP client test is complex
-        result = _inspect_impl("1:1", lines=3)
+        result = _inspect_impl("1:1", lines=3, root=os.getcwd())
 
         # Should either have details or an error
         if "error" not in result:
@@ -459,7 +460,7 @@ class TestInspectMCPTool:
         """Inspect impl returns error for non-existent event."""
         from blq.serve import _inspect_impl
 
-        result = _inspect_impl("999:999", lines=3)
+        result = _inspect_impl("999:999", lines=3, root=os.getcwd())
         assert "error" in result
 
     def test_inspect_impl_with_data(
@@ -470,7 +471,7 @@ class TestInspectMCPTool:
 
         run_adhoc_command([str(sample_build_script)])
 
-        result = _inspect_impl("1:1", lines=3)
+        result = _inspect_impl("1:1", lines=3, root=os.getcwd())
 
         # Should have event details
         if "error" not in result:

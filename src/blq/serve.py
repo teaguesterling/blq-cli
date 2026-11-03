@@ -34,7 +34,11 @@ import re as _re
 import shlex
 import subprocess
 import sys
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from blq.commands.core import BlqConfig
 
 # pydantic rejects `typing.TypedDict` below 3.12 and refuses to build a schema
 # from it ("Please use typing_extensions.TypedDict instead"). This package
@@ -110,19 +114,11 @@ def _init_disabled_tools(
     if env_disabled:
         disabled.update(t.strip() for t in env_disabled.split(",") if t.strip())
 
-    # Check .bird/config.toml
-    try:
-        from blq.cli import BlqConfig
-
-        config = BlqConfig.find()
-        if config and hasattr(config, "mcp_config"):
-            mcp_config = config.mcp_config or {}
-            disabled_list = mcp_config.get("disabled_tools", [])
-            if isinstance(disabled_list, list):
-                disabled.update(disabled_list)
-    except Exception:
-        pass
-
+    # The workspace's own .bird/config.toml is deliberately NOT read here.
+    # This cache is built once, from the process cwd, before any call arrives,
+    # so threading a per-call root into it would change nothing: a caller
+    # could act on a workspace whose mcp.disabled_tools was never consulted.
+    # _check_workspace_policy reads that file per call instead.
     _disabled_tools = disabled
 
 
@@ -138,6 +134,34 @@ def _load_disabled_tools() -> set[str]:
     # Fallback: initialize without CLI args
     _init_disabled_tools()
     return _disabled_tools or set()
+
+
+def _check_workspace_policy(tool_name: str, root: str | None) -> None:
+    """Refuse a tool that the *resolved workspace* disables.
+
+    The server-level set (CLI flags, env, safe mode) is cached at startup and
+    checked by _check_tool_enabled before anything else. This is the other
+    half: once a call can name its own workspace with `cwd=`, that workspace
+    gets a say, or commands run in a project whose policy file was never read.
+
+    Raises PermissionError, matching _check_tool_enabled, so a disabled tool
+    reports the same way wherever the policy came from.
+    """
+    if root is None:
+        return
+    try:
+        config = _find_config(root=root)
+    except Exception:
+        return
+    if config is None or not hasattr(config, "mcp_config"):
+        return
+    disabled_list = (config.mcp_config or {}).get("disabled_tools", [])
+    if isinstance(disabled_list, list) and tool_name in disabled_list:
+        raise PermissionError(
+            f"Tool '{tool_name}' is disabled by the workspace at {root}. "
+            f"Remove it from mcp.disabled_tools in that project's "
+            f".bird/config.toml to enable it."
+        )
 
 
 def _check_tool_enabled(tool_name: str) -> None:
@@ -201,26 +225,91 @@ mcp = FastMCP(
 )
 
 
-def _get_storage() -> BlqStorage:
-    """Get BlqStorage, honoring the runtime config's active_root if set.
+def _resolve_root(cwd: str | None) -> str | None:
+    """Return the workspace root for this call, or None if none was named.
 
-    Precedence:
-        1. runtime.active_root (if set) — search for .bird/ starting there
-        2. process cwd (default — walks up to find .bird/)
+    The order is the `cwd` argument, then the session's `active_root`. There is
+    deliberately no fall-through to the server's process cwd. That directory is
+    a real workspace often enough that reading it answers confidently about a
+    project nobody asked about, and blq-cli#55 is the sharper form of the same
+    fault: `active_root` steered the read tools while `run` and `exec` passed
+    no cwd to their child at all, so a run was recorded in one workspace and
+    looked for in another.
+
+    The resolver belongs to the tool layer. The `blq` CLI resolves from its own
+    cwd on purpose, because for a CLI that is the workspace the user is
+    standing in, and the MCP resources and prompts keep that fallback because
+    a URI cannot carry a workspace.
     """
+    if cwd:
+        return cwd
     from blq.runtime import resolve_storage_root
 
-    root = resolve_storage_root()
-    if root is not None:
-        from pathlib import Path
+    return resolve_storage_root()
 
-        # If active_root has a .bird/ directly, open it; else delegate the
-        # walk to BlqStorage's auto-search but rooted at active_root.
-        bird = Path(root) / ".bird"
-        if bird.exists():
-            return BlqStorage.open(bird)
-        # No direct .bird — fall through to cwd-walk. Could be enhanced to
-        # walk up from active_root, but kept simple for the prototype.
+
+def _require_root(cwd: str | None) -> str:
+    """Return the workspace root for this call, or raise.
+
+    This raises rather than returning an error dict. Every tool here declares
+    a TypedDict return, and fastmcp coerces the value to that schema: an error
+    dict came back as `{"sources": None}` with its keys silently dropped, so
+    the refusal was invisible to the caller. Raising matches
+    _check_tool_enabled, which is already how this module refuses a call.
+
+    Two distinct failures, because the fix differs. Nothing was named, or what
+    was named is not a directory. The second arrives through the launch
+    environment: an `.mcp.json` env value that does not expand lands in
+    active_root verbatim. Measured on Claude Code 2.1.317, `${PWD}` expands
+    and `${CLAUDE_PROJECT_DIR}` does not.
+    """
+    root = _resolve_root(cwd)
+    if root is None:
+        raise ValueError(
+            "no_root: no workspace for this call. The MCP server's own "
+            "directory is not used as a fallback, because it is usually not "
+            'the project you mean. Pass cwd="/path/to/project", or set it for '
+            'the session with config(set={"active_root": "/path/to/project"}).'
+        )
+    if not os.path.isdir(root):
+        source = "the cwd= argument" if cwd else "the session's active_root"
+        raise ValueError(
+            f"bad_root: {root!r}, from {source}, is not a directory. An "
+            'unexpanded placeholder such as "${CLAUDE_PROJECT_DIR}" in a '
+            "BLQ_ACTIVE_ROOT env value arrives here verbatim."
+        )
+    return root
+
+
+def _find_config(*, root: str | None) -> BlqConfig | None:
+    """Locate the workspace config, starting the search at `root`.
+
+    `root` is keyword-only and undefaulted so that a forgotten call site is a
+    TypeError and a mypy error, not a silent read of the server's own
+    workspace. None means the fallback the resources and prompts use.
+    """
+    from blq.cli import BlqConfig
+
+    if root is None:
+        return BlqConfig.find()
+    return BlqConfig.find(start_dir=Path(root))
+
+
+def _get_storage(*, root: str | None) -> BlqStorage:
+    """Open the workspace for this call.
+
+    The lookup has to match the child CLI's. `blq exec` walks up from its own
+    cwd to find `.bird/`, so opening `<root>/.bird` alone would split the two
+    whenever a call names a subdirectory: the run would be recorded in the
+    workspace above and read back from nowhere. Both sides now go through
+    BlqConfig's upward search.
+    """
+    config = _find_config(root=root)
+    if config is not None:
+        return BlqStorage.open(config.lq_dir)
+    if root is not None:
+        # Not the server's cwd. Saying so beats answering about another project.
+        raise RuntimeError(f"no .bird workspace at or above {root!r}; run `blq init` there")
     return BlqStorage.open()
 
 
@@ -241,8 +330,10 @@ def _get_storage() -> BlqStorage:
 # keys under `run_ids`), so declaring everything required would publish a
 # contract the code does not keep.
 
+
 class EventsResult(TypedDict, total=False):
     """`events` — single-run keys, plus the batch keys used with `run_ids`."""
+
     events: list[dict[str, Any]]
     total_count: int
     runs: list[dict[str, Any]]
@@ -341,20 +432,19 @@ class CiGenerateResult(TypedDict, total=False):
 
 class CommandMutationResult(TypedDict, total=False):
     """Shared by `register_command` / `unregister_command`."""
+
     success: bool
     message: str
     existing_name: str
     error: str
 
 
-def _get_suppressed_list(include_suppressed: bool = False) -> list[str] | None:
+def _get_suppressed_list(include_suppressed: bool = False, *, root: str | None) -> list[str] | None:
     """Get list of suppressed fingerprints, or None if no filtering."""
     if include_suppressed:
         return None
     try:
-        from blq.cli import BlqConfig
-
-        config = BlqConfig.find()
+        config = _find_config(root=root)
         if config is None:
             return None
         suppressed = get_all_suppressed_fingerprints(config)
@@ -363,7 +453,7 @@ def _get_suppressed_list(include_suppressed: bool = False) -> list[str] | None:
         return None
 
 
-def _get_suppress_condition(include_suppressed: bool = False) -> str | None:
+def _get_suppress_condition(include_suppressed: bool = False, *, root: str | None) -> str | None:
     """Get SQL condition to exclude suppressed fingerprints.
 
     Args:
@@ -377,9 +467,7 @@ def _get_suppress_condition(include_suppressed: bool = False) -> str | None:
         return None
 
     try:
-        from blq.cli import BlqConfig
-
-        config = BlqConfig.find()
+        config = _find_config(root=root)
         if config is None:
             return None
 
@@ -393,7 +481,7 @@ def _get_suppress_condition(include_suppressed: bool = False) -> str | None:
         return None
 
 
-def _parse_ref(ref: str, storage: Any = None) -> tuple[str | None, int, int]:
+def _parse_ref(ref: str, storage: Any = None, *, root: str | None) -> tuple[str | None, int, int]:
     """Parse event reference into (tag, run_serial, event_id).
 
     Delegates to services.refs.parse_ref for parsing and EventRef for
@@ -407,7 +495,7 @@ def _parse_ref(ref: str, storage: Any = None) -> tuple[str | None, int, int]:
     if parsed.is_relative:
         legacy = EventRef.parse(ref)
         if storage is None:
-            storage = _get_storage()
+            storage = _get_storage(root=root)
         legacy = resolve_ref(legacy, storage)
         return legacy.tag, legacy.run_id, legacy.event_id  # type: ignore[return-value]
 
@@ -419,7 +507,7 @@ def _parse_ref(ref: str, storage: Any = None) -> tuple[str | None, int, int]:
     return parsed.tag, parsed.run_serial, parsed.event_id
 
 
-def _parse_run_ref(ref: str, storage: Any = None) -> tuple[str | None, int]:
+def _parse_run_ref(ref: str, storage: Any = None, *, root: str | None) -> tuple[str | None, int]:
     """Parse run reference into (tag, run_serial).
 
     Delegates to services.refs.parse_ref for parsing and EventRef for
@@ -433,7 +521,7 @@ def _parse_run_ref(ref: str, storage: Any = None) -> tuple[str | None, int]:
     if parsed.is_relative:
         legacy = EventRef.parse(ref)
         if storage is None:
-            storage = _get_storage()
+            storage = _get_storage(root=root)
         legacy = resolve_ref(legacy, storage)
         if legacy.run_id is None:
             raise ValueError(f"Invalid ref format: {ref}. Could not determine run_id")
@@ -489,14 +577,12 @@ def _build_preview(
     return result
 
 
-def _resolve_command_lines(command: str, lines: str | None) -> str | None:
+def _resolve_command_lines(command: str, lines: str | None, *, root: str | None) -> str | None:
     """Resolve effective lines spec: explicit param > command config > runtime > None."""
     if lines is not None:
         return lines
     try:
-        from blq.cli import BlqConfig
-
-        config = BlqConfig.find()
+        config = _find_config(root=root)
         if config and command in config.commands:
             return config.commands[command].lines
     except Exception:
@@ -510,14 +596,20 @@ def _resolve_command_lines(command: str, lines: str | None) -> str | None:
     return None
 
 
-def _attach_output(concise: dict[str, Any], run_id: int | None, lines_spec: str | None) -> None:
+def _attach_output(
+    concise: dict[str, Any],
+    run_id: int | None,
+    lines_spec: str | None,
+    *,
+    root: str | None,
+) -> None:
     """Fetch output lines and attach to the concise response dict.
 
     When output is attached, the preview field is removed (output supersedes it).
     """
     if lines_spec is None or run_id is None:
         return
-    result = _output_impl(run_id, lines=lines_spec)
+    result = _output_impl(run_id, lines=lines_spec, root=root)
     if "content" in result:
         concise["output"] = result["content"]
     elif "error" in result:
@@ -534,6 +626,8 @@ def _run_impl(
     extra: list[str] | None = None,
     timeout: int | None = None,
     lines: str | None = None,
+    *,
+    root: str | None,
 ) -> dict[str, Any]:
     """Implementation of run command (for registered commands).
 
@@ -573,6 +667,12 @@ def _run_impl(
             capture_output=True,
             text=True,
             timeout=subprocess_timeout,
+            # The child walks up from its own cwd to find .bird/, so without
+            # this the run executes in the server's directory and its log
+            # lands in that workspace, whatever root the caller named. That
+            # is blq-cli#55: the read tools honoured active_root while the
+            # run tools never saw it.
+            cwd=root,
         )
 
         # Parse JSON output and return concise response
@@ -599,10 +699,10 @@ def _run_impl(
                     concise["extension_data"] = ext_data
 
                 # Resolve lines spec: explicit param > command config > None
-                effective_lines = _resolve_command_lines(command, lines)
+                effective_lines = _resolve_command_lines(command, lines, root=root)
 
                 if effective_lines:
-                    _attach_output(concise, run_id, effective_lines)
+                    _attach_output(concise, run_id, effective_lines, root=root)
                 else:
                     # Include preview on failure/warn
                     preview = _build_preview(output_stats, status, has_errors)
@@ -684,7 +784,9 @@ class _ExecTracker:
 _exec_tracker = _ExecTracker()
 
 
-def _find_matching_registered_command(full_cmd: str) -> tuple[str, list[str]] | None:
+def _find_matching_registered_command(
+    full_cmd: str, *, root: str | None
+) -> tuple[str, list[str]] | None:
     """Check if command matches a registered command prefix.
 
     Args:
@@ -694,9 +796,7 @@ def _find_matching_registered_command(full_cmd: str) -> tuple[str, list[str]] | 
         Tuple of (command_name, extra_args) if match found, None otherwise
     """
     try:
-        from blq.cli import BlqConfig
-
-        config = BlqConfig.find()
+        config = _find_config(root=root)
         if config is None:
             return None
 
@@ -729,6 +829,8 @@ def _exec_impl(
     timeout: int | None = None,
     shell: bool = False,
     lines: str | None = None,
+    *,
+    root: str | None,
 ) -> dict[str, Any]:
     """Implementation of exec command (for ad-hoc shell commands).
 
@@ -756,11 +858,15 @@ def _exec_impl(
 
     # Check if this matches a registered command (skip for shell mode)
     if not shell:
-        match = _find_matching_registered_command(full_cmd)
+        match = _find_matching_registered_command(full_cmd, root=root)
         if match:
             name, extra_args = match
             result = _run_impl(
-                name, extra=extra_args if extra_args else None, timeout=timeout, lines=lines
+                name,
+                extra=extra_args if extra_args else None,
+                timeout=timeout,
+                lines=lines,
+                root=root,
             )
             result["matched_command"] = name
             if extra_args:
@@ -790,6 +896,12 @@ def _exec_impl(
             capture_output=True,
             text=True,
             timeout=subprocess_timeout,
+            # The child walks up from its own cwd to find .bird/, so without
+            # this the run executes in the server's directory and its log
+            # lands in that workspace, whatever root the caller named. That
+            # is blq-cli#55: the read tools honoured active_root while the
+            # run tools never saw it.
+            cwd=root,
         )
 
         # Parse JSON output and return concise response
@@ -811,7 +923,7 @@ def _exec_impl(
                 concise = run_result_to_concise(full_result, source_name)
 
                 if lines:
-                    _attach_output(concise, run_id, lines)
+                    _attach_output(concise, run_id, lines, root=root)
                 else:
                     # Include preview on failure/warn
                     preview = _build_preview(output_stats, status, has_errors)
@@ -862,9 +974,7 @@ def _exec_impl(
 
 
 def _query_impl(
-    sql: str | None = None,
-    filter: str | None = None,
-    limit: int = 100,
+    sql: str | None = None, filter: str | None = None, limit: int = 100, *, root: str | None
 ) -> dict[str, Any]:
     """Implementation of query command.
 
@@ -874,7 +984,7 @@ def _query_impl(
         limit: Max rows to return
     """
     try:
-        store = _get_storage()
+        store = _get_storage(root=root)
         conn = store.connection
 
         # Build SQL from filter expressions if provided
@@ -930,13 +1040,15 @@ def _errors_impl(
     file_pattern: str | None = None,
     include_suppressed: bool = False,
     all_runs: bool = False,
+    *,
+    root: str | None,
 ) -> dict[str, Any]:
     """Implementation of errors command."""
     try:
-        storage = _get_storage()
+        storage = _get_storage(root=root)
         from blq.services.query import query_events
 
-        suppressed = _get_suppressed_list(include_suppressed)
+        suppressed = _get_suppressed_list(include_suppressed, root=root)
         result = query_events(
             storage,
             severity="error",
@@ -959,13 +1071,15 @@ def _warnings_impl(
     source: str | None = None,
     include_suppressed: bool = False,
     all_runs: bool = False,
+    *,
+    root: str | None,
 ) -> dict[str, Any]:
     """Implementation of warnings command."""
     try:
-        storage = _get_storage()
+        storage = _get_storage(root=root)
         from blq.services.query import query_events
 
-        suppressed = _get_suppressed_list(include_suppressed)
+        suppressed = _get_suppressed_list(include_suppressed, root=root)
         result = query_events(
             storage,
             severity="warning",
@@ -1131,10 +1245,12 @@ def _events_impl(
     file_pattern: str | None = None,
     include_suppressed: bool = False,
     all_runs: bool = False,
+    *,
+    root: str | None,
 ) -> dict[str, Any]:
     """Implementation of events command."""
     try:
-        storage = _get_storage()
+        storage = _get_storage(root=root)
         if not storage.has_data():
             return {"events": [], "total_count": 0}
 
@@ -1148,7 +1264,7 @@ def _events_impl(
         # Delegate to service layer for completed-run queries
         from blq.services.query import query_events
 
-        suppressed = _get_suppressed_list(include_suppressed)
+        suppressed = _get_suppressed_list(include_suppressed, root=root)
         return query_events(
             storage,
             severity=severity,
@@ -1164,11 +1280,11 @@ def _events_impl(
         return {"events": [], "total_count": 0}
 
 
-def _event_impl(ref: str) -> dict[str, Any] | None:
+def _event_impl(ref: str, *, root: str | None) -> dict[str, Any] | None:
     """Implementation of event command."""
     try:
-        tag, run_serial, event_id = _parse_ref(ref)
-        store = _get_storage()
+        tag, run_serial, event_id = _parse_ref(ref, root=root)
+        store = _get_storage(root=root)
 
         # Build query using run_serial and event_id (parameterized: tag is
         # caller-influenced and must not be interpolated into SQL)
@@ -1239,15 +1355,15 @@ def _event_impl(ref: str) -> dict[str, Any] | None:
         return None
 
 
-def _context_impl(ref: str, lines: int = 5) -> dict[str, Any]:
+def _context_impl(ref: str, lines: int = 5, *, root: str | None) -> dict[str, Any]:
     """Implementation of context command.
 
     Returns formatted text showing log context around the event,
     matching the CLI output format.
     """
     try:
-        tag, run_serial, event_id = _parse_ref(ref)
-        storage = _get_storage()
+        tag, run_serial, event_id = _parse_ref(ref, root=root)
+        storage = _get_storage(root=root)
 
         # Build query using run_serial and event_id (parameterized: tag is
         # caller-influenced and must not be interpolated into SQL)
@@ -1315,6 +1431,8 @@ def _inspect_impl(
     include_source: bool = True,
     include_git: bool = False,
     include_fingerprint: bool = False,
+    *,
+    root: str | None,
 ) -> dict[str, Any]:
     """Implementation of inspect command.
 
@@ -1330,11 +1448,10 @@ def _inspect_impl(
     Returns:
         Event details with log_context and optional enrichment fields
     """
-    from blq.cli import BlqConfig
 
     try:
-        tag, run_serial, event_id = _parse_ref(ref)
-        storage = _get_storage()
+        tag, run_serial, event_id = _parse_ref(ref, root=root)
+        storage = _get_storage(root=root)
 
         # Build query using run_serial and event_id (parameterized: tag is
         # caller-influenced and must not be interpolated into SQL)
@@ -1395,7 +1512,7 @@ def _inspect_impl(
         response["log_context"] = log_context
 
         # Get config for ref_root
-        config = BlqConfig.find()
+        config = _find_config(root=root)
         ref_root = config.ref_root if config else None
 
         # Source context, git context, fingerprint history via service layer
@@ -1446,6 +1563,8 @@ def _output_impl(
     context: int = 0,
     lines: str | None = None,
     debug_formats: bool = False,
+    *,
+    root: str | None,
 ) -> dict[str, Any]:
     """Implementation of output command - get raw output for a run.
 
@@ -1465,7 +1584,7 @@ def _output_impl(
     import re
 
     try:
-        storage = _get_storage()
+        storage = _get_storage(root=root)
 
         # Get output info first
         info = storage.get_output_info(run_id)
@@ -1609,10 +1728,10 @@ def _check_and_cleanup_orphans(storage: Any, min_age_seconds: float = 30.0) -> l
         return []
 
 
-def _status_impl() -> dict[str, Any]:
+def _status_impl(*, root: str | None) -> dict[str, Any]:
     """Implementation of status command."""
     try:
-        storage = _get_storage()
+        storage = _get_storage(root=root)
         if not storage.has_data():
             return {"sources": []}
 
@@ -1715,14 +1834,14 @@ def _get_affected_commits(files: list[str], limit: int = 5) -> list[dict[str, An
         return []
 
 
-def _info_impl(ref: str) -> dict[str, Any]:
+def _info_impl(ref: str, *, root: str | None) -> dict[str, Any]:
     """Implementation of info command - get detailed run info.
 
     Accepts run ref (e.g., 'test:5'), source name (e.g., 'test'), or invocation_id (UUID).
     When given a source name, returns the most recent run for that source.
     """
     try:
-        storage = _get_storage()
+        storage = _get_storage(root=root)
         if not storage.has_data():
             return {"error": "No data available"}
 
@@ -1741,7 +1860,7 @@ def _info_impl(ref: str) -> dict[str, Any]:
         else:
             # Try to parse as run ref (supports relative refs like +1, test:+1)
             try:
-                tag, run_serial = _parse_run_ref(ref, storage)
+                tag, run_serial = _parse_run_ref(ref, storage, root=root)
                 if tag is not None:
                     df = storage.sql(f"""
                         SELECT * FROM blq_load_runs()
@@ -1902,7 +2021,7 @@ def _info_impl(ref: str) -> dict[str, Any]:
 
 
 def _history_impl(
-    limit: int = 20, source: str | None = None, status: str | None = None
+    limit: int = 20, source: str | None = None, status: str | None = None, *, root: str | None
 ) -> dict[str, Any]:
     """Implementation of history command.
 
@@ -1912,7 +2031,7 @@ def _history_impl(
         status: Filter by run status ('running', 'completed', 'orphaned')
     """
     try:
-        storage = _get_storage()
+        storage = _get_storage(root=root)
 
         from blq.services.query import query_history
 
@@ -1922,7 +2041,7 @@ def _history_impl(
         return {"runs": []}
 
 
-def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
+def _diff_impl(run1: int, run2: int, *, root: str | None) -> dict[str, Any]:
     """Implementation of diff command.
 
     Args:
@@ -1930,7 +2049,7 @@ def _diff_impl(run1: int, run2: int) -> dict[str, Any]:
         run2: Second run serial number (comparison)
     """
     try:
-        storage = _get_storage()
+        storage = _get_storage(root=root)
 
         from blq.services.query import query_diff
 
@@ -2132,10 +2251,12 @@ def _register_command_impl(
     lines: str | None = None,
     sandbox: str | dict[str, Any] | None = None,
     lock: str | None = None,
+    *,
+    root: str | None,
 ) -> dict[str, Any]:
     """Implementation of register_command."""
     try:
-        from blq.cli import BlqConfig, RegisteredCommand
+        from blq.cli import RegisteredCommand
         from blq.commands.core import detect_format_from_command
 
         # Validate: must have cmd or tpl, not both
@@ -2150,7 +2271,7 @@ def _register_command_impl(
                 "error": "Must provide either 'cmd' (simple command) or 'tpl' (template command).",
             }
 
-        config = BlqConfig.find()
+        config = _find_config(root=root)
 
         if config is None:
             return {"success": False, "error": "No lq repository found. Run 'blq init' first."}
@@ -2181,7 +2302,7 @@ def _register_command_impl(
                     "command": _command_to_dict(existing),
                 }
                 if run_now:
-                    run_result = _run_impl(name, timeout=timeout)
+                    run_result = _run_impl(name, timeout=timeout, root=root)
                     result["run"] = run_result
                 return result
             else:
@@ -2244,19 +2365,17 @@ def _register_command_impl(
             "command": _command_to_dict(new_command),
         }
         if run_now:
-            run_result = _run_impl(name, timeout=timeout)
+            run_result = _run_impl(name, timeout=timeout, root=root)
             result["run"] = run_result
         return result
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
-def _unregister_command_impl(name: str) -> dict[str, Any]:
+def _unregister_command_impl(name: str, *, root: str | None) -> dict[str, Any]:
     """Implementation of unregister_command."""
     try:
-        from blq.cli import BlqConfig
-
-        config = BlqConfig.find()
+        config = _find_config(root=root)
 
         if config is None:
             return {"success": False, "error": "No lq repository found."}
@@ -2274,12 +2393,10 @@ def _unregister_command_impl(name: str) -> dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
-def _commands_impl() -> dict[str, Any]:
+def _commands_impl(*, root: str | None) -> dict[str, Any]:
     """Implementation of commands listing."""
     try:
-        from blq.cli import BlqConfig
-
-        config = BlqConfig.find()
+        config = _find_config(root=root)
 
         if config is None:
             return {"commands": []}
@@ -2309,12 +2426,10 @@ def _commands_impl() -> dict[str, Any]:
         return {"commands": [], "error": str(e)}
 
 
-def _sandbox_info_impl(command: str | None = None) -> dict[str, Any]:
+def _sandbox_info_impl(command: str | None = None, *, root: str | None) -> dict[str, Any]:
     """Implementation for sandbox_info tool."""
     try:
-        from blq.cli import BlqConfig
-
-        config = BlqConfig.find()
+        config = _find_config(root=root)
     except Exception:
         return {"error": "No blq project found"}
 
@@ -2361,7 +2476,7 @@ def _sandbox_info_impl(command: str | None = None) -> dict[str, Any]:
 
         # Query recent metrics if available (best-effort)
         try:
-            storage = _get_storage()
+            storage = _get_storage(root=root)
             if storage.has_data():
                 metrics_result = storage.sql(
                     """
@@ -2415,6 +2530,7 @@ def run(
     # Batch mode parameters
     commands: list[str] | None = None,
     stop_on_failure: bool = True,
+    cwd: str | None = None,
 ) -> RunResult:
     """Run a registered command and capture its output.
 
@@ -2433,6 +2549,9 @@ def run(
         commands: List of command names for batch mode (overrides `command`)
         stop_on_failure: In batch mode, stop after first failure (default: true)
 
+        cwd: Workspace to act on. Falls back to the session's active_root;
+             with neither, the call is refused rather than run against the
+             MCP server's own directory.
     Returns:
         Run result with status, errors, and preview of output on failure.
         When lines is active (explicit or from command config), includes 'output' key.
@@ -2440,12 +2559,15 @@ def run(
     """
     _check_tool_enabled("run")
     # Batch mode: run multiple commands in sequence
+    root = _require_root(cwd)
+    _check_workspace_policy("run", root)
+
     if commands is not None:
         results = []
         overall_status = "OK"
 
         for cmd in commands:
-            result = _run_impl(cmd, timeout=timeout, lines=lines)
+            result = _run_impl(cmd, timeout=timeout, lines=lines, root=root)
             results.append({"command": cmd, "result": result})
 
             if result.get("status") == "FAIL":
@@ -2463,7 +2585,7 @@ def run(
         }
 
     # Single command mode
-    return _run_impl(command, args, extra, timeout, lines=lines)
+    return _run_impl(command, args, extra, timeout, lines=lines, root=root)
 
 
 @mcp.tool()
@@ -2473,6 +2595,7 @@ def exec(
     timeout: int | None = None,
     shell: bool = False,
     lines: str | None = None,
+    cwd: str | None = None,
 ) -> ExecResult:
     """Execute an ad-hoc shell command and capture its output.
 
@@ -2498,20 +2621,24 @@ def exec(
                '-50' for first 50, '100-200' for range). When set, output is
                included directly in the response.
 
+        cwd: Workspace to act on. Falls back to the session's active_root;
+             with neither, the call is refused rather than run against the
+             MCP server's own directory.
     Returns:
         Run result with status, errors, and warnings. If a registered command
         was matched, includes 'matched_command' and optionally 'extra_args'.
         When lines is active, includes 'output' key.
     """
     _check_tool_enabled("exec")
-    return _exec_impl(command, args, timeout, shell=shell, lines=lines)
+    root = _require_root(cwd)
+    _check_workspace_policy("exec", root)
+
+    return _exec_impl(command, args, timeout, shell=shell, lines=lines, root=root)
 
 
 @mcp.tool()
 def query(
-    sql: str | None = None,
-    filter: str | None = None,
-    limit: int = 100,
+    sql: str | None = None, filter: str | None = None, limit: int = 100, cwd: str | None = None
 ) -> QueryResult:
     """Query stored log events with SQL or simple filter expressions.
 
@@ -2530,6 +2657,9 @@ def query(
         filter: Simple filter expressions (e.g., "severity=error ref_file~test")
         limit: Max rows to return (default: 100)
 
+        cwd: Workspace to act on. Falls back to the session's active_root;
+             with neither, the call is refused rather than run against the
+             MCP server's own directory.
     Returns:
         Query results with columns, rows, and row_count
 
@@ -2540,7 +2670,10 @@ def query(
         query(filter="tool_name=pytest", limit=50)
     """
     _check_tool_enabled("query")
-    return _query_impl(sql=sql, filter=filter, limit=limit)
+    root = _require_root(cwd)
+    _check_workspace_policy("query", root)
+
+    return _query_impl(sql=sql, filter=filter, limit=limit, root=root)
 
 
 @mcp.tool()
@@ -2554,6 +2687,7 @@ def events(
     # Batch mode
     run_ids: list[int] | None = None,
     limit_per_run: int = 10,
+    cwd: str | None = None,
 ) -> EventsResult:
     """Get events with optional severity filter.
 
@@ -2574,12 +2708,18 @@ def events(
         run_ids: List of run IDs for batch mode (returns events grouped by run)
         limit_per_run: Max events per run in batch mode (default: 10)
 
+        cwd: Workspace to act on. Falls back to the session's active_root;
+             with neither, the call is refused rather than run against the
+             MCP server's own directory.
     Returns:
         Events list with total count. Each event includes a 'ref' field
         in format "tag:serial:event" or "serial:event".
         In batch mode, returns events grouped by run_id.
     """
     # Batch mode: get events from multiple runs
+    root = _require_root(cwd)
+    _check_workspace_policy("events", root)
+
     if run_ids:
         runs = []
         total_events = 0
@@ -2592,7 +2732,8 @@ def events(
                 severity=severity,
                 file_pattern=file_pattern,
                 include_suppressed=False,
-                all_runs=True,  # In batch mode, we already have specific run_ids
+                all_runs=True,
+                root=root,  # In batch mode, we already have specific run_ids
             )
             event_count = len(result.get("events", []))
             total_events += event_count
@@ -2612,7 +2753,14 @@ def events(
 
     # Single run/all runs mode
     return _events_impl(
-        limit, run_id, source, severity, file_pattern, include_suppressed=False, all_runs=all_runs
+        limit,
+        run_id,
+        source,
+        severity,
+        file_pattern,
+        include_suppressed=False,
+        all_runs=all_runs,
+        root=root,
     )
 
 
@@ -2626,6 +2774,7 @@ def inspect(
     include_fingerprint_history: bool = False,
     # Batch mode
     refs: list[str] | None = None,
+    cwd: str | None = None,
 ) -> InspectResult:
     """Get comprehensive event details with context and enrichment.
 
@@ -2645,6 +2794,9 @@ def inspect(
         include_fingerprint_history: Include fingerprint occurrence history (default: false)
         refs: List of event references for batch mode (overrides `ref`)
 
+        cwd: Workspace to act on. Falls back to the session's active_root;
+             with neither, the call is refused rather than run against the
+             MCP server's own directory.
     Returns:
         Event details with ref, severity, ref_file, ref_line, ref_column,
         message, tool_name, category, code, fingerprint, and context/enrichment
@@ -2652,6 +2804,9 @@ def inspect(
         In batch mode, returns list of event details.
     """
     # Batch mode: get details for multiple events
+    root = _require_root(cwd)
+    _check_workspace_policy("inspect", root)
+
     if refs:
         events_list: list[dict[str, Any]] = []
         found = 0
@@ -2663,6 +2818,7 @@ def inspect(
                 include_source=include_source_context,
                 include_git=include_git_context,
                 include_fingerprint=include_fingerprint_history,
+                root=root,
             )
             if "error" not in result:
                 found += 1
@@ -2686,6 +2842,7 @@ def inspect(
         include_source=include_source_context,
         include_git=include_git_context,
         include_fingerprint=include_fingerprint_history,
+        root=root,
     )
 
     # Strip log context if not requested
@@ -2705,6 +2862,7 @@ def output(
     context: int = 0,
     lines: str | None = None,
     debug_formats: bool = False,
+    cwd: str | None = None,
 ) -> OutputResult:
     """Get raw output for a run with optional search and filtering.
 
@@ -2724,28 +2882,37 @@ def output(
         lines: Line spec (e.g., '100-200', '42 +/-5') - requires read_lines extension
         debug_formats: Show format detection diagnosis (which parsers matched)
 
+        cwd: Workspace to act on. Falls back to the session's active_root;
+             with neither, the call is refused rather than run against the
+             MCP server's own directory.
     Returns:
         Output content and metadata including byte_length, total_lines, etc.
         With grep: includes match_count.
         With debug_formats: includes format_diagnosis list.
     """
     # Parse and resolve ref (supports relative refs like +1, test:+1)
+    root = _require_root(cwd)
+    _check_workspace_policy("output", root)
+
     try:
-        _, run_id = _parse_run_ref(ref)
+        _, run_id = _parse_run_ref(ref, root=root)
     except ValueError as e:
         return {"error": str(e), "ref": ref}
 
-    return _output_impl(run_id, stream, tail, head, grep, context, lines, debug_formats)
+    return _output_impl(run_id, stream, tail, head, grep, context, lines, debug_formats, root=root)
 
 
 @mcp.tool()
-def status() -> StatusResult:
+def status(cwd: str | None = None) -> StatusResult:
     """Get current status summary of all sources.
 
     Returns:
         Status summary with sources list
     """
-    return _status_impl()
+    root = _require_root(cwd)
+    _check_workspace_policy("status", root)
+
+    return _status_impl(root=root)
 
 
 @mcp.tool()
@@ -2758,6 +2925,7 @@ def info(
     severity: str | None = None,
     limit: int = 20,
     context: int | None = None,
+    cwd: str | None = None,
 ) -> dict[str, Any]:
     """Get detailed information about a specific run.
 
@@ -2774,15 +2942,20 @@ def info(
         limit: Max events to return (default: 20)
         context: Show N lines of log context around each event (distinct from head/tail)
 
+        cwd: Workspace to act on. Falls back to the session's active_root;
+             with neither, the call is refused rather than run against the
+             MCP server's own directory.
     Returns:
         Run info with optional output and events
     """
+    root = _require_root(cwd)
+    _check_workspace_policy("info", root)
+
     # If no ref provided, get the most recent run
     if ref is None:
-        return _last_impl(head, tail, errors, warnings, severity, limit, context)
+        return _last_impl(head, tail, errors, warnings, severity, limit, context, root=root)
 
-    # Get info for specific run
-    result = _info_impl(ref)
+    result = _info_impl(ref, root=root)
 
     # If additional output/events requested, fetch them
     needs_extra = (
@@ -2800,7 +2973,7 @@ def info(
 
         if run_serial:
             try:
-                storage = _get_storage()
+                storage = _get_storage(root=root)
                 output_bytes = None
                 log_lines = None
 
@@ -2809,9 +2982,8 @@ def info(
                     # For running commands, read from live output directory
                     if is_running and attempt_id:
                         from blq.bird import BirdStore
-                        from blq.commands.core import BlqConfig
 
-                        config = BlqConfig.find()
+                        config = _find_config(root=root)
                         if config:
                             bird_store = BirdStore.open(config.lq_dir)
                             try:
@@ -2857,6 +3029,7 @@ def info(
                         limit=limit,
                         run_id=run_serial,
                         severity=sev_filter,
+                        root=root,
                     )
                     raw_events = events_result.get("events", [])
 
@@ -2932,10 +3105,12 @@ def _last_impl(
     severity: str | None = None,
     limit: int = 20,
     context: int | None = None,
+    *,
+    root: str | None,
 ) -> dict[str, Any]:
     """Implementation of last command - get info about most recent run."""
     try:
-        storage = _get_storage()
+        storage = _get_storage(root=root)
         if not storage.has_data():
             return {"error": "No data available"}
 
@@ -3107,7 +3282,10 @@ def _last_impl(
 
 @mcp.tool()
 def history(
-    limit: int | None = None, source: str | None = None, status: str | None = None
+    limit: int | None = None,
+    source: str | None = None,
+    status: str | None = None,
+    cwd: str | None = None,
 ) -> HistoryResult:
     """Get run history.
 
@@ -3117,28 +3295,40 @@ def history(
         source: Filter to specific source name
         status: Filter by run status ('running', 'completed', 'orphaned')
 
+        cwd: Workspace to act on. Falls back to the session's active_root;
+             with neither, the call is refused rather than run against the
+             MCP server's own directory.
     Returns:
         Run history list
     """
+    root = _require_root(cwd)
+    _check_workspace_policy("history", root)
+
     if limit is None:
         from blq.runtime import get_runtime
 
         limit = get_runtime().default_history_limit
-    return _history_impl(limit, source, status)
+    return _history_impl(limit, source, status, root=root)
 
 
 @mcp.tool()
-def diff(run1: int, run2: int) -> DiffResult:
+def diff(run1: int, run2: int, cwd: str | None = None) -> DiffResult:
     """Compare errors between two runs.
 
     Args:
         run1: First run serial number (baseline)
         run2: Second run serial number (comparison)
 
+        cwd: Workspace to act on. Falls back to the session's active_root;
+             with neither, the call is refused rather than run against the
+             MCP server's own directory.
     Returns:
         Diff summary with fixed and new errors
     """
-    return _diff_impl(run1, run2)
+    root = _require_root(cwd)
+    _check_workspace_policy("diff", root)
+
+    return _diff_impl(run1, run2, root=root)
 
 
 @mcp.tool()
@@ -3156,6 +3346,7 @@ def register_command(
     lines: str | None = None,
     sandbox: str | dict[str, Any] | None = None,
     lock: str | None = None,
+    cwd: str | None = None,
 ) -> CommandMutationResult:
     """Register a new command.
 
@@ -3185,11 +3376,17 @@ def register_command(
               will not run concurrently. Use this when commands access shared resources
               (e.g., lock='database' for commands that write to the same DB).
 
+        cwd: Workspace to act on. Falls back to the session's active_root;
+             with neither, the call is refused rather than run against the
+             MCP server's own directory.
     Returns:
         Success status and registered command details. If run_now=True,
         also includes 'run' key with the run result.
     """
     _check_tool_enabled("register_command")
+    root = _require_root(cwd)
+    _check_workspace_policy("register_command", root)
+
     return _register_command_impl(
         name,
         cmd,
@@ -3204,11 +3401,12 @@ def register_command(
         lines,
         sandbox,
         lock,
+        root=root,
     )
 
 
 @mcp.tool()
-def unregister_command(name: str) -> CommandMutationResult:
+def unregister_command(name: str, cwd: str | None = None) -> CommandMutationResult:
     """Remove a registered command.
 
     Note: This tool can be disabled via mcp.disabled_tools config.
@@ -3216,21 +3414,30 @@ def unregister_command(name: str) -> CommandMutationResult:
     Args:
         name: Command name to remove
 
+        cwd: Workspace to act on. Falls back to the session's active_root;
+             with neither, the call is refused rather than run against the
+             MCP server's own directory.
     Returns:
         Success status
     """
     _check_tool_enabled("unregister_command")
-    return _unregister_command_impl(name)
+    root = _require_root(cwd)
+    _check_workspace_policy("unregister_command", root)
+
+    return _unregister_command_impl(name, root=root)
 
 
 @mcp.tool()
-def commands() -> CommandsResult:
+def commands(cwd: str | None = None) -> CommandsResult:
     """List all registered commands.
 
     Returns:
         List of registered commands with their configuration
     """
-    return _commands_impl()
+    root = _require_root(cwd)
+    _check_workspace_policy("commands", root)
+
+    return _commands_impl(root=root)
 
 
 def _clean_impl(
@@ -3239,6 +3446,8 @@ def _clean_impl(
     days: int | None = None,
     max_runs: int | None = None,
     max_size_mb: int | None = None,
+    *,
+    root: str | None,
 ) -> dict[str, Any]:
     """Implementation of clean command."""
     import shutil
@@ -3286,7 +3495,10 @@ def _clean_impl(
         from blq.commands.core import BIRD_DIR, LEGACY_DIR
 
         lq_dir = None
-        current = Path.cwd()
+        # Search from the resolved workspace, not the server's cwd: this
+        # function deletes directories, and a `clean` aimed at one project
+        # must not clear another.
+        current = Path(root) if root else Path.cwd()
         while current != current.parent:
             for dirname in (BIRD_DIR, LEGACY_DIR):
                 if (current / dirname).exists():
@@ -3438,6 +3650,7 @@ def clean(
     days: int | None = None,
     max_runs: int | None = None,
     max_size_mb: int | None = None,
+    cwd: str | None = None,
 ) -> dict[str, Any]:
     """Database cleanup and maintenance.
 
@@ -3459,7 +3672,10 @@ def clean(
         Success status and message
     """
     _check_tool_enabled("clean")
-    return _clean_impl(mode, confirm, days, max_runs, max_size_mb)
+    root = _require_root(cwd)
+    _check_workspace_policy("clean", root)
+
+    return _clean_impl(mode, confirm, days, max_runs, max_size_mb, root=root)
 
 
 # ============================================================================
@@ -3474,6 +3690,8 @@ def _report_impl(
     summary_only: bool = False,
     error_limit: int = 20,
     file_limit: int = 10,
+    *,
+    root: str | None,
 ) -> dict[str, Any]:
     """Implementation of report tool - generate markdown report.
 
@@ -3486,13 +3704,13 @@ def _report_impl(
         file_limit: Max files in breakdown
     """
     try:
-        storage = _get_storage()
+        storage = _get_storage(root=root)
 
         # Resolve run_id from ref
         run_id = None
         if ref is not None:
             try:
-                _, run_id = _parse_run_ref(ref, storage)
+                _, run_id = _parse_run_ref(ref, storage, root=root)
             except ValueError as e:
                 return {"error": str(e), "ref": ref}
 
@@ -3544,6 +3762,8 @@ def _ci_check_impl(
     fail_on_any: bool = False,
     run_id: int | None = None,
     source: str | None = None,
+    *,
+    root: str | None,
 ) -> dict[str, Any]:
     """Implementation of ci_check tool - check for regressions.
 
@@ -3555,7 +3775,7 @@ def _ci_check_impl(
         source: Source name to filter by
     """
     try:
-        storage = _get_storage()
+        storage = _get_storage(root=root)
 
         # Find current run
         current_id: int
@@ -3625,8 +3845,7 @@ def _ci_check_impl(
 
 
 def _ci_generate_impl(
-    commands_filter: list[str] | None = None,
-    shell: str = "bash",
+    commands_filter: list[str] | None = None, shell: str = "bash", *, root: str | None
 ) -> dict[str, Any]:
     """Implementation of ci_generate tool - generate CI shell scripts.
 
@@ -3639,9 +3858,7 @@ def _ci_generate_impl(
         shell: Shell to use (bash, sh, zsh)
     """
     try:
-        from blq.cli import BlqConfig
-
-        config = BlqConfig.find()
+        config = _find_config(root=root)
         if config is None:
             return {"error": "No lq repository found. Run 'blq init' first."}
 
@@ -3699,6 +3916,7 @@ def report(
     summary_only: bool = False,
     error_limit: int = 20,
     file_limit: int = 10,
+    cwd: str | None = None,
 ) -> dict[str, Any]:
     """Generate a markdown report summarizing build/test results.
 
@@ -3713,11 +3931,17 @@ def report(
         error_limit: Max errors to include in details (default: 20)
         file_limit: Max files in breakdown table (default: 10)
 
+        cwd: Workspace to act on. Falls back to the session's active_root;
+             with neither, the call is refused rather than run against the
+             MCP server's own directory.
     Returns:
         Report with 'report' key containing markdown content, plus metadata
         like run_id, total_errors, total_warnings.
     """
-    return _report_impl(ref, baseline, warnings, summary_only, error_limit, file_limit)
+    root = _require_root(cwd)
+    _check_workspace_policy("report", root)
+
+    return _report_impl(ref, baseline, warnings, summary_only, error_limit, file_limit, root=root)
 
 
 @mcp.tool()
@@ -3725,6 +3949,7 @@ def ci_check(
     baseline: str | None = None,
     fail_on_any: bool = False,
     run_id: int | None = None,
+    cwd: str | None = None,
 ) -> CiCheckResult:
     """Check for regressions compared to a baseline run.
 
@@ -3741,17 +3966,22 @@ def ci_check(
         run_id: Specific run ID to check. Default: auto-detect current run
                 by matching git commit or using latest.
 
+        cwd: Workspace to act on. Falls back to the session's active_root;
+             with neither, the call is refused rather than run against the
+             MCP server's own directory.
     Returns:
         Check result with 'status' ('OK' or 'FAIL'), error counts,
         and details of new/fixed errors when baseline is available.
     """
-    return _ci_check_impl(baseline, fail_on_any, run_id)
+    root = _require_root(cwd)
+    _check_workspace_policy("ci_check", root)
+
+    return _ci_check_impl(baseline, fail_on_any, run_id, root=root)
 
 
 @mcp.tool()
 def ci_generate(
-    commands: list[str] | None = None,
-    shell: str = "bash",
+    commands: list[str] | None = None, shell: str = "bash", cwd: str | None = None
 ) -> CiGenerateResult:
     """Generate standalone shell scripts from registered commands.
 
@@ -3766,15 +3996,21 @@ def ci_generate(
         commands: Command names to generate scripts for. Default: all commands.
         shell: Shell to use: 'bash', 'sh', or 'zsh' (default: 'bash')
 
+        cwd: Workspace to act on. Falls back to the session's active_root;
+             with neither, the call is refused rather than run against the
+             MCP server's own directory.
     Returns:
         Generated scripts with 'scripts' list containing name, content,
         and metadata for each script.
     """
-    return _ci_generate_impl(commands, shell)
+    root = _require_root(cwd)
+    _check_workspace_policy("ci_generate", root)
+
+    return _ci_generate_impl(commands, shell, root=root)
 
 
 @mcp.tool()
-def sandbox_info(command: str | None = None) -> str:
+def sandbox_info(command: str | None = None, cwd: str | None = None) -> str:
     """Get sandbox specification and grades for registered commands.
 
     Shows sandbox spec, world coupling grade, effects ceiling,
@@ -3782,8 +4018,14 @@ def sandbox_info(command: str | None = None) -> str:
 
     Args:
         command: Specific command name (omit for all commands)
+        cwd: Workspace to act on. Falls back to the session's active_root;
+             with neither, the call is refused rather than run against the
+             MCP server's own directory.
     """
-    return json.dumps(_sandbox_info_impl(command), indent=2, default=str)
+    root = _require_root(cwd)
+    _check_workspace_policy("sandbox_info", root)
+
+    return json.dumps(_sandbox_info_impl(command, root=root), indent=2, default=str)
 
 
 @mcp.tool()
@@ -3835,35 +4077,35 @@ def config(
 @mcp.resource("blq://status")
 def resource_status() -> str:
     """Current status of all sources."""
-    result = _status_impl()
+    result = _status_impl(root=None)
     return json.dumps(result, indent=2, default=str)
 
 
 @mcp.resource("blq://runs")
 def resource_runs() -> str:
     """List of all runs."""
-    result = _history_impl(limit=100)
+    result = _history_impl(limit=100, root=None)
     return json.dumps(result, indent=2, default=str)
 
 
 @mcp.resource("blq://events")
 def resource_events() -> str:
     """All stored events."""
-    result = _errors_impl(limit=100)
+    result = _errors_impl(limit=100, root=None)
     return json.dumps(result, indent=2, default=str)
 
 
 @mcp.resource("blq://event/{ref}")
 def resource_event(ref: str) -> str:
     """Single event details."""
-    result = _event_impl(ref)
+    result = _event_impl(ref, root=None)
     return json.dumps(result, indent=2, default=str)
 
 
 @mcp.resource("blq://errors")
 def resource_errors() -> str:
     """Recent errors across all runs."""
-    result = _errors_impl(limit=50)
+    result = _errors_impl(limit=50, root=None)
     return json.dumps(result, indent=2, default=str)
 
 
@@ -3872,7 +4114,7 @@ def resource_errors_for_run(run_serial: str) -> str:
     """Errors for a specific run."""
     try:
         run_id = int(run_serial)
-        result = _errors_impl(limit=100, run_id=run_id)
+        result = _errors_impl(limit=100, run_id=run_id, root=None)
     except ValueError:
         result = {"errors": [], "total_count": 0, "error": f"Invalid run serial: {run_serial}"}
     return json.dumps(result, indent=2, default=str)
@@ -3881,7 +4123,7 @@ def resource_errors_for_run(run_serial: str) -> str:
 @mcp.resource("blq://warnings")
 def resource_warnings() -> str:
     """Recent warnings across all runs."""
-    result = _warnings_impl(limit=50)
+    result = _warnings_impl(limit=50, root=None)
     return json.dumps(result, indent=2, default=str)
 
 
@@ -3890,7 +4132,7 @@ def resource_warnings_for_run(run_serial: str) -> str:
     """Warnings for a specific run."""
     try:
         run_id = int(run_serial)
-        result = _warnings_impl(limit=100, run_id=run_id)
+        result = _warnings_impl(limit=100, run_id=run_id, root=None)
     except ValueError:
         result = {"warnings": [], "total_count": 0, "error": f"Invalid run serial: {run_serial}"}
     return json.dumps(result, indent=2, default=str)
@@ -3899,7 +4141,7 @@ def resource_warnings_for_run(run_serial: str) -> str:
 @mcp.resource("blq://context/{ref}")
 def resource_context(ref: str) -> str:
     """Log context around a specific event."""
-    result = _context_impl(ref, lines=5)
+    result = _context_impl(ref, lines=5, root=None)
     return json.dumps(result, indent=2, default=str)
 
 
@@ -3907,9 +4149,7 @@ def resource_context(ref: str) -> str:
 def resource_commands() -> str:
     """Registered commands."""
     try:
-        from blq.cli import BlqConfig
-
-        config = BlqConfig.find()
+        config = _find_config(root=None)
         if config is not None:
             commands = config.commands
             return json.dumps({"commands": commands}, indent=2, default=str)
@@ -3961,8 +4201,8 @@ Docs: https://blq-cli.readthedocs.io/en/latest/
 def fix_errors(run_id: int | None = None, file_pattern: str | None = None) -> str:
     """Guide through fixing build errors systematically."""
     # Get current errors
-    error_result = _errors_impl(limit=20, run_id=run_id, file_pattern=file_pattern)
-    status_result = _status_impl()
+    error_result = _errors_impl(limit=20, run_id=run_id, file_pattern=file_pattern, root=None)
+    status_result = _status_impl(root=None)
 
     # Build status table
     status_lines = [
@@ -4015,7 +4255,7 @@ Focus on fixing the root cause, not just suppressing warnings."""
 def analyze_regression(good_run: int | None = None, bad_run: int | None = None) -> str:
     """Help identify why a build started failing between two runs."""
     # Get run history to find good/bad runs if not specified
-    hist = _history_impl(limit=10)
+    hist = _history_impl(limit=10, root=None)
     runs = hist.get("runs", [])
 
     if not runs:
@@ -4033,7 +4273,7 @@ def analyze_regression(good_run: int | None = None, bad_run: int | None = None) 
             good_run = bad_run - 1 if bad_run > 1 else 1
 
     # Get diff
-    diff_result = _diff_impl(good_run, bad_run)
+    diff_result = _diff_impl(good_run, bad_run, root=None)
     summary = diff_result.get("summary", {})
 
     # Build new errors list
@@ -4068,7 +4308,7 @@ def analyze_regression(good_run: int | None = None, bad_run: int | None = None) 
 @mcp.prompt(name="summarize-run")
 def summarize_run(run_id: int | None = None, format: str = "brief") -> str:
     """Generate a concise summary of a build/test run."""
-    hist = _history_impl(limit=1)
+    hist = _history_impl(limit=1, root=None)
     runs = hist.get("runs", [])
 
     if not runs:
@@ -4087,7 +4327,7 @@ def summarize_run(run_id: int | None = None, format: str = "brief") -> str:
     if not run_info:
         run_info = runs[0]
 
-    error_result = _errors_impl(limit=10, run_id=run_id)
+    error_result = _errors_impl(limit=10, run_id=run_id, root=None)
 
     # Build error details
     error_lines = []
@@ -4121,7 +4361,7 @@ Generate a summary suitable for a GitHub PR comment:
 @mcp.prompt(name="investigate-flaky")
 def investigate_flaky(test_pattern: str | None = None, lookback: int = 10) -> str:
     """Help investigate intermittently failing tests."""
-    hist = _history_impl(limit=lookback)
+    hist = _history_impl(limit=lookback, root=None)
     runs = hist.get("runs", [])
 
     if not runs:
