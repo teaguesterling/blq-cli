@@ -8,9 +8,14 @@ from pathlib import Path
 import pytest
 
 from blq.ext import CommandSpec
+from blq.ext.local_executor import LocalExecutor
 from blq.ext.slurm_executor import SlurmExecutor, srun_command
 from blq.ext.slurm_policy import Route, SlurmPolicy, SlurmResources
 
+TRIGGER = (
+    "srun: error: Unable to allocate resources: "
+    "Unable to contact slurm controller (connect failure)"
+)
 RES = SlurmResources(partition="batch", cpus=4, mem="8G")
 SLURM_ROUTE = Route("slurm", "inside roots", RES)
 
@@ -18,7 +23,8 @@ SLURM_ROUTE = Route("slurm", "inside roots", RES)
 FAKE_SRUN = r"""#!/bin/bash
 echo "$*" >> "$FAKE_LOG/srun.log"
 case "${FAKE_SRUN_MODE:-pass}" in
-  contact) echo "srun: error: Unable to contact slurm controller (connect failure)" >&2; exit 1;;
+  contact) echo "$FAKE_TRIGGER" >&2; exit 1;;
+  hangcontact) echo "$FAKE_TRIGGER" >&2; sleep 30; exit 0;;
   oom) echo "slurmstepd: error: Detected 1 oom_kill event in StepId=1.0" >&2; exit 1;;
   config) echo "srun: error: Requested node configuration is not available" >&2; exit 1;;
   hang) sleep 30; exit 0;;
@@ -31,6 +37,14 @@ exec "$@"
 """
 FAKE_SCANCEL = '#!/bin/bash\necho "$*" >> "$FAKE_LOG/scancel.log"\n'
 FAKE_SYSTEMD_RUN = r"""#!/bin/bash
+case " $* " in
+  *" /bin/sh "*) ;;
+  *) echo "$*" >> "$FAKE_LOG/systemd-run-probe.log"
+     if [ -n "$FAKE_SYSTEMD_BROKEN" ]; then
+       echo "Failed to connect to bus: No medium found" >&2; exit 1
+     fi
+     exit 0;;
+esac
 echo "$*" >> "$FAKE_LOG/systemd-run.log"
 while [ "$1" != "/bin/sh" ]; do shift; done
 exec "$@"
@@ -54,7 +68,10 @@ def fakes(tmp_path, monkeypatch):
     _script(bindir / "systemd-run", FAKE_SYSTEMD_RUN)
     monkeypatch.setenv("PATH", f"{bindir}:/usr/bin:/bin")
     monkeypatch.setenv("FAKE_LOG", str(log))
+    monkeypatch.setenv("FAKE_TRIGGER", TRIGGER)
     monkeypatch.delenv("FAKE_SRUN_MODE", raising=False)
+    monkeypatch.delenv("FAKE_SYSTEMD_BROKEN", raising=False)
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
     return log
 
 
@@ -170,6 +187,20 @@ class TestSlurmRoute:
         assert live.read_text() == result.output
         assert warning in capfd.readouterr().err
 
+    def test_trigger_line_in_a_started_commands_output_is_not_rerun(self, fakes, tmp_path, capfd):
+        cmd = f'echo "{TRIGGER}"; echo other; exit 1'
+        result = _run(tmp_path, cmd)
+        assert len(_lines(fakes, "srun.log")) == 1
+        assert result.exit_code == 1 and "running locally" not in result.output
+        assert "running locally" not in capfd.readouterr().err
+
+    def test_timed_out_run_with_trigger_line_is_not_rerun(self, fakes, tmp_path, monkeypatch):
+        monkeypatch.setenv("FAKE_SRUN_MODE", "hangcontact")
+        result = _run(tmp_path, "true", timeout=1)
+        assert result.timeout is True
+        assert len(_lines(fakes, "srun.log")) == 1
+        assert "running locally" not in result.output
+
     def test_failing_local_rerun_is_not_looped(self, fakes, tmp_path, monkeypatch):
         monkeypatch.setenv("FAKE_SRUN_MODE", "contact")
         result = _run(tmp_path, "exit 3")
@@ -188,6 +219,30 @@ class TestLocalRoute:
         assert line in capfd.readouterr().err
         assert _lines(fakes, "srun.log") == []
 
+    def test_warning_reaches_stderr_before_the_command_runs(
+        self, fakes, tmp_path, capfd, monkeypatch
+    ):
+        seen = []
+        orig = LocalExecutor.execute
+
+        def spy(self, spec):
+            seen.append(capfd.readouterr().err)
+            return orig(self, spec)
+
+        monkeypatch.setattr(LocalExecutor, "execute", spy)
+        route = Route("local", "down", warn=True)
+        _run(tmp_path, "echo hello", route=route)
+        assert seen == ["[blq] Slurm unavailable, running locally: down\n"]
+
+    def test_live_file_keeps_timeout_marker_after_warning(self, fakes, tmp_path):
+        route = Route("local", "down", warn=True)
+        live = tmp_path / "live" / "out.log"
+        result = _run(tmp_path, "echo first; sleep 30", route=route, live=live, timeout=1)
+        text = live.read_text()
+        assert result.timeout is True
+        assert text.startswith("[blq] Slurm unavailable, running locally: down\nfirst\n")
+        assert "[TIMEOUT after 1s]" in text
+
     def test_no_warning_without_warn(self, fakes, tmp_path, capfd):
         result = _run(tmp_path, "echo hello", route=Route("local", "no Slurm policy"))
         assert result.output == "hello\n"
@@ -204,6 +259,21 @@ class TestLocalRoute:
         assert result.output == "hello\n"
         (line,) = _lines(fakes, "systemd-run.log")
         assert "--user --scope -q -p MemoryMax=2G /bin/sh -c" in line
+
+    def test_memory_cap_skipped_inside_a_slurm_job(self, fakes, tmp_path, monkeypatch):
+        monkeypatch.setenv("SLURM_JOB_ID", "123")
+        policy = SlurmPolicy((), RES, local_memory_max="2G")
+        result = _run(tmp_path, "echo hello", route=Route("local", "x"), policy=policy)
+        assert result.output == "hello\n"
+        assert _lines(fakes, "systemd-run.log") == []
+
+    def test_unusable_systemd_run_runs_unwrapped(self, fakes, tmp_path, monkeypatch):
+        monkeypatch.setenv("FAKE_SYSTEMD_BROKEN", "1")
+        policy = SlurmPolicy((), RES, local_memory_max="2G")
+        result = _run(tmp_path, "echo hello", route=Route("local", "x"), policy=policy)
+        assert (result.exit_code, result.output) == (0, "hello\n")
+        assert _lines(fakes, "systemd-run.log") == []
+        assert "--user --scope -q true" in _lines(fakes, "systemd-run-probe.log")[0]
 
     def test_no_memory_max_means_no_systemd_run(self, fakes, tmp_path):
         policy = SlurmPolicy((), RES, local_memory_max=None)

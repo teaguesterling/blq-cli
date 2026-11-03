@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import re
 import shlex
 import shutil
@@ -18,9 +19,14 @@ from blq.ext.slurm_policy import Route, SlurmPolicy, SlurmResources
 
 logger = logging.getLogger("blq-ext")
 
-# srun prints this when the controller cannot be reached: the command never started.
-_UNABLE_TO_CONTACT = re.compile(r"^srun: error: Unable to contact", re.MULTILINE)
+# srun 23.11 prints exactly this one line when the controller is unreachable (measured):
+# the command never started. The whole output must match, so a started command that
+# prints the line itself is not rerun.
+_UNABLE_TO_CONTACT = re.compile(
+    r"srun: error: Unable to allocate resources: Unable to contact slurm controller.*"
+)
 _SCANCEL_LIMIT_S = 5
+_PROBE_LIMIT_S = 5
 
 
 def srun_command(
@@ -34,7 +40,7 @@ def srun_command(
     parts = [
         "srun",
         "-n 1",
-        f"-c {res.cpus}",
+        f"-c {shlex.quote(str(res.cpus))}",
         f"--mem={shlex.quote(res.mem)}",
         f"-p {shlex.quote(res.partition)}",
         f"-J {shlex.quote('blq-' + job_name)}",
@@ -77,30 +83,58 @@ class SlurmExecutor:
         result = self._local.execute(replace(spec, command=wrapped))
         if result.timeout or result.exit_code < 0:
             self._scancel(spec.attempt_id)
-        if result.exit_code != 0 and _UNABLE_TO_CONTACT.search(result.output):
+        if (
+            not result.timeout
+            and result.exit_code > 0
+            and _UNABLE_TO_CONTACT.fullmatch(result.output.strip())
+        ):
             return self._execute_local(
                 spec, "[blq] Slurm unavailable, running locally: controller unreachable"
             )
         return result
 
     def _execute_local(self, spec: CommandSpec, warning: str | None) -> ExecutionResult:
+        if warning is not None:
+            print(warning, file=sys.stderr, flush=True)
         result = self._local.execute(replace(spec, command=self._memory_capped(spec.command)))
         if warning is None:
             return result
-        print(warning, file=sys.stderr, flush=True)
         result = replace(result, output=warning + "\n" + result.output)
-        if self._live_output_path:  # LocalExecutor wrote only its own lines
-            self._live_output_path.write_text(result.output)
+        if self._live_output_path:
+            # Prepend to what LocalExecutor wrote, so its [TIMEOUT ...] marker survives.
+            live = self._live_output_path.read_text()
+            self._live_output_path.write_text(warning + "\n" + live)
         return result
 
     def _memory_capped(self, command: str) -> str:
         limit = self._policy.local_memory_max if self._policy else None
-        if not limit or shutil.which("systemd-run") is None:
+        if not limit or os.environ.get("SLURM_JOB_ID"):  # a wrap would leave the job's cgroup
+            return command
+        if shutil.which("systemd-run") is None or not self._systemd_run_works():
             return command
         return (
             f"systemd-run --user --scope -q -p MemoryMax={shlex.quote(limit)} "
             f"/bin/sh -c {shlex.quote(command)}"
         )
+
+    @staticmethod
+    def _systemd_run_works() -> bool:
+        try:
+            proc = subprocess.run(
+                ["systemd-run", "--user", "--scope", "-q", "true"],
+                capture_output=True,
+                text=True,
+                timeout=_PROBE_LIMIT_S,
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.warning("systemd-run probe failed, running without a memory cap: %s", e)
+            return False
+        if proc.returncode != 0:
+            logger.warning(
+                "systemd-run is unusable, running without a memory cap: %s", proc.stderr.strip()
+            )
+            return False
+        return True
 
     @staticmethod
     def _scancel(attempt_id: str) -> None:
