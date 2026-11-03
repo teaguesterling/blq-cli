@@ -35,7 +35,7 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from blq.commands.core import BlqConfig
@@ -358,10 +358,30 @@ class QueryResult(TypedDict, total=False):
 
 
 class InspectResult(TypedDict, total=False):
+    # The first four are the batch shape (`run_ids`). The rest are the
+    # single-event shape, and none of them were declared: measured
+    # 2026-11-03, `inspect("1:1")` returned 13 keys and the caller received
+    # every one of them stripped, which is what three of this suite's tests
+    # were failing on.
     events: list[dict[str, Any]]
     found: int
     total: int
     error: str
+    ref: str | None
+    run_ref: str | None
+    message: str | None
+    severity: str | None
+    category: str | None
+    code: str | None
+    fingerprint: str | None
+    fingerprint_history: list[dict[str, Any]] | None
+    tool_name: str | None
+    ref_file: str | None
+    ref_line: int | None
+    ref_column: int | None
+    log_context: str | None
+    source_context: str | None
+    git_context: dict[str, Any] | None
 
 
 class OutputResult(TypedDict, total=False):
@@ -373,6 +393,16 @@ class OutputResult(TypedDict, total=False):
     ref: str
     run_id: int
     error: str
+    # `output`'s whole purpose is returning captured text, and `content` was
+    # not declared, so the text was stripped from every successful call.
+    content: str
+    stream: str
+    byte_length: int
+    total_lines: int
+    returned_lines: int
+    match_count: int
+    format_diagnosis: list[dict[str, Any]]
+    format_diagnosis_error: str
 
 
 class DiffResult(TypedDict, total=False):
@@ -399,24 +429,60 @@ class RunResult(TypedDict, total=False):
     commands_requested: int
     commands_run: int
     error: str
+    extension_data: dict[str, Any]
+    output_tail: list[str]
+    cmd: str
+    duration_sec: float
+    output_stats: dict[str, Any]
+    preview: list[str]
 
 
 class ExecResult(TypedDict, total=False):
+    # Every key below is returned by _exec_impl on some path. A key the impl
+    # returns but this does NOT declare is deleted before the caller sees it,
+    # because fastmcp coerces the value to this schema -- so an incomplete
+    # TypedDict is silent data loss, not a loose type. Measured 2026-11-03:
+    # `cmd`, `duration_sec`, `output_stats` and `preview` were being dropped
+    # from every successful exec, and `matched_command` from every reroute.
     run_ref: str | None
     status: str | None
     exit_code: int | None
     summary: dict[str, Any]
     errors: list[dict[str, Any]]
     error: str
+    cmd: str
+    duration_sec: float
+    output_stats: dict[str, Any]
+    preview: list[str]
+    output_tail: list[str]
+    output: str
+    matched_command: str
+    extra_args: list[str]
+    recommendation: dict[str, Any]
+    # the pipe-detection refusal
+    base_command: str
+    hint: str
+    suggested_workflow: str
 
 
 class CiCheckResult(TypedDict, total=False):
+    # `has_new_errors` is the key the impl returns; `has_errors` is the one
+    # that was declared. A near-miss name is the same data loss as a missing
+    # one, and harder to see.
     status: str | None
     mode: str | None
     has_errors: bool
+    has_new_errors: bool
     current_errors: int
     current_run_id: int
     error: str
+    baseline_warning: str
+    baseline_run_id: int
+    baseline_errors: int
+    delta: int
+    new_count: int
+    fixed_count: int
+    new_errors: list[dict[str, Any]]
 
 
 class CiGenerateResult(TypedDict, total=False):
@@ -437,6 +503,14 @@ class CommandMutationResult(TypedDict, total=False):
     message: str
     existing_name: str
     error: str
+    # Measured 2026-11-03: register_command returned `existing`, `command` and
+    # `format_detected`, and the caller got none of them -- five of this
+    # suite's tests assert on exactly those.
+    existing: bool
+    command: dict[str, Any]
+    format_detected: bool
+    run: dict[str, Any]
+    sandbox: dict[str, Any]
 
 
 def _get_suppressed_list(include_suppressed: bool = False, *, root: str | None) -> list[str] | None:
@@ -2585,7 +2659,7 @@ def run(
         }
 
     # Single command mode
-    return _run_impl(command, args, extra, timeout, lines=lines, root=root)
+    return cast("RunResult", _run_impl(command, args, extra, timeout, lines=lines, root=root))
 
 
 @mcp.tool()
@@ -2633,7 +2707,9 @@ def exec(
     root = _require_root(cwd)
     _check_workspace_policy("exec", root)
 
-    return _exec_impl(command, args, timeout, shell=shell, lines=lines, root=root)
+    return cast(
+        "ExecResult", _exec_impl(command, args, timeout, shell=shell, lines=lines, root=root)
+    )
 
 
 @mcp.tool()
@@ -2673,7 +2749,7 @@ def query(
     root = _require_root(cwd)
     _check_workspace_policy("query", root)
 
-    return _query_impl(sql=sql, filter=filter, limit=limit, root=root)
+    return cast("QueryResult", _query_impl(sql=sql, filter=filter, limit=limit, root=root))
 
 
 @mcp.tool()
@@ -2752,15 +2828,18 @@ def events(
         }
 
     # Single run/all runs mode
-    return _events_impl(
-        limit,
-        run_id,
-        source,
-        severity,
-        file_pattern,
-        include_suppressed=False,
-        all_runs=all_runs,
-        root=root,
+    return cast(
+        "EventsResult",
+        _events_impl(
+            limit,
+            run_id,
+            source,
+            severity,
+            file_pattern,
+            include_suppressed=False,
+            all_runs=all_runs,
+            root=root,
+        ),
     )
 
 
@@ -2849,7 +2928,7 @@ def inspect(
     if not include_log_context:
         result.pop("log_context", None)
 
-    return result
+    return cast("InspectResult", result)
 
 
 @mcp.tool()
@@ -2899,7 +2978,10 @@ def output(
     except ValueError as e:
         return {"error": str(e), "ref": ref}
 
-    return _output_impl(run_id, stream, tail, head, grep, context, lines, debug_formats, root=root)
+    return cast(
+        "OutputResult",
+        _output_impl(run_id, stream, tail, head, grep, context, lines, debug_formats, root=root),
+    )
 
 
 @mcp.tool()
@@ -2912,7 +2994,7 @@ def status(cwd: str | None = None) -> StatusResult:
     root = _require_root(cwd)
     _check_workspace_policy("status", root)
 
-    return _status_impl(root=root)
+    return cast("StatusResult", _status_impl(root=root))
 
 
 @mcp.tool()
@@ -3308,7 +3390,7 @@ def history(
         from blq.runtime import get_runtime
 
         limit = get_runtime().default_history_limit
-    return _history_impl(limit, source, status, root=root)
+    return cast("HistoryResult", _history_impl(limit, source, status, root=root))
 
 
 @mcp.tool()
@@ -3328,7 +3410,7 @@ def diff(run1: int, run2: int, cwd: str | None = None) -> DiffResult:
     root = _require_root(cwd)
     _check_workspace_policy("diff", root)
 
-    return _diff_impl(run1, run2, root=root)
+    return cast("DiffResult", _diff_impl(run1, run2, root=root))
 
 
 @mcp.tool()
@@ -3387,21 +3469,24 @@ def register_command(
     root = _require_root(cwd)
     _check_workspace_policy("register_command", root)
 
-    return _register_command_impl(
-        name,
-        cmd,
-        tpl,
-        defaults,
-        description,
-        timeout,
-        capture,
-        force,
-        format,
-        run_now,
-        lines,
-        sandbox,
-        lock,
-        root=root,
+    return cast(
+        "CommandMutationResult",
+        _register_command_impl(
+            name,
+            cmd,
+            tpl,
+            defaults,
+            description,
+            timeout,
+            capture,
+            force,
+            format,
+            run_now,
+            lines,
+            sandbox,
+            lock,
+            root=root,
+        ),
     )
 
 
@@ -3424,7 +3509,7 @@ def unregister_command(name: str, cwd: str | None = None) -> CommandMutationResu
     root = _require_root(cwd)
     _check_workspace_policy("unregister_command", root)
 
-    return _unregister_command_impl(name, root=root)
+    return cast("CommandMutationResult", _unregister_command_impl(name, root=root))
 
 
 @mcp.tool()
@@ -3437,7 +3522,7 @@ def commands(cwd: str | None = None) -> CommandsResult:
     root = _require_root(cwd)
     _check_workspace_policy("commands", root)
 
-    return _commands_impl(root=root)
+    return cast("CommandsResult", _commands_impl(root=root))
 
 
 def _clean_impl(
@@ -3976,7 +4061,7 @@ def ci_check(
     root = _require_root(cwd)
     _check_workspace_policy("ci_check", root)
 
-    return _ci_check_impl(baseline, fail_on_any, run_id, root=root)
+    return cast("CiCheckResult", _ci_check_impl(baseline, fail_on_any, run_id, root=root))
 
 
 @mcp.tool()
@@ -4006,7 +4091,7 @@ def ci_generate(
     root = _require_root(cwd)
     _check_workspace_policy("ci_generate", root)
 
-    return _ci_generate_impl(commands, shell, root=root)
+    return cast("CiGenerateResult", _ci_generate_impl(commands, shell, root=root))
 
 
 @mcp.tool()

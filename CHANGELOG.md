@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+### Fixed — 10 MCP tools were deleting keys they returned
+
+fastmcp coerces a tool's value to its declared `outputSchema`, so a key the
+impl returns but the TypedDict omits is **removed before the caller sees it**.
+The TypedDicts added in #47 were incomplete, which made that silent data loss
+rather than a loose type.
+
+Measured 2026-11-03, by calling each impl and comparing its top-level keys
+against its declared schema:
+
+| tool | keys the caller never received |
+|---|---|
+| `inspect` | all 13 of the single-event shape — `message`, `severity`, `ref_file`, `ref_line`, `log_context`, … |
+| `output` | `content` — the tool whose purpose is returning captured text returned none |
+| `exec` | `cmd`, `duration_sec`, `output_stats`, `preview`, and `matched_command` on a reroute |
+| `register_command` | `existing`, `command`, `format_detected` |
+| `ci_check` | `has_new_errors` — the schema declared `has_errors`, which the impl does not return |
+| `run` | `extension_data`, `output_tail` |
+
+**This was the cause of all 11 of the suite's failing tests.** They assert on
+keys like `result["existing"]` and `result["message"]`, which arrived deleted.
+Completing the schemas took the suite from 11 failed / 1385 passed to **1400
+passed**, with no change to any implementation.
+
+Two of the types were wrong in the first attempt, and the schema caught both
+loudly rather than silently: `recommendation` is a dict carrying
+`message`/`suggested_call`/`reason`, not a string, and `log_context` is
+nullable. Every single-event `inspect` field comes from
+`_to_json_safe(event_data.get(...))`, so each one is now declared nullable.
+
+`tests/test_output_schemas.py` gains the direction it was missing. Its existing
+tests assert that a *declared* key is published; they cannot see a *returned*
+key that is undeclared. Four new tests pin the keys that were lost, measured
+red against the schemas as #47 left them.
+
+### Fixed — mypy is clean
+
+The 14 remaining errors were all one pattern: a tool declares a TypedDict while
+its impl returns `dict[str, Any]`. Each now casts at the tool boundary, which
+is honest only because the schemas above are complete — a cast onto an
+incomplete TypedDict would have asserted a shape that drops data.
+
+## Unreleased
+
 ### Fixed (breaking) — a run and the read of it now agree on the workspace (#55)
 
 `config(active_root=...)` steered only the read tools. `_run_impl` and
