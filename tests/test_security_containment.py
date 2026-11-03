@@ -16,6 +16,8 @@ All fixtures are local temp files; nothing here touches the network.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from blq import serve
@@ -199,7 +201,7 @@ class TestQueryBuilderInjection:
         from blq.serve import _get_storage
         from blq.services.query import query_events
 
-        storage = _get_storage()
+        storage = _get_storage(root=os.getcwd())
         baseline = query_events(storage, all_runs=True, limit=100)
         assert baseline["total_count"] > 0, "fixture should have produced events"
 
@@ -213,7 +215,7 @@ class TestQueryBuilderInjection:
         from blq.serve import _event_impl, _get_storage
         from blq.services.query import query_events
 
-        storage = _get_storage()
+        storage = _get_storage(root=os.getcwd())
         events = query_events(storage, all_runs=True, limit=1)["events"]
         assert events, "fixture should have produced events"
         ev = events[0]
@@ -225,7 +227,7 @@ class TestQueryBuilderInjection:
         # the real event regardless of tag. Parameterized, the literal tag
         # (which no event carries) matches nothing.
         bogus_ref = f"zzz' OR '1'='1:{serial}:{eid}"
-        result = _event_impl(bogus_ref)
+        result = _event_impl(bogus_ref, root=os.getcwd())
         assert result is None, "tag-clause SQL injection bypassed the tag filter"
 
     def test_single_quote_value_does_not_error(self, blq_with_data):
@@ -233,7 +235,7 @@ class TestQueryBuilderInjection:
         from blq.serve import _get_storage
         from blq.services.query import query_events
 
-        storage = _get_storage()
+        storage = _get_storage(root=os.getcwd())
         # Should return a well-formed (empty) result, never raise.
         result = query_events(storage, source="a'b", all_runs=True, limit=10)
         assert result["total_count"] == 0

@@ -1,5 +1,69 @@
 # Changelog
 
+## Unreleased
+
+### Fixed (breaking) — a run and the read of it now agree on the workspace (#55)
+
+`config(active_root=...)` steered only the read tools. `_run_impl` and
+`_exec_impl` passed no `cwd` to their child process, so `blq exec`/`blq run`
+walked up from the *server's* directory to find `.bird/` and recorded the run
+there, whatever root the caller had named. `_get_storage()` honoured
+`active_root` and read a different workspace. A run went into one store and was
+looked for in another.
+
+Two more places resolved from the process cwd, and both matter once a call can
+name its own workspace:
+
+* `BlqConfig.find()` supplied the registered-command registry, so a prefix
+  match on `exec(command=..., cwd=X)` would reroute through whatever the
+  *server's* workspace had registered under that prefix and run that
+  definition instead;
+* the same lookup supplied `mcp.disabled_tools`, so a call aimed at project X
+  ran under a policy file belonging to another project;
+* `_clean_impl` walked up from `Path.cwd()` with its own loop. `clean` deletes
+  directories, so a call aimed at one project could clear another's `.bird/`.
+
+Every workspace tool now takes `cwd=`, and the resolution order is the same
+everywhere with no third step:
+
+1. the `cwd=` argument,
+2. the session's `active_root`,
+3. otherwise the call is refused.
+
+**This breaks bare calls**, which is the point: a wrong-workspace answer
+becomes a loud failure instead of a confident one. Pass `cwd=`, or set the root
+once with `config(set={"active_root": "..."})`, or seed `BLQ_ACTIVE_ROOT` in the
+launch environment. The retritis plugin seeds it from `${PWD}`.
+
+The refusal **raises** rather than returning an error dict. Every tool declares
+a TypedDict return and fastmcp coerces the value to that schema, so an error
+dict arrived as `{"sources": None}` with its own keys dropped — a refusal
+indistinguishable from an empty answer. Raising matches `_check_tool_enabled`,
+which is already how this module refuses a call.
+
+Ordering inside each tool is server-level policy, then argument validation,
+then the root, then the workspace's own policy. The cached server-level set
+(CLI flags, env, `safe_mode`) is still checked first, so a caller cannot point
+`cwd=` at a permissive project to escape it.
+
+`root` is a **required keyword-only** parameter on the 29 helpers that reach a
+store or a config, so a missed call site is a `TypeError` and a mypy error
+rather than a silent read of the server's workspace. mypy found all 19
+`_get_storage()` sites that way. The MCP resources and prompts pass
+`root=None` explicitly: a `blq://` URI cannot carry a workspace, so they keep
+the cwd fallback on purpose.
+
+Both sides of the store lookup now walk up through `BlqConfig`, so a `cwd=`
+that names a subdirectory resolves to the same `.bird/` the child process
+finds.
+
+Verified: 12 new tests, measured red before the change. The decisive one is a
+round trip — a run made through workspace X is read back through X, *and* the
+server's own workspace is asserted to have gained no run, because a `pwd`
+check passes while the two halves still disagree. Suite: 1373 passed before,
+1385 after, with a failure set identical to the baseline's 11. mypy unchanged
+at its 14 pre-existing errors; `ruff check` on `serve.py` clean.
+
 ## v1.2.2
 
 ### Fixed — Suppress FastMCP banners on stdio transport

@@ -4,6 +4,7 @@ Uses FastMCP's in-memory transport for efficient testing without
 subprocess or network overhead.
 """
 
+import os
 import sys
 
 import pytest
@@ -1231,7 +1232,7 @@ class TestExecPipeDetection:
         """exec with pipe in command returns error dict."""
         from blq.serve import _exec_impl
 
-        result = _exec_impl("pytest tests/ | tail -20")
+        result = _exec_impl("pytest tests/ | tail -20", root=os.getcwd())
         assert "error" in result
         assert "Shell syntax" in result["error"]
         assert "base_command" in result
@@ -1240,7 +1241,7 @@ class TestExecPipeDetection:
         """exec with && chain returns error dict."""
         from blq.serve import _exec_impl
 
-        result = _exec_impl("pytest && mypy src/")
+        result = _exec_impl("pytest && mypy src/", root=os.getcwd())
         assert "error" in result
         assert "Shell syntax" in result["error"]
 
@@ -1248,7 +1249,7 @@ class TestExecPipeDetection:
         """exec with clean command works normally."""
         from blq.serve import _exec_impl
 
-        result = _exec_impl("echo hello")
+        result = _exec_impl("echo hello", root=os.getcwd())
         # Should not have the pipe detection error
         assert "Shell syntax" not in result.get("error", "")
         # Should have normal run result structure
@@ -1258,7 +1259,7 @@ class TestExecPipeDetection:
         """exec with shell=True bypasses pipe detection."""
         from blq.serve import _exec_impl
 
-        result = _exec_impl("echo hello && echo world", shell=True)
+        result = _exec_impl("echo hello && echo world", shell=True, root=os.getcwd())
         # Should not have the pipe detection error
         assert "Shell syntax" not in result.get("error", "")
         assert "status" in result
@@ -1267,7 +1268,7 @@ class TestExecPipeDetection:
         """exec with shell=True captures output from shell commands."""
         from blq.serve import _exec_impl
 
-        result = _exec_impl("echo hello && echo world", shell=True)
+        result = _exec_impl("echo hello && echo world", shell=True, root=os.getcwd())
         assert result.get("status") == "OK"
         assert result.get("exit_code") == 0
 
