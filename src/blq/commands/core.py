@@ -1109,6 +1109,7 @@ class RegisteredCommand:
     suppress: list[str] = field(default_factory=list)  # Fingerprints to suppress in reports
     lines: str | None = None  # Default line selection for run/exec output (e.g., "+20-")
     lock: str | None = None  # Lock name for resource contention (shared across commands)
+    slurm: bool | dict[str, Any] | None = None  # False opts out; a table sets resources
     _extra: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -1207,6 +1208,8 @@ class RegisteredCommand:
             d["lines"] = self.lines
         if self.lock is not None:
             d["lock"] = self.lock
+        if self.slurm is not None:
+            d["slurm"] = self.slurm
         d.update(self._extra)
         return d
 
@@ -1396,7 +1399,39 @@ _KNOWN_COMMAND_KEYS = {
     "suppress",
     "lines",
     "lock",
+    "slurm",
 }
+
+
+def _slurm_override_problem(value: Any) -> str | None:
+    """Return why a command's `slurm` value is invalid, or None if it is valid."""
+    if isinstance(value, bool):
+        return None
+    if not isinstance(value, dict):
+        return "must be a bool or a table"
+    for key, item in value.items():
+        if key == "cpus":
+            # bool is an int subclass, so `cpus = true` needs its own check.
+            if isinstance(item, bool) or not isinstance(item, int) or item <= 0:
+                return "cpus must be a positive integer"
+        elif key in ("mem", "partition"):
+            if not isinstance(item, str) or not item:
+                return f"{key} must be a non-empty string"
+        else:
+            return f"unknown key {key!r}"
+    return None
+
+
+def _parse_slurm_override(name: str, value: Any) -> bool | dict[str, Any] | None:
+    """Validate a command's `slurm` value. A bad value warns and counts as unset."""
+    if value is None:
+        return None
+    problem = _slurm_override_problem(value)
+    if problem:
+        logger.warning("Ignoring slurm setting of command %r: %s", name, problem)
+        return None
+    override: bool | dict[str, Any] = value
+    return override
 
 
 def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
@@ -1444,6 +1479,7 @@ def _load_commands_impl(lq_dir: Path) -> dict[str, RegisteredCommand]:
                 suppress=suppress,
                 lines=config.get("lines"),  # Default line selection for output
                 lock=config.get("lock"),
+                slurm=_parse_slurm_override(name, config.get("slurm")),
                 _extra=extra,
             )
     return commands

@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from types import FrameType
@@ -45,10 +46,12 @@ from blq.commands.core import (
     parse_log_content,
     write_run_parquet,
 )
-from blq.ext import CommandSpec, capture_env
+from blq.ext import CommandSpec, Executor, capture_env
 from blq.ext.discovery import load_extensions, order_extensions
 from blq.ext.local_executor import LocalExecutor
 from blq.ext.pipeline import run_pipeline
+from blq.ext.slurm_executor import SlurmExecutor, srun_command
+from blq.ext.slurm_policy import decide_route, load_policy
 from blq.locks import LockHeldError, acquire_lock, release_lock
 
 # Logger for lq status messages
@@ -245,6 +248,7 @@ def _execute_with_live_output(
     lock_name: str | None = None,
     no_lock: bool = False,
     wait_lock: int | None = None,
+    slurm: bool | dict[str, Any] | None = None,
 ) -> RunResult:
     """Execute command with live output streaming (attempts/outcomes pattern).
 
@@ -403,7 +407,13 @@ def _execute_with_live_output(
         ordered = order_extensions(extensions)
 
         # Create executor with live output path
-        executor = LocalExecutor(quiet=quiet, live_output_path=live_output_path)
+        executor: Executor
+        policy = load_policy()
+        if policy is None:
+            executor = LocalExecutor(quiet=quiet, live_output_path=live_output_path)
+        else:
+            route = decide_route(policy, cmd_spec.cwd, slurm, {**os.environ, **cmd_spec.env})
+            executor = SlurmExecutor(route, policy, quiet=quiet, live_output_path=live_output_path)
 
         # Run the pipeline: prepare -> execute -> collect
         exec_result = run_pipeline(cmd_spec, ordered, executor)
@@ -665,6 +675,7 @@ def _execute_command(
     lock_name: str | None = None,
     no_lock: bool = False,
     wait_lock: int | None = None,
+    slurm: bool | dict[str, Any] | None = None,
 ) -> RunResult:
     """Execute a command and capture its output.
 
@@ -687,6 +698,8 @@ def _execute_command(
         lock_name: Optional lock name for resource contention.
         no_lock: If True, bypass lock even if lock_name is set.
         wait_lock: If set, wait up to this many seconds for the lock.
+        slurm: The command's Slurm override (False opts out, a table sets resources).
+            Only BIRD mode routes through Slurm; legacy parquet mode always runs locally.
 
     Returns:
         RunResult with execution details and parsed events
@@ -709,6 +722,7 @@ def _execute_command(
             lock_name=lock_name,
             no_lock=no_lock,
             wait_lock=wait_lock,
+            slurm=slurm,
         )
 
     # Legacy parquet mode - write everything at the end
@@ -1094,17 +1108,35 @@ def _parse_command_args(
     return named_args, positional_args, extra_args
 
 
-def _run_no_capture(command: str, quiet: bool = False) -> int:
+def _route_no_capture(command: str, slurm: bool | dict[str, Any] | None) -> str:
+    """Return `command`, wrapped in `srun` if the Slurm route says so."""
+    policy = load_policy()
+    if policy is None:
+        return command
+    cwd = Path.cwd()
+    route = decide_route(policy, cwd, slurm, os.environ)
+    if route.kind == "slurm" and route.resources is not None:
+        return srun_command(command, cwd, route.resources, uuid.uuid4().hex, None)
+    if route.warn:
+        print(f"[blq] Slurm unavailable, running locally: {route.reason}", file=sys.stderr)
+    return command
+
+
+def _run_no_capture(
+    command: str, quiet: bool = False, slurm: bool | dict[str, Any] | None = None
+) -> int:
     """Run a command without capturing output to parquet.
 
     Args:
         command: Shell command to run
         quiet: If True, don't stream output
+        slurm: The command's Slurm override (False opts out, a table sets resources)
 
     Returns:
         Exit code from the command
     """
     started_at = datetime.now()
+    command = _route_no_capture(command, slurm)
 
     # Track subprocess for signal handling
     process: subprocess.Popen[str] | None = None
@@ -1284,9 +1316,11 @@ def cmd_run(args: argparse.Namespace) -> None:
     else:
         logger.setLevel(logging.WARNING)
 
+    slurm = registered_commands[cmd_name].slurm if cmd_name in registered_commands else None
+
     # No-capture mode: just run and exit with the command's exit code
     if not should_capture:
-        exit_code = _run_no_capture(command, quiet)
+        exit_code = _run_no_capture(command, quiet, slurm)
         sys.exit(exit_code)
 
     # Determine timeout: CLI flag overrides command config
@@ -1326,6 +1360,7 @@ def cmd_run(args: argparse.Namespace) -> None:
             lock_name=lock_name,
             no_lock=no_lock,
             wait_lock=wait_lock,
+            slurm=slurm,
         )
     except LockHeldError as e:
         print(f"Error: {e}", file=sys.stderr)
