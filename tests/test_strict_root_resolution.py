@@ -1,7 +1,14 @@
 """Every workspace tool names its workspace, or is refused.
 
 The resolution order is the `cwd=` argument, then runtime `active_root`, then
-an error.  There is no implicit read of the server's process cwd.
+the server's own process cwd.  2.0.0 refused that last step, and blq-cli#59
+put it back: 69 project `.mcp.json` files declare a blq server with no
+BLQ_ACTIVE_ROOT, so a bare call raised and the server read as down.
+
+The fallback does not reopen #55, because the mismatch was the fault, not
+the fallback.  `run` and `exec` pass the resolved root to the child, so the
+same directory executes the run and reads it back.  What a bare call loses
+is only the guarantee that the caller named the workspace on purpose.
 
 Three things have to agree on the answer, and before this change they did
 not (blq-cli#55):
@@ -83,6 +90,20 @@ def _isolate_runtime():
     yield
     rt._runtime = BlqRuntimeConfig()
     rt._seed = BlqRuntimeConfig()
+
+
+@pytest.fixture(autouse=True)
+def _reset_root_fallback_notice():
+    """The announce-once flag is module state; clear it between tests.
+
+    Without this, whichever test ran first consumes the notice and the test
+    that asserts it sees nothing -- a pass or fail decided by test order.
+    """
+    from blq import serve
+
+    serve._root_fallback_announced = False
+    yield
+    serve._root_fallback_announced = False
 
 
 @pytest.fixture(autouse=True)
@@ -198,7 +219,19 @@ class TestRunsGoToTheNamedWorkspace:
         assert here.get("runs", []) == [], f"the server's own workspace gained a run: {here}"
 
 
-class TestNoRootIsAnError:
+class TestNoRootFallsBackToTheProcessCwd:
+    """A bare call answers from the server's own directory, and says so.
+
+    The refusal this replaces was right about the risk and wrong about the
+    deployment.  A directory that happens to be a workspace answers
+    confidently about a project nobody asked about, which is why #56 removed
+    the fallback; but almost every launched server has no BLQ_ACTIVE_ROOT, so
+    removing it refused every call instead of the ambiguous ones.
+
+    The fallback is therefore announced rather than silent, and `cwd=` remains
+    the way a caller says which workspace it means.
+    """
+
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "tool,args",
@@ -209,24 +242,44 @@ class TestNoRootIsAnError:
             ("commands", {}),
         ],
     )
-    async def test_bare_call_is_refused(self, server, two_projects, tool, args):
-        """The refusal has to be visible to the caller.
+    async def test_bare_call_is_answered(self, server, two_projects, tool, args):
+        """No tool raises for the want of a named workspace."""
+        async with Client(server) as client:
+            raw = await client.call_tool(tool, args)
 
-        Returning an error dict does not work here. Every tool declares a
-        TypedDict return and fastmcp coerces the value to that schema, so an
-        error dict arrived as `{"sources": None}` with its own keys dropped --
-        a refusal indistinguishable from an empty answer. The tools raise
-        instead, which is also how this module already refuses a disabled
-        tool.
+        assert "no_root" not in full_text(raw), full_text(raw)
+
+    @pytest.mark.asyncio
+    async def test_a_bare_run_is_readable_through_a_bare_read(self, server, two_projects):
+        """The #55 invariant has to survive the fallback.
+
+        This is the test that would catch a fallback applied to the read but
+        not to the child: the run would land in one workspace and the history
+        would be taken from another.  Both halves resolve the same way here,
+        so one bare call must be able to see the other's run.
+        """
+        server_repo, _ = two_projects
+        async with Client(server) as client:
+            await client.call_tool("exec", {"command": "echo", "args": ["fallback"]})
+            raw = await client.call_tool("history", {"limit": 5})
+            runs = get_data(raw).get("runs", [])
+
+        assert len(runs) == 1, f"a bare read did not see the bare run: {runs}"
+        assert (server_repo / ".bird").is_dir()
+
+    @pytest.mark.asyncio
+    async def test_the_fallback_is_announced(self, server, two_projects, capsys):
+        """Silent is the one thing this must not be.
+
+        The warning cannot travel in the return value: every tool declares a
+        TypedDict return and fastmcp drops keys the schema does not name, which
+        is the same reason #56 raised instead of returning an error dict.  So
+        stderr is the only channel, and this pins that it is used.
         """
         async with Client(server) as client:
-            with pytest.raises(Exception) as excinfo:
-                await client.call_tool(tool, args)
+            await client.call_tool("status", {})
 
-        message = str(excinfo.value)
-        assert "no_root" in message, f"{tool} failed for another reason: {message}"
-        # Both ways out have to be named, or the caller cannot act on it.
-        assert "cwd" in message and "active_root" in message, message
+        assert "no_root_fallback" in capsys.readouterr().err
 
     @pytest.mark.asyncio
     async def test_active_root_satisfies_the_requirement(self, server, two_projects):
