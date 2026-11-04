@@ -34,9 +34,9 @@ case "${FAKE_SRUN_MODE:-pass}" in
   contact) echo "$FAKE_TRIGGER" >&2; exit 1;;
   hangcontact) echo "$FAKE_TRIGGER" >&2; sleep 30; exit 0;;
   oom)
-    echo "slurmstepd-longbottom: error: Detected 1 oom_kill event in StepId=53.0. \
+    echo "slurmstepd-node1: error: Detected 1 oom_kill event in StepId=53.0. \
 Some of the step tasks have been OOM Killed." >&2
-    echo "srun: error: longbottom: task 0: Out Of Memory" >&2
+    echo "srun: error: node1: task 0: Out Of Memory" >&2
     exit 1;;
   config) echo "srun: error: Requested node configuration is not available" >&2; exit 1;;
   hang) sleep 30; exit 0;;
