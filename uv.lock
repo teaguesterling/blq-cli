@@ -188,7 +188,7 @@ wheels = [
 
 [[package]]
 name = "blq-cli"
-version = "1.0.1"
+version = "2.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "duckdb" },
@@ -199,6 +199,7 @@ dependencies = [
     { name = "tabulate" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "tomli-w" },
+    { name = "typing-extensions", marker = "python_full_version < '3.12'" },
     { name = "watchdog" },
 ]
 
@@ -221,7 +222,7 @@ mcp = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", specifier = ">=1.4.4" },
+    { name = "duckdb", specifier = ">=1.4.4,<2" },
     { name = "fastmcp", marker = "extra == 'dev'", specifier = ">=2.0.0" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=2.0.0" },
     { name = "jinja2", specifier = ">=3.0.0" },
@@ -237,6 +238,7 @@ requires-dist = [
     { name = "tabulate", specifier = ">=0.9.0" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0.0" },
     { name = "tomli-w", specifier = ">=1.0.0" },
+    { name = "typing-extensions", marker = "python_full_version < '3.12'", specifier = ">=4.0" },
     { name = "watchdog", specifier = ">=3.0.0" },
 ]
 provides-extras = ["dev", "docs", "mcp"]
