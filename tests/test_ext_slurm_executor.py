@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 import stat
 from pathlib import Path
 
@@ -16,6 +17,8 @@ TRIGGER = (
     "srun: error: Unable to allocate resources: "
     "Unable to contact slurm controller (connect failure)"
 )
+STATUS = "srun: error: node1: task 0: Exited with exit code 1"
+STATUS2 = "srun: error: node1: task 1: Exited with exit code 2"
 RES = SlurmResources(partition="batch", cpus=4, mem="8G")
 SLURM_ROUTE = Route("slurm", "inside roots", RES)
 
@@ -28,6 +31,9 @@ case "${FAKE_SRUN_MODE:-pass}" in
   oom) echo "slurmstepd: error: Detected 1 oom_kill event in StepId=1.0" >&2; exit 1;;
   config) echo "srun: error: Requested node configuration is not available" >&2; exit 1;;
   hang) sleep 30; exit 0;;
+  midstatus) echo first; echo "$FAKE_STATUS" >&2; echo second; exit 1;;
+  twostatus) echo "$FAKE_STATUS" >&2; echo first; echo "$FAKE_STATUS2" >&2; echo second; exit 1;;
+  statushang) echo first; echo "$FAKE_STATUS" >&2; echo second; sleep 30; exit 0;;
 esac
 for a in "$@"; do
   case "$a" in --chdir=*) cd "${a#--chdir=}";; esac
@@ -69,6 +75,8 @@ def fakes(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", f"{bindir}:/usr/bin:/bin")
     monkeypatch.setenv("FAKE_LOG", str(log))
     monkeypatch.setenv("FAKE_TRIGGER", TRIGGER)
+    monkeypatch.setenv("FAKE_STATUS", STATUS)
+    monkeypatch.setenv("FAKE_STATUS2", STATUS2)
     monkeypatch.delenv("FAKE_SRUN_MODE", raising=False)
     monkeypatch.delenv("FAKE_SYSTEMD_BROKEN", raising=False)
     monkeypatch.delenv("SLURM_JOB_ID", raising=False)
@@ -100,7 +108,56 @@ def _run(tmp_path, command="echo hello", route=SLURM_ROUTE, policy=None, live=No
     return ex.execute(_spec(tmp_path, command, **spec_kw))
 
 
+class TestStatusLineMovesToEnd:
+    """srun prints its task status line anywhere, and a split record loses its event."""
+
+    def test_status_line_moves_to_the_end_of_output_and_live_file(
+        self, tmp_path, fakes, monkeypatch
+    ):
+        monkeypatch.setenv("FAKE_SRUN_MODE", "midstatus")
+        live = tmp_path / "live.out"
+        result = _run(tmp_path, live=live)
+        expected = ["first", "second", STATUS]
+        assert result.output.splitlines() == expected
+        assert live.read_text().splitlines() == expected
+        assert result.exit_code == 1
+
+    def test_several_status_lines_keep_their_order(self, tmp_path, fakes, monkeypatch):
+        monkeypatch.setenv("FAKE_SRUN_MODE", "twostatus")
+        result = _run(tmp_path)
+        assert result.output.splitlines() == ["first", "second", STATUS, STATUS2]
+
+    def test_timeout_marker_survives_in_the_live_file(self, tmp_path, fakes, monkeypatch):
+        monkeypatch.setenv("FAKE_SRUN_MODE", "statushang")
+        live = tmp_path / "live.out"
+        result = _run(tmp_path, live=live, timeout=1)
+        assert result.timeout
+        text = live.read_text()
+        assert "[TIMEOUT after 1s]" in text
+        assert text.splitlines()[-1] == STATUS
+        assert text.count(STATUS) == 1
+        assert result.output.splitlines()[-1] == STATUS
+
+    def test_local_route_leaves_a_matching_line_in_place(self, tmp_path, fakes):
+        command = f"echo first; echo '{STATUS}'; echo second"
+        live = tmp_path / "live.out"
+        result = _run(tmp_path, command, route=Route("local", "outside"), live=live)
+        expected = ["first", STATUS, "second"]
+        assert result.output.splitlines() == expected
+        assert live.read_text().splitlines() == expected
+
+    def test_other_srun_errors_stay_in_place(self, tmp_path, fakes):
+        command = "echo first; echo 'srun: error: something else'; echo second"
+        result = _run(tmp_path, command)
+        assert result.output.splitlines() == ["first", "srun: error: something else", "second"]
+
+
 class TestSrunCommand:
+    def test_inner_shell_merges_stderr_before_the_command(self, tmp_path):
+        # srun reorders the two streams, so the task must write both to one stream.
+        argv = shlex.split(srun_command("echo 'a b' >&2", tmp_path, RES, "x", None))
+        assert argv[-3:] == ["/bin/sh", "-c", "exec 2>&1; echo 'a b' >&2"]
+
     def test_srun_args_include_one_task_and_resources(self, tmp_path):
         cmd = srun_command("true", tmp_path, RES, "att-001", None)
         assert "-n 1" in cmd and "-c 4" in cmd and "--mem=8G" in cmd and "-p batch" in cmd

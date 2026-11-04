@@ -25,8 +25,23 @@ logger = logging.getLogger("blq-ext")
 _UNABLE_TO_CONTACT = re.compile(
     r"srun: error: Unable to allocate resources: Unable to contact slurm controller.*"
 )
+# srun prints this line at any position in the merged output (measured), and a parser
+# loses a multi-line record that the line splits. So it moves to the end.
+_TASK_STATUS = re.compile(r"srun: error: \S+: task \d+: .*\n?")
 _SCANCEL_LIMIT_S = 5
 _PROBE_LIMIT_S = 5
+
+
+def _status_lines_last(text: str) -> str:
+    """Move srun's task status lines to the end. No line is dropped."""
+    lines = text.splitlines(keepends=True)
+    status = [line for line in lines if _TASK_STATUS.fullmatch(line)]
+    if not status:
+        return text
+    body = [line for line in lines if not _TASK_STATUS.fullmatch(line)]
+    if body and not body[-1].endswith("\n"):
+        body[-1] += "\n"
+    return "".join(body + status)
 
 
 def srun_command(
@@ -48,7 +63,8 @@ def srun_command(
     ]
     if timeout is not None:
         parts.append(f"-t {math.ceil(timeout / 60) + 1}")
-    parts += ["/bin/sh", "-c", shlex.quote(command)]
+    # srun reorders the task's stdout and stderr (measured), so the task merges them first.
+    parts += ["/bin/sh", "-c", shlex.quote(f"exec 2>&1; {command}")]
     return " ".join(parts)
 
 
@@ -91,7 +107,11 @@ class SlurmExecutor:
             return self._execute_local(
                 spec, "[blq] Slurm unavailable, running locally: controller unreachable"
             )
-        return result
+        if self._live_output_path:
+            # Rewrite what LocalExecutor wrote, so its [TIMEOUT ...] marker survives.
+            live = self._live_output_path.read_text()
+            self._live_output_path.write_text(_status_lines_last(live))
+        return replace(result, output=_status_lines_last(result.output))
 
     def _execute_local(self, spec: CommandSpec, warning: str | None) -> ExecutionResult:
         if warning is not None:

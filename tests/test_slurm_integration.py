@@ -29,6 +29,11 @@ for a in "$@"; do
   case "$a" in --chdir=*) cd "${a#--chdir=}";; esac
 done
 while [ "$1" != "/bin/sh" ]; do shift; done
+if [ -n "$FAKE_SRUN_STATUS_AFTER" ]; then
+  "$@" | awk -v n="$FAKE_SRUN_STATUS_AFTER" \
+    '{print} NR==n{print "srun: error: fakenode: task 0: Exited with exit code 1"}'
+  exit "${PIPESTATUS[0]}"
+fi
 "$@"
 rc=$?
 if [ "$rc" -ne 0 ] && [ -z "$FAKE_SRUN_NO_STATUS" ]; then
@@ -135,7 +140,13 @@ def env(initialized_project, tmp_path, monkeypatch) -> Env:
     monkeypatch.setenv("PATH", f"{bindir}:/usr/bin:/bin")
     monkeypatch.setenv("FAKE_LOG", str(log))
     # The suite itself runs inside a Slurm job, and that alone keeps the route local.
-    for var in ("SLURM_JOB_ID", "BLQ_SLURM", "FAKE_SCONTROL_DOWN", "FAKE_SRUN_NO_STATUS"):
+    for var in (
+        "SLURM_JOB_ID",
+        "BLQ_SLURM",
+        "FAKE_SCONTROL_DOWN",
+        "FAKE_SRUN_NO_STATUS",
+        "FAKE_SRUN_STATUS_AFTER",
+    ):
         monkeypatch.delenv(var, raising=False)
     # The MCP tools and the autouse fixture resolve the root from here.
     monkeypatch.setenv("BLQ_ACTIVE_ROOT", str(initialized_project))
@@ -394,8 +405,35 @@ class TestSrunStatusLine:
         assert fingerprints(with_line), "no events: this comparison would prove nothing"
         assert fingerprints(with_line) == fingerprints(without_line)
         # The line stays in the stored output, because only parsing may ignore it.
-        assert env.blq("output", "--grep", "Exited with exit code", "+2").stdout.strip()
+        assert "Exited with exit code" in env.blq("output", "--grep", "Exited", "+2").stdout
         assert "Exited with exit code" not in env.blq("output", "+1").stdout
+
+    @pytest.mark.skipif(not _duck_hunt_loads(), reason="duck_hunt is needed to produce events")
+    def test_status_line_inside_a_record_loses_no_event(self, env, monkeypatch):
+        # Real srun prints this line at any position, and duck_hunt loses a record it splits.
+        (env.project / "rustc.log").write_text(
+            "error[E0308]: mismatched types\n --> src/main.rs:2:5\n"
+        )
+        env.write_policy()
+        command = "cat rustc.log; exit 1"
+
+        def run_json() -> dict:
+            proc = env.blq("exec", "--json", "--quiet", "--", command)
+            assert proc.returncode == 1, proc.stderr
+            return json.loads(proc.stdout)
+
+        monkeypatch.setenv("FAKE_SRUN_NO_STATUS", "1")
+        without_line = run_json()
+        monkeypatch.delenv("FAKE_SRUN_NO_STATUS")
+        monkeypatch.setenv("FAKE_SRUN_STATUS_AFTER", "1")
+        with_line = run_json()
+
+        assert without_line["errors"], "no events: this comparison would prove nothing"
+        assert len(with_line["errors"]) == len(without_line["errors"])
+        # No line is dropped: the stored output still holds the status line, last.
+        stored = env.blq("output", "+1").stdout.strip().splitlines()
+        assert stored[-1] == "srun: error: fakenode: task 0: Exited with exit code 1"
+        assert len(stored) == 3
 
 
 class TestWatch:
