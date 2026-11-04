@@ -264,6 +264,7 @@ class WatchController:
                     format_hint=reg_cmd.format,
                     quiet=self._quiet,
                     session_id=self._session.session_id,
+                    slurm=reg_cmd.slurm,
                 )
 
                 self._session.run_count += 1

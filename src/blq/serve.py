@@ -2424,6 +2424,8 @@ def _register_command_impl(
             format=format or "auto",
             lines=lines,
             lock=lock,
+            # Survives an overwrite: dropping `slurm = false` would reroute the command.
+            slurm=commands[name].slurm if name in commands else None,
             _extra=extra,
         )
         commands[name] = new_command

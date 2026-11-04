@@ -218,8 +218,10 @@ def cmd_register(args: argparse.Namespace) -> None:
                     )
                     break  # Only show first match
 
-    # Register new command
+    # Register new command. The Slurm setting survives an overwrite: dropping `slurm = false`
+    # would silently put the command back on the Slurm route.
     capture = not getattr(args, "no_capture", False)
+    slurm = commands[name].slurm if name in commands else None
 
     # Detect format if not specified
     format_hint = args.format
@@ -240,6 +242,7 @@ def cmd_register(args: argparse.Namespace) -> None:
             timeout=args.timeout,
             format=format_hint,
             capture=capture,
+            slurm=slurm,
         )
         defaults_note = f" (defaults: {defaults})" if defaults else ""
         format_note = f" [format: {format_hint}]" if format_detected else ""
@@ -255,6 +258,7 @@ def cmd_register(args: argparse.Namespace) -> None:
             timeout=args.timeout,
             format=format_hint,
             capture=capture,
+            slurm=slurm,
         )
         capture_note = " (no capture)" if not capture else ""
         format_note = f" [format: {format_hint}]" if format_detected else ""

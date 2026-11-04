@@ -66,6 +66,7 @@ nav:
       - Python API: python-api.md
       - Integration: integration.md
       - MCP Server: mcp.md
+      - Slurm Routing: slurm.md
   - Development:
       - CI/CD Setup: ci-cd.md
       - Design - Sync: design-sync.md
