@@ -1,7 +1,7 @@
 """Every workspace tool names its workspace, or is refused.
 
 The resolution order is the `cwd=` argument, then runtime `active_root`, then
-the server's own process cwd.  2.0.0 refused that last step, and blq-cli#60
+the server's own process cwd.  2.0.0 refused that last step, and blq-cli#59
 put it back: 69 project `.mcp.json` files declare a blq server with no
 BLQ_ACTIVE_ROOT, so a bare call raised and the server read as down.
 

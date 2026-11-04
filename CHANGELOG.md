@@ -2,7 +2,7 @@
 
 ## v2.0.1
 
-### Fixed — a bare call is answered again, from the server's own directory (#60)
+### Fixed — a bare call is answered again, from the server's own directory (#59)
 
 v2.0.0 refused any workspace call that named no `cwd=` and had no
 `active_root`. The refusal was correct about the risk and wrong about how blq

@@ -230,7 +230,7 @@ def _resolve_root(cwd: str | None) -> str | None:
 
     The order is the `cwd` argument, then the session's `active_root`. None
     means neither was named; `_require_root` decides what to do about that, and
-    since blq-cli#60 it falls back to the process cwd. The fall-through lives
+    since blq-cli#59 it falls back to the process cwd. The fall-through lives
     there and not here because the resources and prompts call this directly and
     want the None.
 
@@ -262,7 +262,7 @@ def _announce_root_fallback(root: str) -> str:
     about the deployment: `blq init` writes an `.mcp.json` with no
     BLQ_ACTIVE_ROOT, so almost every launched server had nothing to resolve and
     every bare call raised. Measured on 2026-11-04, 69 of this machine's
-    project configs were in that state (blq-cli#60).
+    project configs were in that state (blq-cli#59).
 
     The notice cannot ride in the return value. Every tool declares a TypedDict
     return and fastmcp drops the keys the schema does not name, which is the
