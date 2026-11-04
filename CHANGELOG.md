@@ -1,5 +1,41 @@
 # Changelog
 
+## v2.0.1
+
+### Fixed — a bare call is answered again, from the server's own directory (#60)
+
+v2.0.0 refused any workspace call that named no `cwd=` and had no
+`active_root`. The refusal was correct about the risk and wrong about how blq
+is deployed.
+
+`blq init` writes an `.mcp.json` that declares the server with no
+`BLQ_ACTIVE_ROOT`. Measured on 2026-11-04, 69 project configs on one machine
+were in that state. blq is also installed as an editable tool there, so v2.0.0
+reached every session as soon as the checkout moved. Each session kept its
+server and its tool list, and every tool call raised `no_root`. The symptom
+was "blq is down", because nothing fails until the first call.
+
+The resolution order now has its third step back:
+
+1. the `cwd=` argument,
+2. the session's `active_root`,
+3. the server's own process cwd.
+
+This does not reopen #55. The fault there was that the halves disagreed: the
+read honoured `active_root` while the child process walked up from its own
+directory. `run` and `exec` now pass the resolved root to the child, so step 3
+runs the command and reads it back in the same place.
+
+Step 3 writes one line to stderr, once per process, naming the directory it
+used and how to name a workspace on purpose. It cannot travel in the return
+value: every tool declares a TypedDict return and fastmcp drops keys the schema
+does not name, which is why #55's refusal had to raise instead of returning an
+error dict. The line reaches the MCP log, not the caller.
+
+A `cwd=` or an `active_root` that is not a directory still raises `bad_root`.
+No fallback can help an unexpanded `${CLAUDE_PROJECT_DIR}`, and silently
+reading a different workspace is the behaviour this release is fixing.
+
 ## v2.0.0
 
 ### Fixed (breaking) — a run and the read of it now agree on the workspace (#55)

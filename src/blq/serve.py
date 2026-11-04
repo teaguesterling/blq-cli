@@ -228,13 +228,17 @@ mcp = FastMCP(
 def _resolve_root(cwd: str | None) -> str | None:
     """Return the workspace root for this call, or None if none was named.
 
-    The order is the `cwd` argument, then the session's `active_root`. There is
-    deliberately no fall-through to the server's process cwd. That directory is
-    a real workspace often enough that reading it answers confidently about a
-    project nobody asked about, and blq-cli#55 is the sharper form of the same
-    fault: `active_root` steered the read tools while `run` and `exec` passed
-    no cwd to their child at all, so a run was recorded in one workspace and
-    looked for in another.
+    The order is the `cwd` argument, then the session's `active_root`. None
+    means neither was named; `_require_root` decides what to do about that, and
+    since blq-cli#60 it falls back to the process cwd. The fall-through lives
+    there and not here because the resources and prompts call this directly and
+    want the None.
+
+    What #55 actually broke was agreement, not the fallback: `active_root`
+    steered the read tools while `run` and `exec` passed no cwd to their child,
+    so a run was recorded in one workspace and looked for in another. Both now
+    take the root from here, so whichever answer this gives, the run and the
+    read of it use the same one.
 
     The resolver belongs to the tool layer. The `blq` CLI resolves from its own
     cwd on purpose, because for a CLI that is the workspace the user is
@@ -248,6 +252,40 @@ def _resolve_root(cwd: str | None) -> str | None:
     return resolve_storage_root()
 
 
+_root_fallback_announced = False
+
+
+def _announce_root_fallback(root: str) -> str:
+    """Answer from the server's own directory, and say once that we did.
+
+    2.0.0 refused this call instead. That was right about the risk and wrong
+    about the deployment: `blq init` writes an `.mcp.json` with no
+    BLQ_ACTIVE_ROOT, so almost every launched server had nothing to resolve and
+    every bare call raised. Measured on 2026-11-04, 69 of this machine's
+    project configs were in that state (blq-cli#60).
+
+    The notice cannot ride in the return value. Every tool declares a TypedDict
+    return and fastmcp drops the keys the schema does not name, which is the
+    same reason the refusal had to raise rather than return an error dict. So
+    stderr is the only channel, and it reaches the MCP log rather than the
+    caller: this is a breadcrumb for whoever reads that log, not something the
+    agent sees. Once per process, because what is underspecified is the launch,
+    not the call.
+    """
+    global _root_fallback_announced
+
+    if not _root_fallback_announced:
+        _root_fallback_announced = True
+        print(
+            "no_root_fallback: no cwd= argument and no active_root, so this "
+            f"server is answering from its own directory, {root!r}. Seed "
+            'BLQ_ACTIVE_ROOT="${PWD}" in .mcp.json, or pass cwd=, to name the '
+            "workspace on purpose.",
+            file=sys.stderr,
+        )
+    return root
+
+
 def _require_root(cwd: str | None) -> str:
     """Return the workspace root for this call, or raise.
 
@@ -257,20 +295,16 @@ def _require_root(cwd: str | None) -> str:
     the refusal was invisible to the caller. Raising matches
     _check_tool_enabled, which is already how this module refuses a call.
 
-    Two distinct failures, because the fix differs. Nothing was named, or what
-    was named is not a directory. The second arrives through the launch
-    environment: an `.mcp.json` env value that does not expand lands in
-    active_root verbatim. Measured on Claude Code 2.1.317, `${PWD}` expands
-    and `${CLAUDE_PROJECT_DIR}` does not.
+    One failure is left, and it is the one a fallback cannot rescue: what was
+    named is not a directory. That arrives through the launch environment, when
+    an `.mcp.json` env value does not expand and lands in active_root verbatim.
+    Measured on Claude Code 2.1.317, `${PWD}` expands and
+    `${CLAUDE_PROJECT_DIR}` does not. Nothing-was-named is no longer a failure;
+    see `_announce_root_fallback`.
     """
     root = _resolve_root(cwd)
     if root is None:
-        raise ValueError(
-            "no_root: no workspace for this call. The MCP server's own "
-            "directory is not used as a fallback, because it is usually not "
-            'the project you mean. Pass cwd="/path/to/project", or set it for '
-            'the session with config(set={"active_root": "/path/to/project"}).'
-        )
+        root = _announce_root_fallback(os.getcwd())
     if not os.path.isdir(root):
         source = "the cwd= argument" if cwd else "the session's active_root"
         raise ValueError(
@@ -2625,9 +2659,9 @@ def run(
         commands: List of command names for batch mode (overrides `command`)
         stop_on_failure: In batch mode, stop after first failure (default: true)
 
-        cwd: Workspace to act on. Falls back to the session's active_root;
-             with neither, the call is refused rather than run against the
-             MCP server's own directory.
+        cwd: Workspace to act on. Falls back to the session's active_root,
+             then to the server's own directory, which is announced on
+             stderr. Pass it to name the workspace on purpose.
     Returns:
         Run result with status, errors, and preview of output on failure.
         When lines is active (explicit or from command config), includes 'output' key.
@@ -2697,9 +2731,9 @@ def exec(
                '-50' for first 50, '100-200' for range). When set, output is
                included directly in the response.
 
-        cwd: Workspace to act on. Falls back to the session's active_root;
-             with neither, the call is refused rather than run against the
-             MCP server's own directory.
+        cwd: Workspace to act on. Falls back to the session's active_root,
+             then to the server's own directory, which is announced on
+             stderr. Pass it to name the workspace on purpose.
     Returns:
         Run result with status, errors, and warnings. If a registered command
         was matched, includes 'matched_command' and optionally 'extra_args'.
@@ -2735,9 +2769,9 @@ def query(
         filter: Simple filter expressions (e.g., "severity=error ref_file~test")
         limit: Max rows to return (default: 100)
 
-        cwd: Workspace to act on. Falls back to the session's active_root;
-             with neither, the call is refused rather than run against the
-             MCP server's own directory.
+        cwd: Workspace to act on. Falls back to the session's active_root,
+             then to the server's own directory, which is announced on
+             stderr. Pass it to name the workspace on purpose.
     Returns:
         Query results with columns, rows, and row_count
 
@@ -2786,9 +2820,9 @@ def events(
         run_ids: List of run IDs for batch mode (returns events grouped by run)
         limit_per_run: Max events per run in batch mode (default: 10)
 
-        cwd: Workspace to act on. Falls back to the session's active_root;
-             with neither, the call is refused rather than run against the
-             MCP server's own directory.
+        cwd: Workspace to act on. Falls back to the session's active_root,
+             then to the server's own directory, which is announced on
+             stderr. Pass it to name the workspace on purpose.
     Returns:
         Events list with total count. Each event includes a 'ref' field
         in format "tag:serial:event" or "serial:event".
@@ -2875,9 +2909,9 @@ def inspect(
         include_fingerprint_history: Include fingerprint occurrence history (default: false)
         refs: List of event references for batch mode (overrides `ref`)
 
-        cwd: Workspace to act on. Falls back to the session's active_root;
-             with neither, the call is refused rather than run against the
-             MCP server's own directory.
+        cwd: Workspace to act on. Falls back to the session's active_root,
+             then to the server's own directory, which is announced on
+             stderr. Pass it to name the workspace on purpose.
     Returns:
         Event details with ref, severity, ref_file, ref_line, ref_column,
         message, tool_name, category, code, fingerprint, and context/enrichment
@@ -2963,9 +2997,9 @@ def output(
         lines: Line spec (e.g., '100-200', '42 +/-5') - requires read_lines extension
         debug_formats: Show format detection diagnosis (which parsers matched)
 
-        cwd: Workspace to act on. Falls back to the session's active_root;
-             with neither, the call is refused rather than run against the
-             MCP server's own directory.
+        cwd: Workspace to act on. Falls back to the session's active_root,
+             then to the server's own directory, which is announced on
+             stderr. Pass it to name the workspace on purpose.
     Returns:
         Output content and metadata including byte_length, total_lines, etc.
         With grep: includes match_count.
@@ -3026,9 +3060,9 @@ def info(
         limit: Max events to return (default: 20)
         context: Show N lines of log context around each event (distinct from head/tail)
 
-        cwd: Workspace to act on. Falls back to the session's active_root;
-             with neither, the call is refused rather than run against the
-             MCP server's own directory.
+        cwd: Workspace to act on. Falls back to the session's active_root,
+             then to the server's own directory, which is announced on
+             stderr. Pass it to name the workspace on purpose.
     Returns:
         Run info with optional output and events
     """
@@ -3379,9 +3413,9 @@ def history(
         source: Filter to specific source name
         status: Filter by run status ('running', 'completed', 'orphaned')
 
-        cwd: Workspace to act on. Falls back to the session's active_root;
-             with neither, the call is refused rather than run against the
-             MCP server's own directory.
+        cwd: Workspace to act on. Falls back to the session's active_root,
+             then to the server's own directory, which is announced on
+             stderr. Pass it to name the workspace on purpose.
     Returns:
         Run history list
     """
@@ -3403,9 +3437,9 @@ def diff(run1: int, run2: int, cwd: str | None = None) -> DiffResult:
         run1: First run serial number (baseline)
         run2: Second run serial number (comparison)
 
-        cwd: Workspace to act on. Falls back to the session's active_root;
-             with neither, the call is refused rather than run against the
-             MCP server's own directory.
+        cwd: Workspace to act on. Falls back to the session's active_root,
+             then to the server's own directory, which is announced on
+             stderr. Pass it to name the workspace on purpose.
     Returns:
         Diff summary with fixed and new errors
     """
@@ -3460,9 +3494,9 @@ def register_command(
               will not run concurrently. Use this when commands access shared resources
               (e.g., lock='database' for commands that write to the same DB).
 
-        cwd: Workspace to act on. Falls back to the session's active_root;
-             with neither, the call is refused rather than run against the
-             MCP server's own directory.
+        cwd: Workspace to act on. Falls back to the session's active_root,
+             then to the server's own directory, which is announced on
+             stderr. Pass it to name the workspace on purpose.
     Returns:
         Success status and registered command details. If run_now=True,
         also includes 'run' key with the run result.
@@ -3501,9 +3535,9 @@ def unregister_command(name: str, cwd: str | None = None) -> CommandMutationResu
     Args:
         name: Command name to remove
 
-        cwd: Workspace to act on. Falls back to the session's active_root;
-             with neither, the call is refused rather than run against the
-             MCP server's own directory.
+        cwd: Workspace to act on. Falls back to the session's active_root,
+             then to the server's own directory, which is announced on
+             stderr. Pass it to name the workspace on purpose.
     Returns:
         Success status
     """
@@ -4018,9 +4052,9 @@ def report(
         error_limit: Max errors to include in details (default: 20)
         file_limit: Max files in breakdown table (default: 10)
 
-        cwd: Workspace to act on. Falls back to the session's active_root;
-             with neither, the call is refused rather than run against the
-             MCP server's own directory.
+        cwd: Workspace to act on. Falls back to the session's active_root,
+             then to the server's own directory, which is announced on
+             stderr. Pass it to name the workspace on purpose.
     Returns:
         Report with 'report' key containing markdown content, plus metadata
         like run_id, total_errors, total_warnings.
@@ -4053,9 +4087,9 @@ def ci_check(
         run_id: Specific run ID to check. Default: auto-detect current run
                 by matching git commit or using latest.
 
-        cwd: Workspace to act on. Falls back to the session's active_root;
-             with neither, the call is refused rather than run against the
-             MCP server's own directory.
+        cwd: Workspace to act on. Falls back to the session's active_root,
+             then to the server's own directory, which is announced on
+             stderr. Pass it to name the workspace on purpose.
     Returns:
         Check result with 'status' ('OK' or 'FAIL'), error counts,
         and details of new/fixed errors when baseline is available.
@@ -4083,9 +4117,9 @@ def ci_generate(
         commands: Command names to generate scripts for. Default: all commands.
         shell: Shell to use: 'bash', 'sh', or 'zsh' (default: 'bash')
 
-        cwd: Workspace to act on. Falls back to the session's active_root;
-             with neither, the call is refused rather than run against the
-             MCP server's own directory.
+        cwd: Workspace to act on. Falls back to the session's active_root,
+             then to the server's own directory, which is announced on
+             stderr. Pass it to name the workspace on purpose.
     Returns:
         Generated scripts with 'scripts' list containing name, content,
         and metadata for each script.
@@ -4105,9 +4139,9 @@ def sandbox_info(command: str | None = None, cwd: str | None = None) -> str:
 
     Args:
         command: Specific command name (omit for all commands)
-        cwd: Workspace to act on. Falls back to the session's active_root;
-             with neither, the call is refused rather than run against the
-             MCP server's own directory.
+        cwd: Workspace to act on. Falls back to the session's active_root,
+             then to the server's own directory, which is announced on
+             stderr. Pass it to name the workspace on purpose.
     """
     root = _require_root(cwd)
     _check_workspace_policy("sandbox_info", root)
