@@ -6,6 +6,7 @@ Pure decision logic. The Slurm executor that acts on the decision lives elsewher
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
@@ -18,6 +19,7 @@ logger = logging.getLogger("blq-ext")
 
 DEFAULT_POLICY_PATH = Path("~/.config/blq/slurm.toml")
 _OFF_VALUES = {"0", "false", "no", "off"}
+MEM_FORMAT = re.compile(r"[1-9][0-9]*[KMGT]?")
 
 
 @dataclass(frozen=True)
@@ -49,7 +51,10 @@ def load_policy(path: Path | None = None) -> SlurmPolicy | None:
         return None
     try:
         data = load_toml(path)
-        if data.get("enabled", True) is False:
+        enabled = data.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise ValueError("enabled must be a bool")
+        if not enabled:
             return None
         roots = data.get("roots", [])
         if not isinstance(roots, list) or not all(isinstance(r, str) for r in roots):
@@ -60,15 +65,18 @@ def load_policy(path: Path | None = None) -> SlurmPolicy | None:
         local_max = data.get("local_memory_max")
         if not isinstance(partition, str) or not isinstance(mem, str):
             raise ValueError("partition and mem must be strings")
-        if isinstance(cpus, bool) or not isinstance(cpus, int):
-            raise ValueError("cpus must be an integer")
+        if not MEM_FORMAT.fullmatch(mem):
+            raise ValueError(f"mem must look like 16G, not {mem!r}")
+        if isinstance(cpus, bool) or not isinstance(cpus, int) or cpus <= 0:
+            raise ValueError("cpus must be a positive integer")
         if local_max is not None and not isinstance(local_max, str):
             raise ValueError("local_memory_max must be a string")
+        resolved_roots = tuple(Path(r).expanduser().resolve() for r in roots)
     except Exception as e:  # bad TOML or bad values: warn and fall back to local
         logger.warning("Ignoring Slurm policy %s: %s", path, e)
         return None
     return SlurmPolicy(
-        roots=tuple(Path(r).expanduser().resolve() for r in roots),
+        roots=resolved_roots,
         defaults=SlurmResources(partition, cpus, mem),
         local_memory_max=local_max,
     )

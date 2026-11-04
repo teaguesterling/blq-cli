@@ -50,7 +50,7 @@ from blq.ext import CommandSpec, Executor, capture_env
 from blq.ext.discovery import load_extensions, order_extensions
 from blq.ext.local_executor import LocalExecutor
 from blq.ext.pipeline import run_pipeline
-from blq.ext.slurm_executor import SlurmExecutor, srun_command
+from blq.ext.slurm_executor import SlurmExecutor, memory_capped, srun_command
 from blq.ext.slurm_policy import decide_route, load_policy
 from blq.locks import LockHeldError, acquire_lock, release_lock
 
@@ -1119,7 +1119,7 @@ def _route_no_capture(command: str, slurm: bool | dict[str, Any] | None) -> str:
         return srun_command(command, cwd, route.resources, uuid.uuid4().hex, None)
     if route.warn:
         print(f"[blq] Slurm unavailable, running locally: {route.reason}", file=sys.stderr)
-    return command
+    return memory_capped(command, policy)
 
 
 def _run_no_capture(

@@ -49,6 +49,12 @@ if [ -n "$FAKE_SCONTROL_DOWN" ]; then
 fi
 echo "Slurmctld(primary) at fakenode is UP"
 """
+FAKE_SYSTEMD_RUN = r"""#!/bin/bash
+echo "$*" >> "$FAKE_LOG/systemd-run.log"
+case " $* " in *" /bin/sh "*) ;; *) exit 0;; esac
+while [ "$1" != "/bin/sh" ]; do shift; done
+exec "$@"
+"""
 FAKE_SCANCEL = '#!/bin/bash\necho "$*" >> "$FAKE_LOG/scancel.log"\n'
 
 PYTEST_FAILURE_LOG = """\
@@ -135,6 +141,7 @@ def env(initialized_project, tmp_path, monkeypatch) -> Env:
     _script(bindir / "srun", FAKE_SRUN)
     _script(bindir / "scontrol", FAKE_SCONTROL)
     _script(bindir / "scancel", FAKE_SCANCEL)
+    _script(bindir / "systemd-run", FAKE_SYSTEMD_RUN)
 
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("PATH", f"{bindir}:/usr/bin:/bin")
@@ -261,6 +268,16 @@ class TestRouteStaysLocal:
         self._assert_local(env, proc)
         assert "Ignoring Slurm policy" in proc.stderr
 
+    @pytest.mark.parametrize(
+        "line",
+        ['roots = ["~nosuchuser_x/code"]', "cpus = 0", 'mem = "16X"', 'enabled = "false"'],
+    )
+    def test_bad_policy_value_runs_the_command_locally(self, env, line):
+        env.write_policy(line + "\n")
+        proc = env.blq("exec", "echo hello-marker")
+        self._assert_local(env, proc)
+        assert "Ignoring Slurm policy" in proc.stderr
+
     def test_queue_down_warns_and_runs_locally(self, env, monkeypatch):
         env.write_policy()
         monkeypatch.setenv("FAKE_SCONTROL_DOWN", "1")
@@ -299,6 +316,40 @@ class TestRegisteredResources:
         assert _load_commands_impl(lq_dir)["hello"].slurm is False
 
 
+class TestRegisterForce:
+    """Overwriting a command must not silently put it back on the Slurm route."""
+
+    def test_cli_keeps_slurm_false(self, env):
+        env.write_commands(HELLO + "slurm = false\n")
+        proc = env.blq("commands", "register", "--force", "hello", "echo new-marker")
+        assert proc.returncode == 0, proc.stderr
+        loaded = _load_commands_impl(env.project / ".bird")["hello"]
+        assert loaded.cmd == "echo new-marker"
+        assert loaded.slurm is False
+
+    def test_cli_keeps_the_table_on_a_template(self, env):
+        env.write_commands(TestRegisteredResources.TABLE)
+        proc = env.blq(
+            "commands", "register", "--force", "--template", "--default", "x=1", "hello", "echo {x}"
+        )
+        assert proc.returncode == 0, proc.stderr
+        loaded = _load_commands_impl(env.project / ".bird")["hello"]
+        assert loaded.tpl == "echo {x}"
+        assert loaded.slurm == {"cpus": 8, "mem": "16G", "partition": "batch"}
+
+    def test_mcp_keeps_slurm_false(self, env):
+        from blq.serve import _register_command_impl
+
+        env.write_commands(HELLO + "slurm = false\n")
+        result = _register_command_impl(
+            "hello", cmd="echo new-marker", force=True, root=str(env.project)
+        )
+        assert result["success"], result
+        loaded = _load_commands_impl(env.project / ".bird")["hello"]
+        assert loaded.cmd == "echo new-marker"
+        assert loaded.slurm is False
+
+
 class TestSlurmValueValidation:
     """A bad `slurm` value is a warning and None. It must never fail command loading."""
 
@@ -315,6 +366,8 @@ class TestSlurmValueValidation:
             '{ cpus = "8" }',
             "{ mem = 16 }",
             '{ mem = "" }',
+            '{ mem = "16X" }',
+            '{ mem = "0" }',
             "{ partition = 1 }",
             '{ partition = "" }',
         ],
@@ -372,6 +425,16 @@ class TestNoCapture:
         proc = env.blq("run", "hello")
         assert "hello-marker" in proc.stdout, proc.stderr
         assert env.calls("srun") == []
+
+    def test_no_capture_local_route_applies_the_memory_cap(self, env):
+        env.write_policy('roots = ["/nonexistent/elsewhere"]\nlocal_memory_max = "2G"\n')
+        proc = env.blq("exec", "--no-capture", "echo hello-marker")
+        assert "hello-marker" in proc.stdout, proc.stderr
+        assert env.calls("srun") == []
+        assert any(
+            "-p MemoryMax=2G -p MemorySwapMax=0 /bin/sh -c" in call
+            for call in env.calls("systemd-run")
+        )
 
     def test_no_capture_warns_when_the_queue_is_down(self, env, monkeypatch):
         env.write_policy()

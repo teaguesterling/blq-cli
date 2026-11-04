@@ -54,6 +54,7 @@ def srun_command(
     """Build the `srun` command line that runs `command` as one task in `cwd`."""
     parts = [
         "srun",
+        "--input=none",  # else srun takes the stdin of a caller's `while read` loop
         "-n 1",
         f"-c {shlex.quote(str(res.cpus))}",
         f"--mem={shlex.quote(res.mem)}",
@@ -66,6 +67,39 @@ def srun_command(
     # srun reorders the task's stdout and stderr (measured), so the task merges them first.
     parts += ["/bin/sh", "-c", shlex.quote(f"exec 2>&1; {command}")]
     return " ".join(parts)
+
+
+def memory_capped(command: str, policy: SlurmPolicy | None) -> str:
+    """Wrap `command` in the policy's local memory cap, if it has one and it can apply."""
+    limit = policy.local_memory_max if policy else None
+    if not limit or os.environ.get("SLURM_JOB_ID"):  # a wrap would leave the job's cgroup
+        return command
+    if shutil.which("systemd-run") is None or not _systemd_run_works():
+        return command
+    # Without MemorySwapMax=0, memory over the limit goes to swap and the cap stops nothing.
+    return (
+        f"systemd-run --user --scope -q -p MemoryMax={shlex.quote(limit)} -p MemorySwapMax=0 "
+        f"/bin/sh -c {shlex.quote(command)}"
+    )
+
+
+def _systemd_run_works() -> bool:
+    try:
+        proc = subprocess.run(
+            ["systemd-run", "--user", "--scope", "-q", "true"],
+            capture_output=True,
+            text=True,
+            timeout=_PROBE_LIMIT_S,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.warning("systemd-run probe failed, running without a memory cap: %s", e)
+        return False
+    if proc.returncode != 0:
+        logger.warning(
+            "systemd-run is unusable, running without a memory cap: %s", proc.stderr.strip()
+        )
+        return False
+    return True
 
 
 class SlurmExecutor:
@@ -95,7 +129,8 @@ class SlurmExecutor:
         return self._execute_local(spec, warning)
 
     def _execute_slurm(self, spec: CommandSpec, res: SlurmResources) -> ExecutionResult:
-        wrapped = srun_command(spec.command, spec.cwd, res, spec.attempt_id, spec.timeout)
+        # exec: without it the parent is sh, and a killed srun looks like a normal exit 137.
+        wrapped = "exec " + srun_command(spec.command, spec.cwd, res, spec.attempt_id, spec.timeout)
         result = self._local.execute(replace(spec, command=wrapped))
         if result.timeout or result.exit_code < 0:
             self._scancel(spec.attempt_id)
@@ -116,7 +151,9 @@ class SlurmExecutor:
     def _execute_local(self, spec: CommandSpec, warning: str | None) -> ExecutionResult:
         if warning is not None:
             print(warning, file=sys.stderr, flush=True)
-        result = self._local.execute(replace(spec, command=self._memory_capped(spec.command)))
+        result = self._local.execute(
+            replace(spec, command=memory_capped(spec.command, self._policy))
+        )
         if warning is None:
             return result
         result = replace(result, output=warning + "\n" + result.output)
@@ -125,36 +162,6 @@ class SlurmExecutor:
             live = self._live_output_path.read_text()
             self._live_output_path.write_text(warning + "\n" + live)
         return result
-
-    def _memory_capped(self, command: str) -> str:
-        limit = self._policy.local_memory_max if self._policy else None
-        if not limit or os.environ.get("SLURM_JOB_ID"):  # a wrap would leave the job's cgroup
-            return command
-        if shutil.which("systemd-run") is None or not self._systemd_run_works():
-            return command
-        return (
-            f"systemd-run --user --scope -q -p MemoryMax={shlex.quote(limit)} "
-            f"/bin/sh -c {shlex.quote(command)}"
-        )
-
-    @staticmethod
-    def _systemd_run_works() -> bool:
-        try:
-            proc = subprocess.run(
-                ["systemd-run", "--user", "--scope", "-q", "true"],
-                capture_output=True,
-                text=True,
-                timeout=_PROBE_LIMIT_S,
-            )
-        except (OSError, subprocess.SubprocessError) as e:
-            logger.warning("systemd-run probe failed, running without a memory cap: %s", e)
-            return False
-        if proc.returncode != 0:
-            logger.warning(
-                "systemd-run is unusable, running without a memory cap: %s", proc.stderr.strip()
-            )
-            return False
-        return True
 
     @staticmethod
     def _scancel(attempt_id: str) -> None:

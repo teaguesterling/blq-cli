@@ -217,3 +217,36 @@ def test_queue_problem_unexecutable_scontrol_never_raises(tmp_path, monkeypatch)
     (bindir / "scontrol").chmod(0o755)
     monkeypatch.setenv("PATH", str(bindir))
     assert queue_problem()
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'roots = ["~nosuchuser_x/code"]',
+        "cpus = 0",
+        "cpus = -1",
+        "cpus = true",
+        'cpus = "4"',
+        'mem = ""',
+        'mem = "16X"',
+        'mem = "0"',
+        'mem = "08G"',
+        "mem = 16",
+        'enabled = "false"',
+        "enabled = 0",
+    ],
+)
+def test_bad_policy_value_warns_and_returns_none(tmp_path, caplog, line):
+    path = tmp_path / "slurm.toml"
+    path.write_text(line + "\n")
+    with caplog.at_level(logging.WARNING, logger="blq-ext"):
+        assert load_policy(path) is None
+    assert "Ignoring Slurm policy" in caplog.text
+
+
+@pytest.mark.parametrize("mem", ["1", "16", "512M", "16G", "2T", "100K"])
+def test_good_mem_is_accepted(tmp_path, mem):
+    path = tmp_path / "slurm.toml"
+    path.write_text(f'mem = "{mem}"\n')
+    policy = load_policy(path)
+    assert policy is not None and policy.defaults.mem == mem

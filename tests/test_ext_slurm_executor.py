@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shlex
 import stat
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -25,10 +26,18 @@ SLURM_ROUTE = Route("slurm", "inside roots", RES)
 # Fake srun: log the argument line, then act on FAKE_SRUN_MODE.
 FAKE_SRUN = r"""#!/bin/bash
 echo "$*" >> "$FAKE_LOG/srun.log"
+if [ -n "$FAKE_SRUN_READS_STDIN" ]; then  # real srun forwards stdin unless told not to
+  case " $* " in *" --input=none "*) ;; *) cat > /dev/null;; esac
+fi
 case "${FAKE_SRUN_MODE:-pass}" in
+  killed) kill -9 $$;;
   contact) echo "$FAKE_TRIGGER" >&2; exit 1;;
   hangcontact) echo "$FAKE_TRIGGER" >&2; sleep 30; exit 0;;
-  oom) echo "slurmstepd: error: Detected 1 oom_kill event in StepId=1.0" >&2; exit 1;;
+  oom)
+    echo "slurmstepd-longbottom: error: Detected 1 oom_kill event in StepId=53.0. \
+Some of the step tasks have been OOM Killed." >&2
+    echo "srun: error: longbottom: task 0: Out Of Memory" >&2
+    exit 1;;
   config) echo "srun: error: Requested node configuration is not available" >&2; exit 1;;
   hang) sleep 30; exit 0;;
   midstatus) echo first; echo "$FAKE_STATUS" >&2; echo second; exit 1;;
@@ -108,6 +117,20 @@ def _run(tmp_path, command="echo hello", route=SLURM_ROUTE, policy=None, live=No
     return ex.execute(_spec(tmp_path, command, **spec_kw))
 
 
+class TestKilledSrun:
+    def test_killed_srun_calls_scancel(self, tmp_path, fakes, monkeypatch):
+        # The job can outlive a killed srun, so the executor must cancel it by name.
+        monkeypatch.setenv("FAKE_SRUN_MODE", "killed")
+        result = _run(tmp_path)
+        assert result.exit_code < 0
+        assert _lines(fakes, "scancel.log") == ["-n blq-att-001"]
+
+    def test_normal_failure_does_not_call_scancel(self, tmp_path, fakes):
+        result = _run(tmp_path, "exit 137")
+        assert result.exit_code == 137
+        assert _lines(fakes, "scancel.log") == []
+
+
 class TestStatusLineMovesToEnd:
     """srun prints its task status line anywhere, and a split record loses its event."""
 
@@ -153,6 +176,17 @@ class TestStatusLineMovesToEnd:
 
 
 class TestSrunCommand:
+    def test_srun_does_not_read_stdin(self, tmp_path):
+        assert "--input=none" in shlex.split(srun_command("true", tmp_path, RES, "x", None))
+
+    def test_while_read_loop_keeps_all_items(self, tmp_path, fakes, monkeypatch):
+        # Without --input=none, the first srun takes the rest of the loop's input.
+        monkeypatch.setenv("FAKE_SRUN_READS_STDIN", "1")
+        wrapped = srun_command("echo got", tmp_path, RES, "x", None)
+        script = f"while read item; do {wrapped}; done <<EOF\n1\n2\n3\n4\nEOF\n"
+        proc = subprocess.run(["/bin/bash", "-c", script], capture_output=True, text=True)
+        assert proc.stdout.splitlines() == ["got"] * 4, proc.stderr
+
     def test_inner_shell_merges_stderr_before_the_command(self, tmp_path):
         # srun reorders the two streams, so the task must write both to one stream.
         argv = shlex.split(srun_command("echo 'a b' >&2", tmp_path, RES, "x", None))
@@ -222,7 +256,7 @@ class TestSlurmRoute:
         monkeypatch.setenv("FAKE_SRUN_MODE", "oom")
         result = _run(tmp_path, "true")
         assert len(_lines(fakes, "srun.log")) == 1
-        assert result.exit_code == 1 and "oom_kill" in result.output
+        assert result.exit_code == 1 and "Out Of Memory" in result.output
 
     def test_other_srun_error_is_not_rerun(self, fakes, tmp_path, monkeypatch):
         monkeypatch.setenv("FAKE_SRUN_MODE", "config")
@@ -315,7 +349,7 @@ class TestLocalRoute:
         result = _run(tmp_path, "echo hello", route=Route("local", "x"), policy=policy)
         assert result.output == "hello\n"
         (line,) = _lines(fakes, "systemd-run.log")
-        assert "--user --scope -q -p MemoryMax=2G /bin/sh -c" in line
+        assert "--user --scope -q -p MemoryMax=2G -p MemorySwapMax=0 /bin/sh -c" in line
 
     def test_memory_cap_skipped_inside_a_slurm_job(self, fakes, tmp_path, monkeypatch):
         monkeypatch.setenv("SLURM_JOB_ID", "123")

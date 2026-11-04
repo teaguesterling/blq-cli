@@ -30,6 +30,7 @@ from blq.config_format import (
 )
 
 # Git integration - re-exported for backward compatibility
+from blq.ext.slurm_policy import MEM_FORMAT
 from blq.git import GitInfo, capture_git_info  # noqa: F401
 
 if TYPE_CHECKING:
@@ -1414,9 +1415,12 @@ def _slurm_override_problem(value: Any) -> str | None:
             # bool is an int subclass, so `cpus = true` needs its own check.
             if isinstance(item, bool) or not isinstance(item, int) or item <= 0:
                 return "cpus must be a positive integer"
-        elif key in ("mem", "partition"):
+        elif key == "mem":
+            if not isinstance(item, str) or not MEM_FORMAT.fullmatch(item):
+                return "mem must look like 16G"
+        elif key == "partition":
             if not isinstance(item, str) or not item:
-                return f"{key} must be a non-empty string"
+                return "partition must be a non-empty string"
         else:
             return f"unknown key {key!r}"
     return None
