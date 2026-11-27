@@ -65,6 +65,7 @@ from blq.commands.management import resolve_ref
 from blq.commands.query_cmd import parse_filter_expression
 from blq.commands.report_cmd import _collect_report_data, _generate_markdown_report
 from blq.output import format_context
+from blq.query_worker import run_query
 from blq.storage import BlqStorage
 
 # ============================================================================
@@ -1209,8 +1210,10 @@ def _query_impl(
         limit: Max rows to return
     """
     try:
-        store = _get_storage(root=root)
-        conn = store.connection
+        config = _find_config(root=root)
+        if config is None and root is not None:
+            raise RuntimeError(f"no .bird workspace at or above {root!r}; run `blq init` there")
+        lq_dir = config.lq_dir if config is not None else BlqStorage._find_lq_dir()
 
         # Build SQL from filter expressions if provided
         if filter and not sql:
@@ -1238,19 +1241,14 @@ def _query_impl(
                 "error": "Either sql or filter must be provided",
             }
 
-        # Add LIMIT if not present (basic safety)
-        sql_upper = sql.upper()
-        if "LIMIT" not in sql_upper:
-            sql = f"SELECT * FROM ({sql}) LIMIT {limit}"
-
-        result = conn.sql(sql)
-        columns = result.columns
-        rows = result.fetchall()
+        result = run_query(lq_dir, sql, limit)
+        if "error" in result:
+            return {"columns": [], "rows": [], "row_count": 0, "error": result["error"]}
 
         return {
-            "columns": columns,
-            "rows": [list(row) for row in rows],
-            "row_count": len(rows),
+            "columns": result["columns"],
+            "rows": result["rows"],
+            "row_count": len(result["rows"]),
         }
     except FileNotFoundError:
         return {"columns": [], "rows": [], "row_count": 0, "error": "No lq repository found"}

@@ -278,6 +278,11 @@ SQL or filter expressions against events.
 - `key~pattern` — contains (ILIKE)
 - `key!=value` — not equal
 
+**Limits:** `query` only reads the workspace database. It refuses any statement
+that DuckDB does not class as `SELECT` (this includes `EXPLAIN` and a `PIVOT`
+with no `IN` list). The engine refuses writes, access to other files, extension
+loads and setting changes. A large query cannot spill to disk.
+
 ---
 
 ### history

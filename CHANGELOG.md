@@ -15,7 +15,12 @@
 - MCP reads no longer rename `.lq/` to `.bird/`, and open the database
   read-only. `status` still opens read-write to mark orphaned runs, and skips
   that step while a parallel call is reading. A read that overlaps a write in
-  the same server process shares the writer's handle.
+  the same server process shares the writer's handle (`query` is the
+  exception, below).
+- MCP `query` now refuses non-read statements on all connection paths. It runs
+  in its own process, on a read-only and locked-down DuckDB engine. It has no
+  access to other files, loads no extensions and takes no `SET`. While a write
+  holds the database, `query` waits about 8 s and then asks you to try again.
 - More database opens retry on lock contention.
 
 ## v2.0.1
