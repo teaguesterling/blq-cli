@@ -2,6 +2,7 @@
 
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import duckdb
 import pytest
@@ -132,3 +133,31 @@ def test_read_storage_cannot_write(repo):
 
     with pytest.raises(duckdb.Error, match="read-only"):
         storage.sql("CREATE TABLE written_by_a_read (x INT)")
+
+
+# One server process answers calls in parallel threads, and DuckDB refuses to
+# mix read-only and read-write handles on one file within a process.
+
+
+def test_read_answers_while_this_process_holds_a_write_handle(repo):
+    serve._exec_impl("echo hello", root=str(repo))
+    writer = serve._get_storage(root=str(repo), read_only=False)
+
+    assert serve._get_storage(root=str(repo)).sql("SELECT 1").fetchone() == (1,)
+    del writer
+
+
+def test_status_answers_while_this_process_holds_a_read_handle(repo):
+    serve._exec_impl("echo hello", root=str(repo))
+    reader = serve._get_storage(root=str(repo))
+
+    assert serve._status_impl(root=str(repo))["sources"]
+    del reader
+
+
+def test_parallel_first_calls_make_one_workspace(repo):
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(serve._ensure_workspace, [str(repo)] * 8))
+
+    assert [refusal for _, refusal in results] == [None] * 8
+    assert sum(created for created, _ in results) == 1
