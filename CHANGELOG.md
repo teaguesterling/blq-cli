@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Changed — an agent's first MCP call works, reads do not write, nothing hangs
+
+- MCP `exec`, `run` and `register_command` create a private `.bird/` at the git
+  toplevel when there is none. It ignores itself, so no tracked file changes.
+  The result says `workspace_created: true`. Outside a git repo the result is
+  `error: "no_workspace"`. Turn this off with `blq config mcp.auto_init false`.
+- A later `blq init` replaces the self-ignore with the tracked `.gitignore`
+  pattern.
+- MCP `run` and `exec` have a default timeout of 1800 s (`mcp.timeout`, 0 for
+  none). A command's own timeout wins. A timed-out call reports `TIMEOUT`.
+- MCP reads no longer rename `.lq/` to `.bird/`, and open the database
+  read-only. `status` still opens read-write to mark orphaned runs, and skips
+  that step while a parallel call is reading. A read that overlaps a write in
+  the same server process shares the writer's handle (`query` is the
+  exception, below).
+- MCP `query` now refuses non-read statements on all connection paths. It runs
+  in its own process, on a read-only and locked-down DuckDB engine. It has no
+  access to other files, loads no extensions and takes no `SET`. While a write
+  holds the database, `query` waits about 8 s and then asks you to try again.
+- More database opens retry on lock contention.
+
 ## v2.0.1
 
 ### Fixed — a bare call is answered again, from the server's own directory (#59)

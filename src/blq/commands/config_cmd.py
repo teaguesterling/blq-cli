@@ -105,6 +105,22 @@ CONFIG_SCHEMA: dict[str, dict[str, Any]] = {
         "key": "safe_mode",
         "description": "MCP server safe mode",
     },
+    "mcp.auto_init": {
+        "type": "bool",
+        "default": True,
+        "attr": "mcp_auto_init",
+        "section": "mcp",
+        "key": "auto_init",
+        "description": "MCP writes create a private .bird/ at the git toplevel",
+    },
+    "mcp.timeout": {
+        "type": "int",
+        "default": 1800,
+        "attr": "mcp_timeout",
+        "section": "mcp",
+        "key": "timeout",
+        "description": "MCP default run/exec timeout, seconds (0 = none)",
+    },
     "storage.auto_prune": {
         "type": "bool",
         "default": False,

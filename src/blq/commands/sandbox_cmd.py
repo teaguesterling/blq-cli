@@ -124,7 +124,7 @@ def cmd_sandbox_suggest(args: Any) -> None:
     from blq.bird import BirdStore
 
     try:
-        with BirdStore.open(config.lq_dir) as store:
+        with BirdStore.open_with_retry(config.lq_dir) as store:
             result = store._conn.execute(
                 """
                 SELECT
@@ -306,7 +306,7 @@ def cmd_sandbox_tighten(args: Any) -> None:
     from blq.bird import BirdStore
 
     try:
-        with BirdStore.open(config.lq_dir) as store:
+        with BirdStore.open_with_retry(config.lq_dir) as store:
             result = store._conn.execute(
                 """
                 SELECT

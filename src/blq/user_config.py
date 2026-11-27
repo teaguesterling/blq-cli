@@ -80,6 +80,8 @@ class UserConfig:
 
     # MCP preferences
     mcp_safe_mode: bool = False  # Default to safe mode
+    mcp_auto_init: bool = True  # Create a private .bird/ on first MCP run/exec/register
+    mcp_timeout: int = 1800  # Seconds, for MCP run/exec without their own; 0 = none
 
     # Storage preferences
     auto_prune: bool = False  # Enable automatic pruning
@@ -152,6 +154,8 @@ class UserConfig:
         show_summary = False
         keep_raw = False
         mcp_safe_mode = False
+        mcp_auto_init = True
+        mcp_timeout = 1800
         auto_prune = False
         prune_days = 30
         max_runs = 0
@@ -208,6 +212,10 @@ class UserConfig:
                 if isinstance(mcp_section, dict):
                     if "safe_mode" in mcp_section:
                         mcp_safe_mode = bool(mcp_section["safe_mode"])
+                    if "auto_init" in mcp_section:
+                        mcp_auto_init = bool(mcp_section["auto_init"])
+                    if "timeout" in mcp_section:
+                        mcp_timeout = int(mcp_section["timeout"])
 
                 # Parse [storage] section
                 storage_section = data.get("storage", {})
@@ -259,6 +267,8 @@ class UserConfig:
             show_summary=show_summary,
             keep_raw=keep_raw,
             mcp_safe_mode=mcp_safe_mode,
+            mcp_auto_init=mcp_auto_init,
+            mcp_timeout=mcp_timeout,
             auto_prune=auto_prune,
             prune_days=prune_days,
             max_runs=max_runs,
@@ -327,6 +337,10 @@ class UserConfig:
         mcp_section: dict[str, Any] = {}
         if self.mcp_safe_mode:
             mcp_section["safe_mode"] = self.mcp_safe_mode
+        if not self.mcp_auto_init:
+            mcp_section["auto_init"] = self.mcp_auto_init
+        if self.mcp_timeout != 1800:
+            mcp_section["timeout"] = self.mcp_timeout
         if mcp_section:
             data["mcp"] = mcp_section
 

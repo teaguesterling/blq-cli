@@ -34,6 +34,7 @@ import re as _re
 import shlex
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -64,6 +65,7 @@ from blq.commands.management import resolve_ref
 from blq.commands.query_cmd import parse_filter_expression
 from blq.commands.report_cmd import _collect_report_data, _generate_markdown_report
 from blq.output import format_context
+from blq.query_worker import run_query
 from blq.storage import BlqStorage
 
 # ============================================================================
@@ -325,11 +327,75 @@ def _find_config(*, root: str | None) -> BlqConfig | None:
     from blq.cli import BlqConfig
 
     if root is None:
-        return BlqConfig.find()
-    return BlqConfig.find(start_dir=Path(root))
+        return BlqConfig.find(migrate=False)
+    # Reads never rename a legacy .lq/; the write path (_ensure_workspace) does.
+    return BlqConfig.find(start_dir=Path(root), migrate=False)
 
 
-def _get_storage(*, root: str | None) -> BlqStorage:
+_workspace_lock = threading.Lock()
+
+
+def _ensure_workspace(root: str | None) -> tuple[bool, dict[str, str] | None]:
+    """Give a write call a workspace, before any child process starts.
+
+    Returns (created, refusal). A new workspace goes at the git toplevel, never
+    at `root` as given: `root` is often a parent of many repos, and the upward
+    search would then collect all of their runs in one place.
+    """
+    start = Path(root or ".").resolve()
+    if not start.is_dir():
+        return False, None  # the child reports a bad directory itself
+    try:
+        # Parallel first calls must not build the same workspace at once.
+        with _workspace_lock:
+            return _create_workspace_if_missing(start)
+    except Exception as e:
+        return False, {"error": "no_workspace", "hint": f"could not create a workspace: {e}"}
+
+
+def _create_workspace_if_missing(start: Path) -> tuple[bool, dict[str, str] | None]:
+    """The locked part of _ensure_workspace."""
+    from blq.cli import BlqConfig
+    from blq.user_config import UserConfig
+
+    if BlqConfig.find(start_dir=start) is not None:
+        return False, None
+    if not UserConfig.load().mcp_auto_init:
+        return False, {"error": "no_workspace", "hint": f"run `blq init` in {start}"}
+    git = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=start,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if git.returncode != 0 or not git.stdout.strip():
+        return False, {"error": "no_workspace", "hint": "pass cwd= a repo path"}
+
+    from blq.commands.init_cmd import create_private_workspace
+
+    create_private_workspace(Path(git.stdout.strip()))
+    return True, None
+
+
+def _refused_run(refusal: dict[str, str]) -> dict[str, Any]:
+    return {
+        "run_ref": None,
+        "status": "FAIL",
+        "exit_code": -1,
+        "summary": {"total_events": 0, "errors": 0, "warnings": 0},
+        **refusal,
+    }
+
+
+def _default_timeout() -> int | None:
+    """Timeout for a call that names none, so that nothing hangs forever."""
+    from blq.user_config import UserConfig
+
+    return UserConfig.load().mcp_timeout or None
+
+
+def _get_storage(*, root: str | None, read_only: bool = True) -> BlqStorage:
     """Open the workspace for this call.
 
     The lookup has to match the child CLI's. `blq exec` walks up from its own
@@ -340,11 +406,11 @@ def _get_storage(*, root: str | None) -> BlqStorage:
     """
     config = _find_config(root=root)
     if config is not None:
-        return BlqStorage.open(config.lq_dir)
+        return BlqStorage.open(config.lq_dir, read_only=read_only)
     if root is not None:
         # Not the server's cwd. Saying so beats answering about another project.
         raise RuntimeError(f"no .bird workspace at or above {root!r}; run `blq init` there")
-    return BlqStorage.open()
+    return BlqStorage.open(read_only=read_only)
 
 
 # ── Published result shapes ──────────────────────────────────────────
@@ -469,6 +535,8 @@ class RunResult(TypedDict, total=False):
     duration_sec: float
     output_stats: dict[str, Any]
     preview: list[str]
+    workspace_created: bool
+    hint: str  # with error="no_workspace"
 
 
 class ExecResult(TypedDict, total=False):
@@ -497,6 +565,7 @@ class ExecResult(TypedDict, total=False):
     base_command: str
     hint: str
     suggested_workflow: str
+    workspace_created: bool
 
 
 class CiCheckResult(TypedDict, total=False):
@@ -545,6 +614,8 @@ class CommandMutationResult(TypedDict, total=False):
     format_detected: bool
     run: dict[str, Any]
     sandbox: dict[str, Any]
+    workspace_created: bool
+    hint: str  # with error="no_workspace"
 
 
 def _get_suppressed_list(include_suppressed: bool = False, *, root: str | None) -> list[str] | None:
@@ -737,7 +808,26 @@ def _run_impl(
     *,
     root: str | None,
 ) -> dict[str, Any]:
-    """Implementation of run command (for registered commands).
+    """Implementation of run command (for registered commands)."""
+    created, refusal = _ensure_workspace(root)
+    if refusal is not None:
+        return _refused_run(refusal)
+    result = _run_child(command, args, extra, timeout, lines, root=root)
+    if created:
+        result["workspace_created"] = True
+    return result
+
+
+def _run_child(
+    command: str,
+    args: dict[str, str] | list[str] | None,
+    extra: list[str] | None,
+    timeout: int | None,
+    lines: str | None,
+    *,
+    root: str | None,
+) -> dict[str, Any]:
+    """Run a registered command in a child `blq run`.
 
     Args:
         command: Registered command name
@@ -749,6 +839,13 @@ def _run_impl(
     # Build command for blq run (registered commands only)
     # Use sys.executable to ensure we use the same Python/venv as the MCP server
     cmd_parts = [sys.executable, "-m", "blq", "run", "--json", "--quiet"]
+    if not timeout:
+        # The default is only for a command with no timeout of its own, because
+        # the CLI flag would override that one.
+        config = _find_config(root=root)
+        registered = config.commands.get(command) if config else None
+        if registered is None or not registered.timeout:
+            timeout = _default_timeout()
     if timeout:
         cmd_parts.extend(["--timeout", str(timeout)])
     cmd_parts.append(command)
@@ -832,7 +929,7 @@ def _run_impl(
                 "run_ref": None,
                 "status": "FAIL",
                 "exit_code": proc.returncode,
-                "error": f"'{command}' is not registered. Use the run tool with exec mode.",
+                "error": f"'{command}' is not registered. Use the exec tool to run it ad hoc.",
                 "summary": {"total_events": 0, "errors": 0, "warnings": 0},
             }
 
@@ -849,7 +946,7 @@ def _run_impl(
     except subprocess.TimeoutExpired:
         return {
             "run_ref": None,
-            "status": "FAIL",
+            "status": "TIMEOUT",
             "exit_code": -1,
             "error": f"Command timed out after {timeout} seconds",
             "summary": {"total_events": 0, "errors": 0, "warnings": 0},
@@ -964,6 +1061,26 @@ def _exec_impl(
         if pipe_error is not None:
             return pipe_error
 
+    created, refusal = _ensure_workspace(root)
+    if refusal is not None:
+        return _refused_run(refusal)
+    result = _exec_child(command, full_cmd, args, timeout, shell, lines, root=root)
+    if created:
+        result["workspace_created"] = True
+    return result
+
+
+def _exec_child(
+    command: str,
+    full_cmd: str,
+    args: list[str] | None,
+    timeout: int | None,
+    shell: bool,
+    lines: str | None,
+    *,
+    root: str | None,
+) -> dict[str, Any]:
+    """Run an ad-hoc command, or the registered command that it matches."""
     # Check if this matches a registered command (skip for shell mode)
     if not shell:
         match = _find_matching_registered_command(full_cmd, root=root)
@@ -984,6 +1101,7 @@ def _exec_impl(
     # No match - run as ad-hoc exec
     # Use sys.executable to ensure we use the same Python/venv as the MCP server
     cmd_parts = [sys.executable, "-m", "blq", "exec", "--json", "--quiet"]
+    timeout = timeout or _default_timeout()
     if timeout:
         cmd_parts.extend(["--timeout", str(timeout)])
 
@@ -1065,7 +1183,7 @@ def _exec_impl(
     except subprocess.TimeoutExpired:
         return {
             "run_ref": None,
-            "status": "FAIL",
+            "status": "TIMEOUT",
             "exit_code": -1,
             "error": f"Command timed out after {timeout} seconds",
             "summary": {"total_events": 0, "errors": 0, "warnings": 0},
@@ -1092,8 +1210,10 @@ def _query_impl(
         limit: Max rows to return
     """
     try:
-        store = _get_storage(root=root)
-        conn = store.connection
+        config = _find_config(root=root)
+        if config is None and root is not None:
+            raise RuntimeError(f"no .bird workspace at or above {root!r}; run `blq init` there")
+        lq_dir = config.lq_dir if config is not None else BlqStorage._find_lq_dir()
 
         # Build SQL from filter expressions if provided
         if filter and not sql:
@@ -1121,19 +1241,14 @@ def _query_impl(
                 "error": "Either sql or filter must be provided",
             }
 
-        # Add LIMIT if not present (basic safety)
-        sql_upper = sql.upper()
-        if "LIMIT" not in sql_upper:
-            sql = f"SELECT * FROM ({sql}) LIMIT {limit}"
-
-        result = conn.sql(sql)
-        columns = result.columns
-        rows = result.fetchall()
+        result = run_query(lq_dir, sql, limit)
+        if "error" in result:
+            return {"columns": [], "rows": [], "row_count": 0, "error": result["error"]}
 
         return {
-            "columns": columns,
-            "rows": [list(row) for row in rows],
-            "row_count": len(rows),
+            "columns": result["columns"],
+            "rows": result["rows"],
+            "row_count": len(result["rows"]),
         }
     except FileNotFoundError:
         return {"columns": [], "rows": [], "row_count": 0, "error": "No lq repository found"}
@@ -1838,14 +1953,23 @@ def _check_and_cleanup_orphans(storage: Any, min_age_seconds: float = 30.0) -> l
 
 def _status_impl(*, root: str | None) -> dict[str, Any]:
     """Implementation of status command."""
+    import duckdb
+
     try:
-        storage = _get_storage(root=root)
+        # Read-write, to mark runs of dead processes as orphaned. A read in
+        # another thread can block that; the cleanup then waits for a later call.
+        try:
+            storage = _get_storage(root=root, read_only=False)
+            writable = True
+        except duckdb.ConnectionException:
+            storage = _get_storage(root=root)
+            writable = False
         if not storage.has_data():
             return {"sources": []}
 
         # Check for orphaned processes (PIDs that are no longer running)
         # This runs automatically on status to keep the state clean
-        orphaned = _check_and_cleanup_orphans(storage)
+        orphaned = _check_and_cleanup_orphans(storage) if writable else []
         orphaned_count = len(orphaned)
 
         # Query status via service layer
@@ -2379,6 +2503,9 @@ def _register_command_impl(
                 "error": "Must provide either 'cmd' (simple command) or 'tpl' (template command).",
             }
 
+        created, refusal = _ensure_workspace(root)
+        if refusal is not None:
+            return {"success": False, **refusal}
         config = _find_config(root=root)
 
         if config is None:
@@ -2474,6 +2601,8 @@ def _register_command_impl(
             "format_detected": format_detected,
             "command": _command_to_dict(new_command),
         }
+        if created:
+            result["workspace_created"] = True
         if run_now:
             run_result = _run_impl(name, timeout=timeout, root=root)
             result["run"] = run_result
@@ -3103,7 +3232,7 @@ def info(
 
                         config = _find_config(root=root)
                         if config:
-                            bird_store = BirdStore.open(config.lq_dir)
+                            bird_store = BirdStore.open_with_retry(config.lq_dir, read_only=True)
                             try:
                                 content = bird_store.read_live_output(
                                     attempt_id, "combined", tail=tail
@@ -3638,7 +3767,9 @@ def _clean_impl(
             if db_path.exists():
                 import duckdb
 
-                conn = duckdb.connect(str(db_path))
+                from blq.bird import retry_on_lock
+
+                conn = retry_on_lock(lambda: duckdb.connect(str(db_path)))
                 conn.execute("DELETE FROM events")
                 conn.execute("DELETE FROM outputs")
                 conn.execute("DELETE FROM invocations")
@@ -3722,7 +3853,7 @@ def _clean_impl(
             # Recreate database with schema
             from blq.bird import BirdStore
 
-            store = BirdStore.open(lq_dir)
+            store = BirdStore.open_with_retry(lq_dir)
             store.close()
 
             return {

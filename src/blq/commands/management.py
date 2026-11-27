@@ -264,7 +264,7 @@ def _show_run_output(
         print("Error: No attempt ID found for this run", file=sys.stderr)
         sys.exit(1)
 
-    bird_store = BirdStore.open(config.lq_dir)
+    bird_store = BirdStore.open_with_retry(config.lq_dir)
 
     try:
         if run_status == "pending":
@@ -642,7 +642,7 @@ def cmd_output(args: argparse.Namespace) -> None:
             print("Error: No attempt ID found for this run", file=sys.stderr)
             sys.exit(1)
 
-        bird_store = BirdStore.open(config.lq_dir)
+        bird_store = BirdStore.open_with_retry(config.lq_dir)
 
         try:
             if debug_formats:

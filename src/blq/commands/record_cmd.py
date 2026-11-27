@@ -85,7 +85,7 @@ def cmd_record_attempt(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    store = BirdStore.open(config.lq_dir)
+    store = BirdStore.open_with_retry(config.lq_dir)
 
     command = args.command
     tag = getattr(args, "tag", None) or _extract_tag_from_command(command)
@@ -177,7 +177,7 @@ def cmd_record_outcome(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    store = BirdStore.open(config.lq_dir)
+    store = BirdStore.open_with_retry(config.lq_dir)
 
     attempt_id = getattr(args, "attempt", None)
     command = getattr(args, "command", None)

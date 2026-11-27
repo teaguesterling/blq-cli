@@ -101,11 +101,12 @@ class BlqStorage:
         self._conn = store.connection
 
     @classmethod
-    def open(cls, lq_dir: Path | str | None = None) -> BlqStorage:
+    def open(cls, lq_dir: Path | str | None = None, read_only: bool = False) -> BlqStorage:
         """Open a BlqStorage.
 
         Args:
             lq_dir: Path to .bird directory. If None, searches from cwd.
+            read_only: Open so that the caller cannot write
 
         Returns:
             BlqStorage instance
@@ -121,7 +122,7 @@ class BlqStorage:
         if not lq_dir.exists():
             raise FileNotFoundError(f".bird directory not found: {lq_dir}")
 
-        store = BirdStore.open(lq_dir)
+        store = BirdStore.open_with_retry(lq_dir, read_only=read_only)
         return cls(lq_dir, store)
 
     @staticmethod

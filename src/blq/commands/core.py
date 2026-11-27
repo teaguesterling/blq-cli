@@ -462,7 +462,7 @@ def _extract_provider_from_host(host: str) -> str:
         return host.replace(".", "_").replace(":", "_")
 
 
-def detect_project_info() -> ProjectInfo:
+def detect_project_info(cwd: Path | None = None) -> ProjectInfo:
     """Detect project namespace and name from git remote or filesystem path.
 
     Detection order:
@@ -488,6 +488,7 @@ def detect_project_info() -> ProjectInfo:
     try:
         result = subprocess.run(
             ["git", "remote", "get-url", "origin"],
+            cwd=cwd,
             capture_output=True,
             text=True,
             timeout=5,
@@ -531,7 +532,7 @@ def detect_project_info() -> ProjectInfo:
         pass
 
     # Fallback to filesystem path
-    cwd = Path.cwd()
+    cwd = cwd or Path.cwd()
     project = cwd.name
     # Tokenize parent path: /home/teague/Projects → local__home__teague__Projects
     parent = str(cwd.parent).lstrip("/")
@@ -809,14 +810,15 @@ class BlqConfig:
                 self._storage_config = {}
 
     @classmethod
-    def find(cls, start_dir: Path | None = None) -> BlqConfig | None:
+    def find(cls, start_dir: Path | None = None, migrate: bool = True) -> BlqConfig | None:
         """Find .bird directory in start_dir or parents and load config.
 
         Searches for .bird/ first. If not found but .lq/ exists,
-        auto-migrates by renaming .lq/ to .bird/.
+        auto-migrates by renaming .lq/ to .bird/ (unless migrate is False).
 
         Args:
             start_dir: Directory to start searching from (default: cwd)
+            migrate: False for reads, which use a legacy .lq/ in place
 
         Returns:
             BlqConfig if found, None otherwise.
@@ -833,6 +835,8 @@ class BlqConfig:
             # Auto-migrate from legacy .lq/ to .bird/
             legacy_path = p / LEGACY_DIR
             if legacy_path.exists() and legacy_path.is_dir():
+                if not migrate:
+                    return cls.load(legacy_path)
                 try:
                     legacy_path.rename(bird_path)
                     logger.info(f"Migrated {legacy_path} → {bird_path}")
