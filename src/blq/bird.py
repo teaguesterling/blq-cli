@@ -405,11 +405,11 @@ class BirdStore:
                 conn = duckdb.connect()
                 cls._ensure_schema(conn, lq_dir)
                 return cls(lq_dir, conn)
-            conn = duckdb.connect(str(db_path), read_only=True)
+            conn = cls._connect_read_only(db_path)
             if not cls._schema_is_current(conn):
                 conn.close()
                 cls.open(lq_dir).close()
-                conn = duckdb.connect(str(db_path), read_only=True)
+                conn = cls._connect_read_only(db_path)
             return cls(lq_dir, conn)
 
         # Open database
@@ -449,6 +449,20 @@ class BirdStore:
             max_retries=max_retries,
             initial_delay=initial_delay,
         )
+
+    @staticmethod
+    def _connect_read_only(db_path: Path) -> duckdb.DuckDBPyConnection:
+        """Open read-only, or join a read-write handle that this process holds.
+
+        DuckDB refuses to mix the two on one file within a process, and the MCP
+        server answers calls in parallel threads.
+        """
+        try:
+            return duckdb.connect(str(db_path), read_only=True)
+        except duckdb.ConnectionException as e:
+            if "different configuration" not in str(e):
+                raise
+            return duckdb.connect(str(db_path))
 
     @classmethod
     def _schema_is_current(cls, conn: duckdb.DuckDBPyConnection) -> bool:

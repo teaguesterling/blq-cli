@@ -13,7 +13,9 @@
 - MCP `run` and `exec` have a default timeout of 1800 s (`mcp.timeout`, 0 for
   none). A command's own timeout wins. A timed-out call reports `TIMEOUT`.
 - MCP reads no longer rename `.lq/` to `.bird/`, and open the database
-  read-only. `status` still opens read-write to mark orphaned runs.
+  read-only. `status` still opens read-write to mark orphaned runs, and skips
+  that step while a parallel call is reading. A read that overlaps a write in
+  the same server process shares the writer's handle.
 - More database opens retry on lock contention.
 
 ## v2.0.1

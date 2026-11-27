@@ -34,6 +34,7 @@ import re as _re
 import shlex
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -330,6 +331,9 @@ def _find_config(*, root: str | None) -> BlqConfig | None:
     return BlqConfig.find(start_dir=Path(root), migrate=False)
 
 
+_workspace_lock = threading.Lock()
+
+
 def _ensure_workspace(root: str | None) -> tuple[bool, dict[str, str] | None]:
     """Give a write call a workspace, before any child process starts.
 
@@ -337,32 +341,39 @@ def _ensure_workspace(root: str | None) -> tuple[bool, dict[str, str] | None]:
     at `root` as given: `root` is often a parent of many repos, and the upward
     search would then collect all of their runs in one place.
     """
-    from blq.cli import BlqConfig
-    from blq.user_config import UserConfig
-
     start = Path(root or ".").resolve()
     if not start.is_dir():
         return False, None  # the child reports a bad directory itself
     try:
-        if BlqConfig.find(start_dir=start) is not None:
-            return False, None
-        if not UserConfig.load().mcp_auto_init:
-            return False, {"error": "no_workspace", "hint": f"run `blq init` in {start}"}
-        git = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=start,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if git.returncode != 0 or not git.stdout.strip():
-            return False, {"error": "no_workspace", "hint": "pass cwd= a repo path"}
-
-        from blq.commands.init_cmd import create_private_workspace
-
-        create_private_workspace(Path(git.stdout.strip()))
+        # Parallel first calls must not build the same workspace at once.
+        with _workspace_lock:
+            return _create_workspace_if_missing(start)
     except Exception as e:
         return False, {"error": "no_workspace", "hint": f"could not create a workspace: {e}"}
+
+
+def _create_workspace_if_missing(start: Path) -> tuple[bool, dict[str, str] | None]:
+    """The locked part of _ensure_workspace."""
+    from blq.cli import BlqConfig
+    from blq.user_config import UserConfig
+
+    if BlqConfig.find(start_dir=start) is not None:
+        return False, None
+    if not UserConfig.load().mcp_auto_init:
+        return False, {"error": "no_workspace", "hint": f"run `blq init` in {start}"}
+    git = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=start,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if git.returncode != 0 or not git.stdout.strip():
+        return False, {"error": "no_workspace", "hint": "pass cwd= a repo path"}
+
+    from blq.commands.init_cmd import create_private_workspace
+
+    create_private_workspace(Path(git.stdout.strip()))
     return True, None
 
 
@@ -1944,15 +1955,23 @@ def _check_and_cleanup_orphans(storage: Any, min_age_seconds: float = 30.0) -> l
 
 def _status_impl(*, root: str | None) -> dict[str, Any]:
     """Implementation of status command."""
+    import duckdb
+
     try:
-        # Read-write: status also marks runs of dead processes as orphaned.
-        storage = _get_storage(root=root, read_only=False)
+        # Read-write, to mark runs of dead processes as orphaned. A read in
+        # another thread can block that; the cleanup then waits for a later call.
+        try:
+            storage = _get_storage(root=root, read_only=False)
+            writable = True
+        except duckdb.ConnectionException:
+            storage = _get_storage(root=root)
+            writable = False
         if not storage.has_data():
             return {"sources": []}
 
         # Check for orphaned processes (PIDs that are no longer running)
         # This runs automatically on status to keep the state clean
-        orphaned = _check_and_cleanup_orphans(storage)
+        orphaned = _check_and_cleanup_orphans(storage) if writable else []
         orphaned_count = len(orphaned)
 
         # Query status via service layer
@@ -3750,7 +3769,9 @@ def _clean_impl(
             if db_path.exists():
                 import duckdb
 
-                conn = duckdb.connect(str(db_path))
+                from blq.bird import retry_on_lock
+
+                conn = retry_on_lock(lambda: duckdb.connect(str(db_path)))
                 conn.execute("DELETE FROM events")
                 conn.execute("DELETE FROM outputs")
                 conn.execute("DELETE FROM invocations")
