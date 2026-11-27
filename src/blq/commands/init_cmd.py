@@ -40,6 +40,7 @@ MCP_CONFIG_FILE = ".mcp.json"
 GITIGNORE_FILE = ".gitignore"
 GITIGNORE_ENTRY = ".bird/"  # Single-line entry
 LEGACY_GITIGNORE_ENTRY = ".lq/"  # Legacy single-line entry
+PRIVATE_GITIGNORE = "*\n"  # .bird/.gitignore of an auto-created workspace
 
 # New multi-line gitignore pattern that tracks hooks and config
 GITIGNORE_PATTERN = """# blq
@@ -721,6 +722,26 @@ def _ensure_commands_file(lq_dir: Path, verbose: bool = False) -> None:
             print(f"  Created {COMMANDS_FILE}")
 
 
+def create_private_workspace(repo: Path) -> None:
+    """Create a self-ignoring .bird/ in `repo`, touching nothing outside it.
+
+    For the MCP server: unlike `blq init` it edits no tracked file, installs no
+    extension, and prints nothing (stdout carries the protocol).
+    """
+    lq_dir = repo / LQ_DIR
+    lq_dir.mkdir(exist_ok=True)
+    # First, so that even a half-made workspace stays out of `git status`.
+    (lq_dir / GITIGNORE_FILE).write_text(PRIVATE_GITIGNORE)
+    (lq_dir / LOGS_DIR).mkdir(exist_ok=True)
+    (lq_dir / RAW_DIR).mkdir(exist_ok=True)
+    schema = resources.files("blq").joinpath("bird_schema.sql").read_text()
+    (lq_dir / SCHEMA_FILE).write_text(schema)
+    BirdStore.open_with_retry(lq_dir).close()
+    info = detect_project_info(repo)
+    BlqConfig(lq_dir=lq_dir, namespace=info.namespace, project=info.project).save()
+    _ensure_commands_file(lq_dir)
+
+
 def _split_sql_statements(sql: str) -> list[str]:
     """Split SQL into individual statements, handling comments and semicolons.
 
@@ -951,6 +972,13 @@ def cmd_init(args: argparse.Namespace) -> None:
 
         # Always ensure commands.toml exists
         _ensure_commands_file(lq_dir)
+
+        # An auto-created workspace ignores itself. An explicit init replaces
+        # that with the tracked pattern, unless gitignore edits are turned off.
+        private = lq_dir / GITIGNORE_FILE
+        if add_gitignore and private.is_file() and private.read_text() == PRIVATE_GITIGNORE:
+            _add_to_gitignore(cwd)
+            private.unlink()
 
         # Still try to install extensions if they're missing
         _install_extensions()

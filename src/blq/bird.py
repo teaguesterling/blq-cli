@@ -72,7 +72,13 @@ def _is_lock_error(error: Exception) -> bool:
     error_str = str(error).lower()
     return any(
         phrase in error_str
-        for phrase in ["database is locked", "could not set lock", "lock timeout"]
+        for phrase in [
+            "database is locked",
+            "could not set lock",
+            "lock timeout",
+            # One process with a read-only and a read-write open at once
+            "different configuration than existing connections",
+        ]
     )
 
 
@@ -380,17 +386,31 @@ class BirdStore:
         self._inline_threshold = max(0, value)
 
     @classmethod
-    def open(cls, lq_dir: Path | str) -> BirdStore:
+    def open(cls, lq_dir: Path | str, read_only: bool = False) -> BirdStore:
         """Open or create a BirdStore.
 
         Args:
             lq_dir: Path to .bird directory
+            read_only: Open so that the caller cannot write. A workspace with no
+                database reads as empty; one with an old schema is upgraded first.
 
         Returns:
             BirdStore instance
         """
         lq_dir = Path(lq_dir)
         db_path = lq_dir / "blq.duckdb"
+
+        if read_only:
+            if not db_path.exists():
+                conn = duckdb.connect()
+                cls._ensure_schema(conn, lq_dir)
+                return cls(lq_dir, conn)
+            conn = duckdb.connect(str(db_path), read_only=True)
+            if not cls._schema_is_current(conn):
+                conn.close()
+                cls.open(lq_dir).close()
+                conn = duckdb.connect(str(db_path), read_only=True)
+            return cls(lq_dir, conn)
 
         # Open database
         conn = duckdb.connect(str(db_path))
@@ -406,6 +426,7 @@ class BirdStore:
         lq_dir: Path | str,
         max_retries: int = DEFAULT_MAX_RETRIES,
         initial_delay: float = DEFAULT_INITIAL_DELAY,
+        read_only: bool = False,
     ) -> BirdStore:
         """Open or create a BirdStore with retry on lock contention.
 
@@ -424,10 +445,21 @@ class BirdStore:
             duckdb.Error: If all retries fail
         """
         return retry_on_lock(
-            lambda: cls.open(lq_dir),
+            lambda: cls.open(lq_dir, read_only=read_only),
             max_retries=max_retries,
             initial_delay=initial_delay,
         )
+
+    @classmethod
+    def _schema_is_current(cls, conn: duckdb.DuckDBPyConnection) -> bool:
+        """True if the database needs no schema creation, migration or repair."""
+        try:
+            row = conn.execute(
+                "SELECT value FROM blq_metadata WHERE key = 'schema_version'"
+            ).fetchone()
+        except duckdb.CatalogException:
+            return False
+        return row is not None and not cls._needs_repair(conn, row[0])
 
     @classmethod
     def _ensure_schema(
@@ -1749,7 +1781,7 @@ def write_bird_invocation(
     Returns:
         Tuple of (invocation_id, db_path)
     """
-    with BirdStore.open(lq_dir) as store:
+    with BirdStore.open_with_retry(lq_dir) as store:
         # Determine session and client IDs
         source_name = run_meta.get("source_name", "unknown")
         source_type = run_meta.get("source_type", "run")

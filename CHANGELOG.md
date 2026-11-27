@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Changed — an agent's first MCP call works, reads do not write, nothing hangs
+
+- MCP `exec`, `run` and `register_command` create a private `.bird/` at the git
+  toplevel when there is none. It ignores itself, so no tracked file changes.
+  The result says `workspace_created: true`. Outside a git repo the result is
+  `error: "no_workspace"`. Turn this off with `blq config mcp.auto_init false`.
+- A later `blq init` replaces the self-ignore with the tracked `.gitignore`
+  pattern.
+- MCP `run` and `exec` have a default timeout of 1800 s (`mcp.timeout`, 0 for
+  none). A command's own timeout wins. A timed-out call reports `TIMEOUT`.
+- MCP reads no longer rename `.lq/` to `.bird/`, and open the database
+  read-only. `status` still opens read-write to mark orphaned runs.
+- More database opens retry on lock contention.
+
 ## v2.0.1
 
 ### Fixed — a bare call is answered again, from the server's own directory (#59)

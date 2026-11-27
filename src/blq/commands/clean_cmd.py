@@ -173,7 +173,7 @@ def _clean_orphans(lq_dir: Path, min_age: int, dry_run: bool) -> None:
     """
     from blq.bird import BirdStore
 
-    store = BirdStore.open(lq_dir)
+    store = BirdStore.open_with_retry(lq_dir)
 
     # Find stale pending attempts
     stale = store.get_stale_pending_attempts(min_age_seconds=float(min_age))
@@ -233,7 +233,7 @@ def _clean_schema(lq_dir: Path, confirm: bool) -> None:
     # Recreate database with schema
     from blq.bird import BirdStore
 
-    store = BirdStore.open(lq_dir)
+    store = BirdStore.open_with_retry(lq_dir)
     store.close()
 
     print("Recreated database schema. Config files preserved.")

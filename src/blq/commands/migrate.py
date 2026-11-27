@@ -97,7 +97,7 @@ def _migrate_parquet_to_bird(
     (lq_dir / "blobs" / "content").mkdir(parents=True, exist_ok=True)
 
     # Ensure BIRD schema exists
-    store = BirdStore.open(lq_dir)
+    store = BirdStore.open_with_retry(lq_dir)
 
     invocations_migrated = 0
     events_migrated = 0
