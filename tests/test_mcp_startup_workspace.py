@@ -1,7 +1,9 @@
 """An agent's first exec must work, reads must not write, and nothing hangs forever."""
 
 import subprocess
+import sys
 
+import duckdb
 import pytest
 
 from blq import serve
@@ -108,3 +110,25 @@ def test_command_timeout_beats_the_default(repo, short_default):
     )
 
     assert serve._run_impl("slow", root=str(repo))["status"] == "OK"
+
+
+def test_later_init_converts_the_self_ignore_to_the_tracked_pattern(repo):
+    serve._exec_impl("echo hello", root=str(repo))
+    assert (repo / ".bird" / ".gitignore").read_text() == "*\n"
+    subprocess.run(
+        [sys.executable, "-m", "blq", "init", "--no-mcp"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+
+    assert not (repo / ".bird" / ".gitignore").exists()
+    assert "!.bird/commands.toml" in (repo / ".gitignore").read_text()
+
+
+def test_read_storage_cannot_write(repo):
+    serve._exec_impl("echo hello", root=str(repo))
+    storage = serve._get_storage(root=str(repo))
+
+    with pytest.raises(duckdb.Error, match="read-only"):
+        storage.sql("CREATE TABLE written_by_a_read (x INT)")
